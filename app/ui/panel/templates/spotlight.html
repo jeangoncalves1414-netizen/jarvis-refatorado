@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jarvis Spotlight</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: transparent !important;
+      overflow: hidden;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+    .spotlight-container {
+      background: rgba(10, 10, 16, 0.92);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      border-radius: 14px;
+      box-shadow: 0 12px 50px rgba(0, 0, 0, 0.65);
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      width: 100vw;
+      height: 100vh;
+      gap: 10px;
+    }
+    .orb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: #4ade80;
+      box-shadow: 0 0 10px #4ade80;
+      animation: pulse 2.5s infinite;
+      cursor: default;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .orb.thinking {
+      background: #60a5fa;
+      box-shadow: 0 0 14px #60a5fa;
+      animation: spin 1s linear infinite;
+    }
+    .orb.vision {
+      background: #f472b6;
+      box-shadow: 0 0 14px #f472b6;
+      animation: pulse-vision 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 8px #4ade80; }
+      50% { box-shadow: 0 0 18px #4ade80; }
+    }
+    @keyframes pulse-vision {
+      0%, 100% { box-shadow: 0 0 8px #f472b6; }
+      50% { box-shadow: 0 0 20px #f472b6; }
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .vision-badge {
+      display: none;
+      align-items: center;
+      gap: 5px;
+      background: rgba(244, 114, 182, 0.16);
+      border: 1px solid rgba(244, 114, 182, 0.35);
+      border-radius: 6px;
+      color: #f472b6;
+      font-size: 11px;
+      padding: 3px 8px 3px 8px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .vision-badge.active {
+      display: flex;
+    }
+    .vision-badge .detach-btn {
+      cursor: pointer;
+      color: rgba(244, 114, 182, 0.7);
+      font-size: 13px;
+      line-height: 1;
+      margin-left: 2px;
+      transition: color 0.15s;
+    }
+    .vision-badge .detach-btn:hover {
+      color: #f472b6;
+    }
+
+    input {
+      background: transparent;
+      border: none;
+      color: #fff;
+      font-size: 22px;
+      outline: none;
+      width: 100%;
+      min-width: 0;
+    }
+    input::placeholder {
+      color: rgba(255, 255, 255, 0.32);
+    }
+
+    /* Botão de fechar (X) */
+    .close-btn {
+      flex-shrink: 0;
+      cursor: pointer;
+      color: rgba(255, 255, 255, 0.35);
+      font-size: 18px;
+      line-height: 1;
+      padding: 4px;
+      border-radius: 4px;
+      transition: color 0.15s, background 0.15s;
+    }
+    .close-btn:hover {
+      color: rgba(255,255,255,0.8);
+      background: rgba(255,255,255,0.08);
+    }
+  </style>
+</head>
+<body>
+  <div class="spotlight-container pywebview-drag-region">
+    <div id="orb" class="orb"></div>
+    <span id="visionBadge" class="vision-badge">
+      📸 Tela capturada
+      <span class="detach-btn" id="detachBtn" title="Remover imagem">✕</span>
+    </span>
+    <input type="text" id="cmd" placeholder="Comando para Jarvis..." autocomplete="off" autofocus>
+    <div class="close-btn" id="closeBtn" title="Fechar (Esc)">✕</div>
+  </div>
+
+  <script>
+    const input = document.getElementById('cmd');
+    const orb = document.getElementById('orb');
+    const visionBadge = document.getElementById('visionBadge');
+    const detachBtn = document.getElementById('detachBtn');
+    const closeBtn = document.getElementById('closeBtn');
+
+    let capturedImageBase64 = null;
+    let visionMode = false;
+
+    // ─── WebSocket ───────────────────────────────────────────────
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = window.location.hostname || '127.0.0.1';
+    const httpPort = parseInt(window.location.port || '8000', 10);
+    const wsPort = httpPort > 0 ? httpPort + 1 : 8001;
+    const wsUrl = `${protocol}//${wsHost}:${wsPort}/ws/chat`;
+    let chatSocket = null;
+    let _wsRetryDelay = 3000;
+
+    function connectWS() {
+      if (chatSocket && chatSocket.readyState <= 1) return;
+      chatSocket = new WebSocket(wsUrl);
+      chatSocket.onopen = () => {
+        _wsRetryDelay = 3000;
+      };
+      chatSocket.onmessage = (event) => {
+        try {
+          const j = JSON.parse(event.data);
+          if (j.type === 'status' && j.status === 'thinking') {
+            orb.className = visionMode ? 'orb vision' : 'orb thinking';
+          } else if (j.type === 'complete' || j.type === 'error') {
+            setTimeout(() => hideAndReset(), 400);
+          }
+        } catch(e) {}
+      };
+      chatSocket.onclose = () => {
+        setTimeout(connectWS, _wsRetryDelay);
+        _wsRetryDelay = Math.min(_wsRetryDelay * 2, 30000);
+      };
+      chatSocket.onerror = () => {};
+    }
+    connectWS();
+
+    // ─── Fechar / Resetar ─────────────────────────────────────────
+    function hideAndReset() {
+      resetVision();
+      input.value = '';
+      orb.className = 'orb';
+      if (window.pywebview && window.pywebview.api) {
+        window.pywebview.api.hideSpotlight();
+      }
+    }
+
+    function resetVision() {
+      capturedImageBase64 = null;
+      visionMode = false;
+      visionBadge.classList.remove('active');
+      orb.className = 'orb';
+      input.placeholder = 'Comando para Jarvis...';
+    }
+
+    // ─── Botão X (fechar) ─────────────────────────────────────────
+    closeBtn.addEventListener('click', hideAndReset);
+
+    // ─── Botão ✕ no badge (desanexar imagem) ──────────────────────
+    detachBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      resetVision();
+      input.focus();
+    });
+
+    // ─── Alt+V → Modo Visão ───────────────────────────────────────
+    window.triggerVisionMode = async function() {
+      if (!window.pywebview || !window.pywebview.api) return;
+      orb.className = 'orb vision';
+      input.placeholder = 'Pergunte sobre a tela...';
+      visionBadge.querySelector('span:first-child') 
+      visionBadge.classList.add('active');
+      // Mostrar "Capturando..." enquanto processa
+      const textNode = visionBadge.childNodes[0];
+      if (textNode) textNode.textContent = '📸 Capturando... ';
+
+      try {
+        const result = await window.pywebview.api.captureVision();
+        if (result && result.ok) {
+          capturedImageBase64 = result.image;
+          visionMode = true;
+          if (textNode) textNode.textContent = '📸 Tela capturada ';
+        } else {
+          if (textNode) textNode.textContent = '⚠️ Erro na captura ';
+          orb.className = 'orb';
+          setTimeout(resetVision, 2000);
+        }
+      } catch(e) {
+        if (textNode) textNode.textContent = '⚠️ Sem visão ';
+        orb.className = 'orb';
+        setTimeout(resetVision, 2000);
+      }
+      input.focus();
+    };
+
+    // ─── Enter / Escape ───────────────────────────────────────────
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && input.value.trim() !== '') {
+        orb.className = visionMode ? 'orb vision' : 'orb thinking';
+
+        const payload = {
+          message: input.value,
+          session_id: 'spotlight_session',
+          mode: 'silent'
+        };
+        if (visionMode && capturedImageBase64) {
+          payload.image_b64 = capturedImageBase64;
+          payload.vision_mode = true;
+        }
+
+        if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+          chatSocket.send(JSON.stringify(payload));
+        }
+        input.value = '';
+      }
+
+      if (e.key === 'Escape') {
+        hideAndReset();
+      }
+    });
+
+    window.addEventListener('pywebviewready', () => input.focus());
+  </script>
+</body>
+</html>

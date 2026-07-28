@@ -16,7 +16,7 @@ class MemoryStore:
         if self.storage_path.exists():
             try:
                 self._data = json.loads(self.storage_path.read_text(encoding="utf-8"))
-            except Exception:
+            except (json.JSONDecodeError, OSError):
                 self._data = {"preferences": [], "facts": [], "sessions": []}
 
     def _save(self) -> None:

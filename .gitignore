@@ -4,3 +4,12 @@ __pycache__/
 *.zip
 .vscode/
 .DS_Store
+.env
+.env.*
+!.env.example
+*.log
+data/
+scratch/
+graphify-out/
+check_html_full_output.txt
+startup_error.txt

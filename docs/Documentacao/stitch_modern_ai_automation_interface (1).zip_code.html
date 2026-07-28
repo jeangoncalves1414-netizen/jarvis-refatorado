@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Aura Assist - Automation Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&amp;family=Geist:wght@400&amp;family=JetBrains+Mono:wght@500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "secondary": "#dfb7ff",
+                      "on-error": "#690005",
+                      "primary": "#baf2ff",
+                      "tertiary-fixed": "#e2e2e2",
+                      "on-tertiary-fixed": "#1b1b1b",
+                      "on-tertiary-container": "#565656",
+                      "outline-variant": "#3b494c",
+                      "primary-fixed-dim": "#00daf8",
+                      "inverse-on-surface": "#313030",
+                      "error-container": "#93000a",
+                      "surface-bright": "#393939",
+                      "error": "#ffb4ab",
+                      "surface-container-high": "#2a2a2a",
+                      "inverse-primary": "#006877",
+                      "surface": "#131313",
+                      "inverse-surface": "#e5e2e1",
+                      "primary-container": "#00e0ff",
+                      "surface-container-lowest": "#0e0e0e",
+                      "secondary-fixed-dim": "#dfb7ff",
+                      "on-primary-fixed-variant": "#004e5a",
+                      "surface-container-low": "#1c1b1b",
+                      "on-error-container": "#ffdad6",
+                      "surface-tint": "#00daf8",
+                      "tertiary-container": "#cccccc",
+                      "outline": "#859397",
+                      "surface-dim": "#131313",
+                      "on-secondary-fixed": "#2d004f",
+                      "secondary-container": "#9d05ff",
+                      "on-tertiary": "#303030",
+                      "on-secondary-container": "#f7e6ff",
+                      "on-primary-container": "#005f6d",
+                      "on-surface": "#e5e2e1",
+                      "tertiary": "#e8e8e8",
+                      "secondary-fixed": "#f1daff",
+                      "surface-container-highest": "#353534",
+                      "on-surface-variant": "#bac9cd",
+                      "surface-variant": "#353534",
+                      "tertiary-fixed-dim": "#c6c6c6",
+                      "on-tertiary-fixed-variant": "#474747",
+                      "surface-container": "#201f1f",
+                      "on-secondary": "#4b007e",
+                      "on-primary": "#00363f",
+                      "on-secondary-fixed-variant": "#6b00b0",
+                      "on-background": "#e5e2e1",
+                      "primary-fixed": "#a5eeff",
+                      "background": "#131313",
+                      "on-primary-fixed": "#001f25"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "container-padding-desktop": "64px",
+                      "card-padding-internal": "32px",
+                      "gutter-desktop": "32px",
+                      "gutter-mobile": "16px",
+                      "container-padding-mobile": "24px",
+                      "unit": "8px",
+                      "stack-gap": "24px"
+              },
+              "fontFamily": {
+                      "headline-md": [
+                              "Sora"
+                      ],
+                      "label-sm": [
+                              "JetBrains Mono"
+                      ],
+                      "body-lg": [
+                              "Geist"
+                      ],
+                      "headline-lg-mobile": [
+                              "Sora"
+                      ],
+                      "body-md": [
+                              "Geist"
+                      ],
+                      "label-md": [
+                              "JetBrains Mono"
+                      ],
+                      "body-sm": [
+                              "Geist"
+                      ],
+                      "headline-xl": [
+                              "Sora"
+                      ],
+                      "headline-lg": [
+                              "Sora"
+                      ]
+              },
+              "fontSize": {
+                      "headline-md": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "label-sm": [
+                              "10px",
+                              {
+                                      "lineHeight": "14px",
+                                      "letterSpacing": "0.08em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-lg-mobile": [
+                              "28px",
+                              {
+                                      "lineHeight": "36px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "label-md": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "body-sm": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-xl": [
+                              "48px",
+                              {
+                                      "lineHeight": "56px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "headline-lg": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ]
+              }
+            },
+          },
+        }
+    </script>
+<style>
+        .glowing-text {
+            text-shadow: 0 0 15px rgba(0, 218, 248, 0.4);
+        }
+        .glowing-text-secondary {
+            text-shadow: 0 0 15px rgba(223, 183, 255, 0.4);
+        }
+        .matrix-bg {
+            background: radial-gradient(circle at center, rgba(0, 218, 248, 0.05) 0%, transparent 70%);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md text-body-md h-screen flex overflow-hidden selection:bg-primary selection:text-on-primary">
+<!-- SideNavBar (Desktop) -->
+<nav class="hidden md:flex flex-col w-64 h-screen fixed left-0 top-0 py-8 z-40 bg-surface-container-lowest border-r border-white/10 shadow-2xl shadow-black transition-transform duration-200">
+<div class="px-6 mb-12 flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-surface-container-high border border-white/10 overflow-hidden flex-shrink-0">
+<img alt="Assistant Avatar" class="w-full h-full object-cover" data-alt="A highly detailed, sleek futuristic 3D avatar headshot of an AI assistant. The avatar features smooth metallic dark gray surfaces with glowing electric blue circuitry lines. Set against a pure black background with high-contrast, moody rim lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAEFmoOT78XSLiBKi78nN5kSjzhetVKayBcQe4_aAtFBFGUyq6KP6Ra4refNFh0Lg13xoJcVfs_DP7esiRoNd1FaxXhY-_iEzzqIuMJ-Rd6-umWq8PZGXGXHM4N3PpvSXgIQeZbhN8urF-C7r-AQvtjxsvvelq1KZPO8UbiGpVcrNWck8XgMAcESLR52wyqP6QfrogrlpRu6TXz8WyIkNSb77kMZuDprRICF4nHOtgagny2I-5Z_JsnL1Q7lk_H2GE8Bvpa3nuNXJI"/>
+</div>
+<div>
+<h1 class="text-headline-md font-headline-md font-bold text-primary-fixed-dim tracking-tight">Aura Core</h1>
+<p class="text-label-sm font-label-sm text-secondary-fixed-dim uppercase tracking-wider mt-1">Automation Active</p>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto px-4 flex flex-col gap-2">
+<a class="text-primary-fixed-dim font-bold border-r-2 border-primary-fixed-dim pr-4 bg-white/5 flex items-center gap-3 px-4 py-3 rounded-l-lg hover:bg-white/5 transition-all" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span class="text-label-md font-label-md uppercase tracking-wider">Dashboard</span>
+</a>
+<a class="text-on-surface-variant flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/5 hover:text-secondary-fixed-dim hover:translate-x-1 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">bolt</span>
+<span class="text-label-md font-label-md uppercase tracking-wider">Automations</span>
+</a>
+<a class="text-on-surface-variant flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/5 hover:text-secondary-fixed-dim hover:translate-x-1 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">chat_bubble</span>
+<span class="text-label-md font-label-md uppercase tracking-wider">Chat</span>
+</a>
+<a class="text-on-surface-variant flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/5 hover:text-secondary-fixed-dim hover:translate-x-1 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">calendar_today</span>
+<span class="text-label-md font-label-md uppercase tracking-wider">Calendar</span>
+</a>
+<a class="text-on-surface-variant flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/5 hover:text-secondary-fixed-dim hover:translate-x-1 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="text-label-md font-label-md uppercase tracking-wider">Analytics</span>
+</a>
+</div>
+<div class="px-6 mt-auto">
+<button class="w-full py-3 mb-6 bg-gradient-to-r from-surface-container-highest to-surface border border-primary/30 text-white font-label-md text-label-md uppercase tracking-wider rounded-lg shadow-[0_0_15px_rgba(0,218,248,0.15)] hover:shadow-[0_0_20px_rgba(0,218,248,0.3)] hover:border-primary transition-all duration-300 flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[18px]">add</span>
+                New Task
+            </button>
+<div class="flex flex-col gap-2">
+<a class="text-on-surface-variant flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-white/5 hover:text-secondary-fixed-dim transition-all text-label-md font-label-md uppercase tracking-wider" href="#">
+<span class="material-symbols-outlined text-[18px]">help</span>
+                    Help
+                </a>
+<a class="text-on-surface-variant flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-white/5 hover:text-secondary-fixed-dim transition-all text-label-md font-label-md uppercase tracking-wider" href="#">
+<span class="material-symbols-outlined text-[18px]">logout</span>
+                    Sign Out
+                </a>
+</div>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col h-screen overflow-y-auto ml-0 md:ml-64 w-full">
+<!-- TopNavBar (Mobile / Content Header) -->
+<header class="w-full sticky top-0 z-50 flex items-center justify-between px-gutter-desktop h-16 border-b border-white/10 bg-background/80 backdrop-blur-md shadow-[0_20px_40px_rgba(0,0,0,0.8)]">
+<div class="flex items-center gap-4">
+<!-- Mobile Menu Trigger -->
+<button class="md:hidden text-on-surface-variant hover:text-primary-fixed-dim transition-colors scale-95 active:scale-90 duration-150">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<span class="md:hidden text-headline-md font-headline-md font-bold text-primary-fixed-dim tracking-tight">Aura Assist</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="hidden md:flex items-center bg-surface-container-low border border-white/10 rounded-full px-4 py-1.5 focus-within:border-primary-fixed-dim focus-within:shadow-[0_0_10px_rgba(0,218,248,0.1)] transition-all">
+<span class="material-symbols-outlined text-on-surface-variant text-[20px]">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-body-sm font-body-sm text-on-background placeholder-on-surface-variant ml-2 w-48" placeholder="Search systems..." type="text"/>
+</div>
+<button class="text-on-surface-variant hover:text-primary-fixed-dim hover:bg-surface-variant/30 rounded-full p-2 transition-colors scale-95 active:scale-90 duration-150">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary-fixed-dim hover:bg-surface-variant/30 rounded-full p-2 transition-colors scale-95 active:scale-90 duration-150">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="w-8 h-8 rounded-full border border-white/20 overflow-hidden cursor-pointer hover:border-primary-fixed-dim transition-colors">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="A minimalist high-contrast profile picture showing a silhouette of a person against a vibrant neon purple and cyan gradient background. The style is sleek, modern, and anonymous." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAVeS5A_GfJOSaGVZi7L1MT4HUyRWz-Vyz494AAjqBSTbRjQ--4ufDsiuwUPxQbyAXh8FTFoN0PGSDXaC2tshRT3oGiDL8jXNMD_A_iM2wF4884Ffj-s2vLt2ON00_kcSU1XzaeyaEHsOyNNmnseuti06chQI-CdlCFw0ZObb_Oz_DFv8JqrWbQE1rxLGMKkhCGJpXq7_2KSXWIhKw54V8RX0Jut9DsQaM9RMy9f1myJJ4OtpXC5i4Snx4dafBGY9dY2s62xWABvgo"/>
+</div>
+</div>
+</header>
+<!-- Dashboard Content -->
+<div class="p-container-padding-mobile md:p-container-padding-desktop flex flex-col gap-stack-gap max-w-[1600px] mx-auto w-full">
+<!-- Header Section -->
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+<div>
+<h2 class="text-headline-xl font-headline-xl font-bold text-white tracking-tight mb-2">Systems Online</h2>
+<p class="text-body-lg font-body-lg text-on-surface-variant">All automation nodes operating within optimal parameters.</p>
+</div>
+<div class="flex items-center gap-3">
+<span class="flex h-3 w-3 relative">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary-fixed-dim opacity-75"></span>
+<span class="relative inline-flex rounded-full h-3 w-3 bg-primary-fixed-dim"></span>
+</span>
+<span class="text-label-md font-label-md text-primary-fixed-dim uppercase tracking-wider glowing-text">Live Sync</span>
+</div>
+</div>
+<!-- Bento Grid -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-8 mt-4">
+<!-- Active Flow Matrix (Hero Card) -->
+<div class="md:col-span-8 bg-surface-container border border-white/10 rounded-xl p-card-padding-internal shadow-[0_20px_40px_rgba(0,0,0,0.8)] relative overflow-hidden group">
+<div class="absolute inset-0 matrix-bg opacity-50 z-0"></div>
+<div class="relative z-10 flex flex-col h-full min-h-[360px]">
+<div class="flex items-center justify-between mb-6">
+<h3 class="text-headline-md font-headline-md font-semibold text-white">Active Flow Matrix</h3>
+<button class="text-primary-fixed-dim hover:text-white transition-colors">
+<span class="material-symbols-outlined">open_in_full</span>
+</button>
+</div>
+<div class="flex-1 w-full rounded-lg border border-white/5 bg-surface-container-lowest/50 relative overflow-hidden backdrop-blur-sm flex items-center justify-center">
+<!-- Placeholder for Data Viz / Canvas -->
+<div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMSIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjEpIi8+PC9zdmc+')] opacity-30"></div>
+<div class="relative z-10 flex items-center gap-8">
+<div class="w-16 h-16 rounded-full border border-secondary-fixed-dim/50 flex items-center justify-center shadow-[0_0_20px_rgba(223,183,255,0.2)]">
+<span class="material-symbols-outlined text-secondary-fixed-dim text-3xl">sensors</span>
+</div>
+<div class="w-24 h-px bg-gradient-to-r from-secondary-fixed-dim/50 to-primary-fixed-dim/50 relative">
+<div class="absolute w-2 h-2 bg-white rounded-full top-1/2 -translate-y-1/2 -left-1 animate-ping"></div>
+</div>
+<div class="w-20 h-20 rounded-full border border-primary-fixed-dim bg-primary-fixed-dim/10 flex items-center justify-center shadow-[0_0_30px_rgba(0,218,248,0.3)]">
+<span class="material-symbols-outlined text-primary-fixed-dim text-4xl">memory</span>
+</div>
+<div class="w-24 h-px bg-gradient-to-r from-primary-fixed-dim/50 to-white/20 relative">
+<div class="absolute w-2 h-2 bg-white rounded-full top-1/2 -translate-y-1/2 -right-1 animate-ping"></div>
+</div>
+<div class="w-16 h-16 rounded-full border border-white/20 flex items-center justify-center bg-surface">
+<span class="material-symbols-outlined text-on-surface-variant text-3xl">cloud_sync</span>
+</div>
+</div>
+</div>
+<div class="mt-6 flex items-center gap-6 text-label-md font-label-md text-on-surface-variant uppercase tracking-wider">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-secondary-fixed-dim"></div>
+                                Input Nodes
+                            </div>
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-primary-fixed-dim"></div>
+                                Core Processor
+                            </div>
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-white/40"></div>
+                                Edge Sync
+                            </div>
+</div>
+</div>
+</div>
+<!-- Security Status -->
+<div class="md:col-span-4 bg-surface-container border border-white/10 rounded-xl p-card-padding-internal shadow-[0_20px_40px_rgba(0,0,0,0.8)] flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between mb-4">
+<h3 class="text-headline-md font-headline-md font-semibold text-white">Security</h3>
+<span class="material-symbols-outlined text-primary-fixed-dim">shield_locked</span>
+</div>
+<p class="text-body-md font-body-md text-on-surface-variant mb-8">Perimeter defense and internal surveillance systems active.</p>
+</div>
+<div class="flex flex-col gap-4">
+<div class="bg-surface-container-low border border-white/5 rounded-lg p-4 flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary-fixed-dim">nest_cam_indoor</span>
+<span class="text-body-md font-body-md text-inverse-surface">Cameras</span>
+</div>
+<span class="text-label-md font-label-md bg-secondary-fixed-dim text-black px-2 py-1 rounded">12 ONLINE</span>
+</div>
+<div class="bg-surface-container-low border border-white/5 rounded-lg p-4 flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary-fixed-dim">door_front</span>
+<span class="text-body-md font-body-md text-inverse-surface">Access Points</span>
+</div>
+<span class="text-label-md font-label-md bg-primary-fixed-dim text-black px-2 py-1 rounded">LOCKED</span>
+</div>
+</div>
+</div>
+<!-- Lighting Zones -->
+<div class="md:col-span-6 bg-surface-container border border-white/10 rounded-xl p-card-padding-internal shadow-[0_20px_40px_rgba(0,0,0,0.8)]">
+<div class="flex items-center justify-between mb-6">
+<h3 class="text-headline-md font-headline-md font-semibold text-white">Lighting Zones</h3>
+<span class="material-symbols-outlined text-secondary-fixed-dim">lightbulb</span>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+<!-- Zone 1 -->
+<div class="bg-surface-container-low border border-secondary-fixed-dim/30 rounded-lg p-5 flex flex-col gap-4 hover:border-secondary-fixed-dim/60 transition-colors shadow-[0_0_15px_rgba(223,183,255,0.05)]">
+<div class="flex justify-between items-center">
+<span class="text-body-md font-body-md font-medium text-white">Main Studio</span>
+<!-- Toggle placeholder -->
+<div class="w-10 h-5 bg-secondary-fixed-dim rounded-full relative cursor-pointer">
+<div class="absolute right-1 top-1 w-3 h-3 bg-black rounded-full"></div>
+</div>
+</div>
+<div class="w-full h-1 bg-surface-bright rounded-full overflow-hidden">
+<div class="h-full bg-secondary-fixed-dim w-[80%] shadow-[0_0_10px_rgba(223,183,255,0.8)]"></div>
+</div>
+<div class="text-label-sm font-label-sm text-secondary-fixed-dim text-right">80% INTENSITY</div>
+</div>
+<!-- Zone 2 -->
+<div class="bg-surface-container-lowest border border-white/5 rounded-lg p-5 flex flex-col gap-4">
+<div class="flex justify-between items-center">
+<span class="text-body-md font-body-md font-medium text-on-surface-variant">Corridors</span>
+<div class="w-10 h-5 bg-surface-bright rounded-full relative cursor-pointer">
+<div class="absolute left-1 top-1 w-3 h-3 bg-on-surface-variant rounded-full"></div>
+</div>
+</div>
+<div class="w-full h-1 bg-surface-bright rounded-full overflow-hidden">
+<div class="h-full bg-on-surface-variant w-[20%]"></div>
+</div>
+<div class="text-label-sm font-label-sm text-on-surface-variant text-right">20% INTENSITY</div>
+</div>
+</div>
+</div>
+<!-- Climate Zones -->
+<div class="md:col-span-6 bg-surface-container border border-white/10 rounded-xl p-card-padding-internal shadow-[0_20px_40px_rgba(0,0,0,0.8)]">
+<div class="flex items-center justify-between mb-6">
+<h3 class="text-headline-md font-headline-md font-semibold text-white">Climate Control</h3>
+<span class="material-symbols-outlined text-primary-fixed-dim">thermostat</span>
+</div>
+<div class="flex items-center gap-8 h-full pb-4">
+<div class="flex flex-col items-center justify-center bg-surface-container-lowest border border-primary-fixed-dim/20 w-32 h-32 rounded-full relative shadow-[0_0_20px_rgba(0,218,248,0.1)]">
+<svg class="absolute inset-0 w-full h-full rotate-90" viewbox="0 0 100 100">
+<circle cx="50" cy="50" fill="none" r="45" stroke="rgba(255,255,255,0.05)" stroke-dasharray="280" stroke-dashoffset="0" stroke-width="4"></circle>
+<circle cx="50" cy="50" fill="none" r="45" stroke="#00daf8" stroke-dasharray="280" stroke-dashoffset="80" stroke-width="4"></circle>
+</svg>
+<span class="text-headline-lg font-headline-lg font-bold text-white z-10">72°</span>
+<span class="text-label-sm font-label-sm text-primary-fixed-dim uppercase z-10 mt-1">Target</span>
+</div>
+<div class="flex-1 flex flex-col gap-4">
+<div class="flex justify-between items-end border-b border-white/5 pb-2">
+<div class="flex flex-col">
+<span class="text-label-sm font-label-sm text-on-surface-variant uppercase mb-1">Server Room</span>
+<span class="text-body-lg font-body-lg text-primary-fixed-dim glowing-text">64°F</span>
+</div>
+<span class="material-symbols-outlined text-primary-fixed-dim text-sm">ac_unit</span>
+</div>
+<div class="flex justify-between items-end border-b border-white/5 pb-2">
+<div class="flex flex-col">
+<span class="text-label-sm font-label-sm text-on-surface-variant uppercase mb-1">Office Floor</span>
+<span class="text-body-lg font-body-lg text-inverse-surface">71°F</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-sm">air</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

@@ -1,0 +1,15 @@
+*.md
+*.txt
+*.pdf
+*.csv
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.gif
+*.webp
+*.html
+*.json
+*.yaml
+*.yml
+*.log

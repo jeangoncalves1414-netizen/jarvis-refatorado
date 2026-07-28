@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Aura Assist - Device Control Center</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&amp;family=JetBrains+Mono:wght@500;600&amp;family=Geist:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "secondary": "#dfb7ff",
+                      "on-error": "#690005",
+                      "primary": "#baf2ff",
+                      "tertiary-fixed": "#e2e2e2",
+                      "on-tertiary-fixed": "#1b1b1b",
+                      "on-tertiary-container": "#565656",
+                      "outline-variant": "#3b494c",
+                      "primary-fixed-dim": "#00daf8",
+                      "inverse-on-surface": "#313030",
+                      "error-container": "#93000a",
+                      "surface-bright": "#393939",
+                      "error": "#ffb4ab",
+                      "surface-container-high": "#2a2a2a",
+                      "inverse-primary": "#006877",
+                      "surface": "#131313",
+                      "inverse-surface": "#e5e2e1",
+                      "primary-container": "#00e0ff",
+                      "surface-container-lowest": "#0e0e0e",
+                      "secondary-fixed-dim": "#dfb7ff",
+                      "on-primary-fixed-variant": "#004e5a",
+                      "surface-container-low": "#1c1b1b",
+                      "on-error-container": "#ffdad6",
+                      "surface-tint": "#00daf8",
+                      "tertiary-container": "#cccccc",
+                      "outline": "#859397",
+                      "surface-dim": "#131313",
+                      "on-secondary-fixed": "#2d004f",
+                      "secondary-container": "#9d05ff",
+                      "on-tertiary": "#303030",
+                      "on-secondary-container": "#f7e6ff",
+                      "on-primary-container": "#005f6d",
+                      "on-surface": "#e5e2e1",
+                      "tertiary": "#e8e8e8",
+                      "secondary-fixed": "#f1daff",
+                      "surface-container-highest": "#353534",
+                      "on-surface-variant": "#bac9cd",
+                      "surface-variant": "#353534",
+                      "tertiary-fixed-dim": "#c6c6c6",
+                      "on-tertiary-fixed-variant": "#474747",
+                      "surface-container": "#201f1f",
+                      "on-secondary": "#4b007e",
+                      "on-primary": "#00363f",
+                      "on-secondary-fixed-variant": "#6b00b0",
+                      "on-background": "#e5e2e1",
+                      "primary-fixed": "#a5eeff",
+                      "background": "#131313",
+                      "on-primary-fixed": "#001f25"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "container-padding-desktop": "64px",
+                      "card-padding-internal": "32px",
+                      "gutter-desktop": "32px",
+                      "gutter-mobile": "16px",
+                      "container-padding-mobile": "24px",
+                      "unit": "8px",
+                      "stack-gap": "24px"
+              },
+              "fontFamily": {
+                      "headline-md": ["Sora"],
+                      "label-sm": ["JetBrains Mono"],
+                      "body-lg": ["Geist"],
+                      "headline-lg-mobile": ["Sora"],
+                      "body-md": ["Geist"],
+                      "label-md": ["JetBrains Mono"],
+                      "body-sm": ["Geist"],
+                      "headline-xl": ["Sora"],
+                      "headline-lg": ["Sora"]
+              },
+              "fontSize": {
+                      "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                      "label-sm": ["10px", {"lineHeight": "14px", "letterSpacing": "0.08em", "fontWeight": "600"}],
+                      "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                      "headline-lg-mobile": ["28px", {"lineHeight": "36px", "fontWeight": "600"}],
+                      "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                      "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "headline-xl": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}]
+              }
+            },
+          },
+        }
+      </script>
+<style>
+        body {
+            background-color: #000000; /* Full Black override */
+            color: #e5e2e1;
+        }
+        .void-border {
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .void-border-high {
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .ambient-shadow {
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
+        }
+        .neon-glow-primary {
+            box-shadow: 0 0 15px rgba(0, 218, 248, 0.2);
+        }
+        .neon-glow-secondary {
+            box-shadow: 0 0 15px rgba(223, 183, 255, 0.2);
+        }
+        .glass-surface {
+            background: linear-gradient(180deg, rgba(32, 31, 31, 0.4) 0%, rgba(19, 19, 19, 0.8) 100%);
+            backdrop-filter: blur(12px);
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #00daf8;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 0 10px rgba(0, 218, 248, 0.5);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+        }
+      </style>
+</head>
+<body class="antialiased min-h-screen flex flex-col md:flex-row">
+<!-- Side Nav (Desktop) -->
+<nav class="hidden md:flex fixed left-0 top-0 h-full flex-col py-8 z-40 bg-surface-container-lowest dark:bg-surface-container-lowest border-r border-white/10 shadow-2xl shadow-black w-64">
+<div class="px-6 mb-12">
+<h1 class="text-headline-lg font-headline-lg text-primary-fixed-dim">Aura Core</h1>
+<p class="text-label-sm font-label-sm text-secondary-fixed-dim mt-2">Automation Active</p>
+</div>
+<button class="mx-6 mb-8 py-3 px-4 bg-gradient-to-r from-surface-container-highest to-surface-container border border-white/20 rounded text-body-md font-body-md text-white hover:neon-glow-primary transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[18px]">add</span> New Task
+        </button>
+<div class="flex-1 px-2 space-y-1">
+<a class="text-primary-fixed-dim font-bold border-r-2 border-primary-fixed-dim pr-4 flex items-center gap-3 px-4 py-3 bg-white/5 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span class="text-label-md font-label-md">Dashboard</span>
+</a>
+<a class="text-on-surface-variant flex items-center gap-3 px-4 py-3 hover:bg-white/5 hover:text-secondary-fixed-dim hover:translate-x-1 transition-all rounded-lg duration-200" href="#">
+<span class="material-symbols-outlined">bolt</span>
+<span class="text-label-md font-label-md">Automations</span>
+</a>
+<a class="text-on-surface-variant flex items-center gap-3 px-4 py-3 hover:bg-white/5 hover:text-secondary-fixed-dim hover:translate-x-1 transition-all rounded-lg duration-200" href="#">
+<span class="material-symbols-outlined">chat_bubble</span>
+<span class="text-label-md font-label-md">Chat</span>
+</a>
+<a class="text-on-surface-variant flex items-center gap-3 px-4 py-3 hover:bg-white/5 hover:text-secondary-fixed-dim hover:translate-x-1 transition-all rounded-lg duration-200" href="#">
+<span class="material-symbols-outlined">calendar_today</span>
+<span class="text-label-md font-label-md">Calendar</span>
+</a>
+<a class="text-on-surface-variant flex items-center gap-3 px-4 py-3 hover:bg-white/5 hover:text-secondary-fixed-dim hover:translate-x-1 transition-all rounded-lg duration-200" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="text-label-md font-label-md">Analytics</span>
+</a>
+</div>
+<div class="px-2 mt-auto space-y-1">
+<a class="text-on-surface-variant flex items-center gap-3 px-4 py-3 hover:bg-white/5 hover:text-secondary-fixed-dim transition-all rounded-lg" href="#">
+<span class="material-symbols-outlined">help</span>
+<span class="text-label-md font-label-md">Help</span>
+</a>
+<a class="text-on-surface-variant flex items-center gap-3 px-4 py-3 hover:bg-white/5 hover:text-secondary-fixed-dim transition-all rounded-lg" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span class="text-label-md font-label-md">Sign Out</span>
+</a>
+</div>
+</nav>
+<!-- Top App Bar (Mobile Nav Alternative & Global Header) -->
+<header class="md:hidden sticky top-0 z-50 flex items-center justify-between px-gutter-mobile w-full backdrop-blur-md h-16 border-b border-white/10 bg-background ambient-shadow">
+<div class="text-headline-md font-headline-md font-bold text-primary-fixed-dim tracking-tight">Aura Assist</div>
+<div class="flex items-center gap-4 text-on-surface-variant">
+<button class="hover:text-primary-fixed-dim transition-colors"><span class="material-symbols-outlined">notifications</span></button>
+<button class="hover:text-primary-fixed-dim transition-colors"><span class="material-symbols-outlined">settings</span></button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 md:ml-64 p-container-padding-mobile md:p-container-padding-desktop">
+<header class="mb-12 flex justify-between items-end">
+<div>
+<h2 class="text-headline-xl font-headline-xl text-on-background">Device Control</h2>
+<p class="text-body-lg font-body-lg text-on-surface-variant mt-2 max-w-2xl">Manage your connected environment.</p>
+</div>
+<!-- Hidden on mobile, handled in side nav -->
+<div class="hidden md:flex items-center gap-4 text-on-surface-variant">
+<button class="hover:text-primary-fixed-dim hover:bg-surface-variant/30 transition-colors p-2 rounded-full scale-95 active:scale-90 duration-150"><span class="material-symbols-outlined">notifications</span></button>
+<img alt="User profile" class="w-10 h-10 rounded-full border border-white/20 object-cover" data-alt="A futuristic, high-contrast digital avatar portrait of a user profile in neon blue and deep black styling." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBE2lgtUDGVUalJR9BQ1TlJV25-t17kGKT2I8oQrFzWtr3MU71euK5GRthN36YCMQTiIaty6Fx87Yx1ENvkj3keeKnl-DZdCgyajDjU8UgSPsv0OTnF1I5YVxqJewzSTB5xrwqKPrGE8_JE8o3-WcK_IHlIVNPVH6Ea72v6_iF9PTI_gHM8FN_xVb0hBANqbG1IQtUX3m2XnZB-B5Cxff_9Bmz9e2r3NwJTURDOFOcMuyaqYkc57QOegzvmStRLzI3WkBlaoGJGQ-E"/>
+</div>
+</header>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-stack-gap">
+<!-- Primary Section: Lighting (Spans 8 columns) -->
+<section class="md:col-span-8 glass-surface void-border rounded-xl p-card-padding-internal ambient-shadow flex flex-col relative overflow-hidden group">
+<div class="absolute inset-0 bg-gradient-to-br from-primary-container/5 to-transparent pointer-events-none opacity-50 group-hover:opacity-100 transition-opacity duration-500"></div>
+<div class="flex justify-between items-start mb-8 relative z-10">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary-fixed-dim text-3xl" style="font-variation-settings: 'FILL' 1;">lightbulb</span>
+<h3 class="text-headline-md font-headline-md">Studio Lighting</h3>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox" value=""/>
+<div class="w-11 h-6 bg-surface-container-high peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-fixed-dim neon-glow-primary"></div>
+</label>
+</div>
+<div class="mt-auto relative z-10 space-y-6">
+<div>
+<div class="flex justify-between text-label-sm font-label-sm text-on-surface-variant mb-2">
+<span>Brightness</span>
+<span class="text-primary-fixed-dim">85%</span>
+</div>
+<input class="w-full appearance-none bg-transparent" max="100" min="0" type="range" value="85"/>
+</div>
+<div class="flex gap-4">
+<button class="flex-1 py-2 rounded-lg border void-border-high bg-primary-fixed-dim/10 text-primary-fixed-dim text-label-md font-label-md hover:bg-primary-fixed-dim/20 transition-colors">Focus</button>
+<button class="flex-1 py-2 rounded-lg border void-border bg-surface text-on-surface text-label-md font-label-md hover:border-white/30 transition-colors">Relax</button>
+<button class="flex-1 py-2 rounded-lg border void-border bg-surface text-on-surface text-label-md font-label-md hover:border-white/30 transition-colors">Night</button>
+</div>
+</div>
+</section>
+<!-- Climate Control (Spans 4 columns) -->
+<section class="md:col-span-4 glass-surface void-border rounded-xl p-card-padding-internal ambient-shadow flex flex-col justify-between items-center text-center relative overflow-hidden group">
+<div class="absolute inset-0 bg-gradient-to-t from-secondary-container/10 to-transparent pointer-events-none"></div>
+<div class="w-full flex justify-between items-center mb-4 relative z-10 text-on-surface-variant">
+<span class="material-symbols-outlined">ac_unit</span>
+<span class="text-label-sm font-label-sm uppercase tracking-widest text-secondary-fixed-dim">Climate</span>
+<span class="material-symbols-outlined">more_vert</span>
+</div>
+<div class="relative z-10 my-8">
+<div class="text-[64px] font-headline-xl font-bold text-white tracking-tighter leading-none mb-2" style="text-shadow: 0 0 20px rgba(223, 183, 255, 0.3);">72°</div>
+<p class="text-label-md font-label-md text-on-surface-variant">Cooling to 68°</p>
+</div>
+<div class="flex gap-4 w-full relative z-10">
+<button class="flex-1 h-12 rounded-full border void-border bg-surface hover:bg-white/5 flex items-center justify-center transition-colors">
+<span class="material-symbols-outlined text-secondary-fixed-dim">remove</span>
+</button>
+<button class="flex-1 h-12 rounded-full border void-border bg-surface hover:bg-white/5 flex items-center justify-center transition-colors">
+<span class="material-symbols-outlined text-secondary-fixed-dim">add</span>
+</button>
+</div>
+</section>
+<!-- Security Camera Feed (Spans 6 columns) -->
+<section class="md:col-span-6 h-64 glass-surface void-border rounded-xl ambient-shadow relative overflow-hidden group">
+<img alt="Camera Feed Front Door" class="absolute inset-0 w-full h-full object-cover opacity-60 mix-blend-luminosity group-hover:opacity-80 transition-opacity duration-700" data-alt="A high-contrast, security camera view of a modern, sleek entryway with dark walls and subtle neon floor lighting, captured in a cinematic, slightly distorted wide-angle perspective." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBCjdXVz7kizqdyT81rG1fD7yWk10IfAIVn802mpGVeCJJdTToSl-CBrneHaDU1Hh4RICihXt94KgR1_maP9pVqMn8O2lC5ZA3F0lC383fQdc-79DBsfe1HbQIZ2Xph0dFRJvlRCIs6BHtFnW12M3UvdaDErxRZrQagVu7JLYbCuAGrHa3ZgHAxxqvkKSTbsSVrZs6bDkU8PyAQwpItD_S1gp8eusg_-VtQnjIoyl0uONNFTe5Zh9SaqjQb4-PgJdhp_oh3kvqPeaA"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent"></div>
+<div class="absolute top-4 left-4 right-4 flex justify-between items-center">
+<div class="flex items-center gap-2 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-full void-border">
+<div class="w-2 h-2 rounded-full bg-error animate-pulse"></div>
+<span class="text-label-sm font-label-sm text-white">LIVE</span>
+</div>
+<span class="material-symbols-outlined text-white/70">fullscreen</span>
+</div>
+<div class="absolute bottom-4 left-4">
+<h3 class="text-body-lg font-body-lg font-semibold text-white">Front Entry</h3>
+<p class="text-label-sm font-label-sm text-on-surface-variant">Motion detected 2m ago</p>
+</div>
+</section>
+<!-- Security Camera Feed 2 (Spans 6 columns) -->
+<section class="md:col-span-6 h-64 glass-surface void-border rounded-xl ambient-shadow relative overflow-hidden group">
+<img alt="Camera Feed Garage" class="absolute inset-0 w-full h-full object-cover opacity-40 mix-blend-luminosity group-hover:opacity-80 transition-opacity duration-700" data-alt="A stylized security camera view of a dark, minimalist garage space with a high-end sports car silhouette illuminated by a single overhead spotlight." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAzcnoLKdaAo67R_q9RoqS1m6CrKV3dtWq1nUCoZcpXnEo4l28EYex3pWqLHEWlbGSHNtqzoTaasXrL7dJ_T9yGWvDLmAYGmSrtGKl6y55u_Fto4RKMaAMHCqI3X-pUxHCsn-TSQpr1aYxftdzgJo2ilnqr4qTcduNqSd8ARdfZBkUSjfCu8sdCWPgHRJGrW4-EFmLMZlR-6zG9gaNiGm0i7lURjR2_FcuJJggCPDEdOITpouXjLnpXtQN48urzUrsTK0_R06v2IlQ"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent"></div>
+<div class="absolute top-4 left-4 right-4 flex justify-between items-center">
+<div class="flex items-center gap-2 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-full void-border">
+<div class="w-2 h-2 rounded-full bg-surface-variant"></div>
+<span class="text-label-sm font-label-sm text-white/50">STANDBY</span>
+</div>
+</div>
+<div class="absolute bottom-4 left-4">
+<h3 class="text-body-lg font-body-lg font-semibold text-white">Garage</h3>
+<p class="text-label-sm font-label-sm text-on-surface-variant">No recent activity</p>
+</div>
+</section>
+<!-- Quick Actions / Door Locks (Spans 12 columns) -->
+<section class="md:col-span-12 glass-surface void-border rounded-xl p-card-padding-internal ambient-shadow">
+<h3 class="text-headline-md font-headline-md mb-6">Access Control</h3>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+<!-- Locked State -->
+<button class="p-6 rounded-lg border border-primary-fixed-dim/30 bg-primary-fixed-dim/5 hover:bg-primary-fixed-dim/10 flex flex-col items-center justify-center gap-3 transition-all neon-glow-primary text-center">
+<span class="material-symbols-outlined text-primary-fixed-dim text-3xl" style="font-variation-settings: 'FILL' 1;">lock</span>
+<div>
+<div class="text-body-sm font-body-sm text-white font-semibold">Front Door</div>
+<div class="text-label-sm font-label-sm text-primary-fixed-dim">Locked</div>
+</div>
+</button>
+<!-- Unlocked State -->
+<button class="p-6 rounded-lg border void-border bg-surface-container hover:bg-surface-container-high flex flex-col items-center justify-center gap-3 transition-all text-center">
+<span class="material-symbols-outlined text-on-surface-variant text-3xl">lock_open</span>
+<div>
+<div class="text-body-sm font-body-sm text-white font-semibold">Back Patio</div>
+<div class="text-label-sm font-label-sm text-error">Unlocked</div>
+</div>
+</button>
+<button class="p-6 rounded-lg border border-primary-fixed-dim/30 bg-primary-fixed-dim/5 hover:bg-primary-fixed-dim/10 flex flex-col items-center justify-center gap-3 transition-all neon-glow-primary text-center">
+<span class="material-symbols-outlined text-primary-fixed-dim text-3xl" style="font-variation-settings: 'FILL' 1;">lock</span>
+<div>
+<div class="text-body-sm font-body-sm text-white font-semibold">Garage Side</div>
+<div class="text-label-sm font-label-sm text-primary-fixed-dim">Locked</div>
+</div>
+</button>
+<button class="p-6 rounded-lg border void-border bg-surface-container hover:bg-surface-container-high flex flex-col items-center justify-center gap-3 transition-all text-center">
+<span class="material-symbols-outlined text-on-surface-variant text-3xl">meeting_room</span>
+<div>
+<div class="text-body-sm font-body-sm text-white font-semibold">Gate</div>
+<div class="text-label-sm font-label-sm text-on-surface-variant">Closed</div>
+</div>
+</button>
+</div>
+</section>
+</div>
+</main>
+</body></html>
