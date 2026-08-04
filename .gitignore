@@ -13,3 +13,9 @@ scratch/
 graphify-out/
 check_html_full_output.txt
 startup_error.txt
+
+# Frontend dependencies and generated build output
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo

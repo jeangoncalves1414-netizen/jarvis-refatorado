@@ -263,8 +263,20 @@ class ProactiveDaemon(threading.Thread):
                     if self.on_notify:
                         self.on_notify("Lembrete", msg)
 
+                # Calendar events use the same desktop notification channel as
+                # quick reminders, but keep the "next conversation" policy for
+                # the chat handler instead of interrupting the user here.
+                from app.services.calendar import CalendarService
+                for event in CalendarService().due_reminders():
+                    if self._stop_event.is_set():
+                        break
+                    msg = f"Sir, lembrete: {event.title}."
+                    if event.reminder_policy == "until_confirmed":
+                        msg += " Quando puder, confirme ou peça para eu parar de lembrar."
+                    if self.on_notify:
+                        self.on_notify("Calendário Jarvis", msg)
+
             except Exception as e:
                 print(f"[ProactiveDaemon] Erro na verificação: {e}")
 
             self._stop_event.wait(timeout=self.interval)
-

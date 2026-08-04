@@ -1,0 +1,159 @@
+import { FormEvent } from 'react'
+import type { BridgeStatus, Climate, Proactive } from '../types'
+import { StatusBadge } from '../components/StatusBadge'
+
+type AutomationsPageProps = {
+  climate: Climate | null
+  bridge: BridgeStatus | null
+  proactive: Proactive | null
+  reminderMessage: string
+  reminderTime: string
+  onReminderMessageChange: (value: string) => void
+  onReminderTimeChange: (value: string) => void
+  onAddReminder: (event: FormEvent) => void
+  onSetTemperature: (value: number) => void
+  onTriggerBriefing: () => void
+  onRegisterBridgeDemo: () => void
+  onBridgeCommand: (targetId: string, command: 'turn_on' | 'turn_off') => void
+}
+
+export function AutomationsPage({
+  climate,
+  bridge,
+  proactive,
+  reminderMessage,
+  reminderTime,
+  onReminderMessageChange,
+  onReminderTimeChange,
+  onAddReminder,
+  onSetTemperature,
+  onTriggerBriefing,
+  onRegisterBridgeDemo,
+  onBridgeCommand,
+}: AutomationsPageProps) {
+  return (
+    <section className="automation-grid">
+      <article className="automation-card">
+        <p className="eyebrow">CONTROLE LOCAL</p>
+        <h2>Clima</h2>
+        <p>
+          Ajuste de temperatura salvo pelo Jarvis. A integração física com o dispositivo pode ser adicionada
+          depois.
+        </p>
+        <div className="temperature">
+          <strong>{climate?.target_c ?? 22}°</strong>
+          <div className="temperature-controls">
+            <button
+              type="button"
+              aria-label="Diminuir temperatura"
+              onClick={() => onSetTemperature(Math.max(16, (climate?.target_c ?? 22) - 1))}
+            >
+              −
+            </button>
+            <input
+              aria-label="Temperatura alvo"
+              type="range"
+              min="16"
+              max="30"
+              value={climate?.target_c ?? 22}
+              onChange={event => onSetTemperature(Number(event.target.value))}
+            />
+            <button
+              type="button"
+              aria-label="Aumentar temperatura"
+              onClick={() => onSetTemperature(Math.min(30, (climate?.target_c ?? 22) + 1))}
+            >
+              +
+            </button>
+          </div>
+          <span>{climate?.current_c !== undefined ? `Ambiente: ${climate.current_c}°` : 'Controle pronto'}</span>
+        </div>
+      </article>
+      <article className="automation-card bridge-card">
+        <div className="bridge-card-header">
+          <div>
+            <p className="eyebrow">PONTE LOCAL</p>
+            <h2>Dispositivos conectados</h2>
+          </div>
+          <span className="bridge-protocol">{bridge?.protocol || 'jarvis-bridge-v1'}</span>
+        </div>
+        <p>
+          O PC e o futuro app móvel compartilharão este contrato. O código é usado apenas para parear clientes na mesma rede.
+        </p>
+        <div className="bridge-pair-code">{bridge?.pairing_code || '—'}</div>
+        <div className="bridge-device-list">
+          {(bridge?.devices || []).map(device => (
+            <div className="bridge-device" key={device.id}>
+              <div>
+                <strong>{device.name || device.id}</strong>
+                <StatusBadge status={device.connected ? 'success' : 'warning'}>
+                  {device.connected ? '● conectado' : '○ offline'} · {device.platform || 'cliente'}
+                </StatusBadge>
+              </div>
+              {device.kind === 'light' ? (
+                <div className="bridge-device-actions">
+                  <button type="button" onClick={() => onBridgeCommand(device.id, 'turn_on')}>Ligar</button>
+                  <button type="button" className="secondary" onClick={() => onBridgeCommand(device.id, 'turn_off')}>Desligar</button>
+                </div>
+              ) : null}
+            </div>
+          ))}
+          {!bridge?.devices?.length ? <span className="empty-state">Nenhum cliente conectado.</span> : null}
+        </div>
+        {bridge?.events?.length ? (
+          <div className="bridge-event-list">
+            {bridge.events.slice(-5).reverse().map(event => (
+              <span key={event.id}>{String(event.type || '').replace('device.', '')} · executado</span>
+            ))}
+          </div>
+        ) : null}
+        <button className="outline-button" type="button" onClick={onRegisterBridgeDemo}>Adicionar lâmpada de teste</button>
+      </article>
+      <article className="automation-card">
+        <p className="eyebrow">ROTINA PROATIVA</p>
+        <h2>Briefing diário</h2>
+        <p>
+          {proactive?.config?.briefing_enabled
+            ? `Ativo às ${proactive.config.briefing_time || '08:00'}.`
+            : 'Desativado. Configure-o em Configurações.'}
+        </p>
+        <button className="outline-button" type="button" onClick={onTriggerBriefing}>
+          Gerar briefing agora
+        </button>
+      </article>
+      <article className="automation-card">
+        <p className="eyebrow">LEMBRETES</p>
+        <h2>Próximos</h2>
+        <form className="reminder-form" onSubmit={onAddReminder}>
+          <input
+            aria-label="Mensagem do lembrete"
+            value={reminderMessage}
+            onChange={event => onReminderMessageChange(event.target.value)}
+            placeholder="Ex.: Tomar remédio"
+          />
+          <input
+            aria-label="Quando lembrar"
+            value={reminderTime}
+            onChange={event => onReminderTimeChange(event.target.value)}
+            placeholder="+10m ou 14:30"
+          />
+          <button type="submit">Adicionar</button>
+        </form>
+        {proactive?.reminders?.length ? (
+          <div className="compact-list">
+            {proactive.reminders.slice(0, 5).map(reminder => (
+              <p key={reminder.id}>
+                <b>{reminder.message}</b>
+                <span>
+                  {reminder.target_time ? new Date(reminder.target_time).toLocaleString('pt-BR') : 'Pendente'}
+                </span>
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-state">Nenhum lembrete pendente.</p>
+        )}
+      </article>
+    </section>
+  )
+}

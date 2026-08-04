@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jarvis Bridge</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; }
+    body { margin: 0; min-height: 100vh; background: #f7f8fa; color: #17202a; }
+    main { width: min(720px, calc(100% - 32px)); margin: 0 auto; padding: 30px 0 64px; }
+    h1 { margin: 0 0 6px; font-size: 26px; }
+    p { color: #5f6b76; }
+    .card { margin-top: 18px; padding: 20px; border: 1px solid #e0e5eb; border-radius: 16px; background: #fff; box-shadow: 0 5px 22px #23384a0d; }
+    .code { display: inline-block; margin: 8px 0; padding: 8px 12px; border-radius: 8px; background: #edf8ff; color: #006c98; font: 700 18px ui-monospace, monospace; letter-spacing: 1px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    input, button { min-height: 38px; border-radius: 9px; border: 1px solid #d3dbe2; padding: 0 11px; font: inherit; }
+    input { min-width: 160px; flex: 1; }
+    button { cursor: pointer; color: #fff; border-color: #087ea4; background: #087ea4; }
+    button.secondary { color: #236078; background: #eef8fb; }
+    .device { display: grid; gap: 9px; padding: 14px 0; border-top: 1px solid #edf0f3; }
+    .device strong { display: block; }
+    .status { font-size: 12px; color: #687683; }
+    .online { color: #16834b; }
+    .history-row { display:flex; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid #edf0f3; font-size:13px; }
+    .history-row small { color:#687683; }
+    #message { min-height: 20px; color: #236078; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Jarvis Bridge</h1>
+    <p>Protótipo leve para testar a ponte entre o painel e futuros clientes móveis.</p>
+    <section class="card">
+      <strong>Código de pareamento</strong>
+      <div id="pairing" class="code">carregando…</div>
+      <div class="row">
+        <input id="deviceId" value="phone-test" aria-label="ID do dispositivo" placeholder="ID do dispositivo">
+        <input id="deviceName" value="Celular de teste" aria-label="Nome do dispositivo" placeholder="Nome">
+        <button id="pair">Parear este dispositivo</button>
+      </div>
+      <div id="message" role="status"></div>
+    </section>
+    <section class="card">
+      <strong>Conexões e dispositivos</strong>
+      <div id="devices"><p>Nenhum dispositivo pareado.</p></div>
+    </section>
+    <section class="card">
+      <strong>Histórico recente</strong>
+      <div id="history"><p>Nenhum comando recente.</p></div>
+    </section>
+  </main>
+  <script>
+    const $ = id => document.getElementById(id);
+    const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    let status = null;
+    let localDeviceId = localStorage.getItem('jarvis-bridge-device-id') || '';
+    let lastEventId = '';
+    async function refresh() {
+      try {
+        const response = await fetch('/api/bridge');
+        status = await response.json();
+        $('pairing').textContent = status.pairing_code || 'indisponível';
+        const devices = status.devices || [];
+        const events = status.events || [];
+        const latestCommand = events.slice().reverse().find(event => String(event.type || '').startsWith('device.turn_') || String(event.type || '').startsWith('device.set_'));
+        if (latestCommand && lastEventId && latestCommand.id !== lastEventId) {
+          const label = String(latestCommand.type || '').replace('device.', '').replaceAll('_', ' ');
+          $('message').textContent = `Comando recebido e executado: ${label}.`;
+        }
+        if (latestCommand) lastEventId = latestCommand.id || lastEventId;
+        $('devices').innerHTML = devices.length ? devices.map(device => `
+          <div class="device">
+            <div><strong>${escapeHtml(device.name)}</strong><span class="status ${device.connected ? 'online' : ''}">${device.connected ? '● conectado' : '○ offline'} · ${escapeHtml(device.platform || 'unknown')}</span></div>
+            <div class="row"><button data-command="turn_on" data-id="${escapeHtml(device.id)}">Ligar</button><button data-command="turn_off" data-id="${escapeHtml(device.id)}" class="secondary">Desligar</button></div>
+          </div>`).join('') : '<p>Nenhum dispositivo pareado.</p>';
+        document.querySelectorAll('[data-command]').forEach(button => button.onclick = () => command(button.dataset.id, button.dataset.command));
+        const history = events.slice().reverse().slice(0, 8);
+        $('history').innerHTML = history.length ? history.map(event => `<div class="history-row"><span>${escapeHtml(String(event.type || '').replace('device.', ''))}</span><small>${event.status === 'executed' ? 'executado' : 'recebido'} · ${new Date((event.at || 0) * 1000).toLocaleTimeString('pt-BR')}</small></div>`).join('') : '<p>Nenhum comando recente.</p>';
+        if (localDeviceId) await heartbeat(false);
+      } catch (error) { $('message').textContent = `Não foi possível conectar ao Jarvis em ${location.host}. Verifique se o app está aberto e se o celular está na mesma rede.`; }
+    }
+    async function post(payload) {
+      const response = await fetch('/api/bridge', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || 'Falha na ponte.');
+      return data;
+    }
+    async function command(target_id, commandName) {
+      try { const result = await post({action:'command', target_id, command:commandName, source:'bridge-test'}); $('message').textContent = result.executed ? `Comando ${commandName} recebido e executado.` : `Comando ${commandName} recebido.`; await refresh(); }
+      catch (error) { $('message').textContent = error.message; }
+    }
+    async function heartbeat(showError = true) {
+      if (!localDeviceId) return;
+      try { await post({action:'heartbeat', device_id:localDeviceId}); }
+      catch (error) { if (showError) $('message').textContent = error.message; }
+    }
+    $('pair').onclick = async () => {
+      try { localDeviceId = $('deviceId').value.trim(); await post({action:'pair', device_id:localDeviceId, name:$('deviceName').value, kind:'client', platform:'mobile-web', transport:'lan', pairing_code:status?.pairing_code}); localStorage.setItem('jarvis-bridge-device-id', localDeviceId); $('message').textContent = 'Dispositivo pareado e conectado.'; await refresh(); }
+      catch (error) { $('message').textContent = error.message; }
+    };
+    refresh(); setInterval(refresh, 3000); setInterval(() => heartbeat(true), 15000);
+  </script>
+</body>
+</html>

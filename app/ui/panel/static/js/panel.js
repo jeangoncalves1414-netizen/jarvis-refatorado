@@ -16,7 +16,7 @@
   const sessionListContainer = document.getElementById('session-list');
 
   let currentSession = null;
-  let currentClimateTemp = 72;
+  let currentClimateTemp = 22;
 
   // --- CONTROLE DE MENUS & DE NAVEGAÇÃO ---
   function setActiveNavButton(activeBtn){
@@ -32,20 +32,40 @@
     });
   }
 
-  function setClimateTemperature(nextTemp){
-    const clampedTemp = Math.max(60, Math.min(86, nextTemp));
-    currentClimateTemp = clampedTemp;
-    fetch('/api/automation', {method: 'POST', body: JSON.stringify({action: 'set_temperature', device: 'climate', value: clampedTemp})});
+  function renderClimateTemperature(value){
+    currentClimateTemp = value;
     if(climateTemperature){
       climateTemperature.classList.remove('is-changing');
       void climateTemperature.offsetWidth;
       climateTemperature.classList.add('is-changing');
-      climateTemperature.textContent = `${clampedTemp}°`;
+      climateTemperature.textContent = `${value}°C`;
     }
     if(climateCaption){
-      climateCaption.textContent = `Definido para ${clampedTemp}°`;
+      climateCaption.textContent = `Definido para ${value}°C (painel)`;
     }
   }
+
+  async function setClimateTemperature(nextTemp){
+    const clampedTemp = Math.max(16, Math.min(30, nextTemp));
+    try {
+      const response = await fetch('/api/automation', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'set_temperature', device: 'climate', value: clampedTemp}),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || 'Falha ao salvar temperatura.');
+      renderClimateTemperature(result.target_c);
+    } catch (error) {
+      console.warn('Falha ao definir temperatura', error);
+      if (window.JarvisToast) window.JarvisToast.show('Não foi possível salvar a temperatura.', 'error');
+    }
+  }
+
+  fetch('/api/climate')
+    .then(response => response.ok ? response.json() : Promise.reject(response))
+    .then(result => { if (result.ok) renderClimateTemperature(result.target_c); })
+    .catch(() => renderClimateTemperature(currentClimateTemp));
 
   const conversationsSidebar = document.getElementById('conversations-sidebar');
   const settingsBackButton = document.getElementById('settings-back-button');
@@ -1015,16 +1035,18 @@
         const cinemaCtx = (j.context && j.context.tool_results && j.context.tool_results.cinema) || (j.context && j.context.tool_results && j.context.tool_results['cinema']);
         const cinemaData = cinemaCtx && cinemaCtx.data ? cinemaCtx.data : null;
         if (cinemaData) {
-          // segurança: só abre se tiver default_url ou providers
-          const maybeUrl = (cinemaData && (cinemaData.default_url || (cinemaData.providers && Object.values(cinemaData.providers)[0]))) || '';
-          const isValidUrl = typeof maybeUrl === 'string' && maybeUrl.toLowerCase().startsWith('http');
-          if (isValidUrl) {
+          const isValidCinema = (cinemaData.imdb_id || cinemaData.detect_url || Array.isArray(cinemaData.discovery_results) || Array.isArray(cinemaData.catalog_results)) && cinemaData.ok !== false;
+          if (isValidCinema) {
             if (window.JarvisCinema?.play) {
-              window.JarvisCinema.play(cinemaData);
+              if (cinemaData.detect_url && window.JarvisCinema.detectUrl) {
+                window.JarvisCinema.detectUrl(cinemaData.detect_url, cinemaData.title);
+              } else {
+                window.JarvisCinema.play(cinemaData);
+              }
               handledCinema = true;
             }
           } else {
-            console.warn('Cinema context recebido sem URL válida, ignorando', cinemaData);
+            console.warn('Cinema context recebido sem dados válidos, ignorando', cinemaData);
           }
         }
       } catch(e) {
@@ -1038,14 +1060,16 @@
         const jsonStr = summaryText.slice(jsonStart).trim();
         try {
           const cinemaPayload = JSON.parse(jsonStr);
-          // Validação: só abrir player se houver uma URL válida
-          const maybeUrl = (cinemaPayload && (cinemaPayload.default_url || (cinemaPayload.providers && Object.values(cinemaPayload.providers)[0]))) || '';
-          const isValidUrl = typeof maybeUrl === 'string' && maybeUrl.toLowerCase().startsWith('http');
-          if (!isValidUrl) {
-            console.warn('Payload de cinema recebido sem URL válida, ignorando open player', cinemaPayload);
+          const isValidCinema = (cinemaPayload.imdb_id || cinemaPayload.detect_url || Array.isArray(cinemaPayload.discovery_results) || Array.isArray(cinemaPayload.catalog_results)) && cinemaPayload.ok !== false;
+          if (!isValidCinema) {
+            console.warn('Payload de cinema recebido sem dados válidos, ignorando', cinemaPayload);
           } else {
             if (window.JarvisCinema?.play) {
-              window.JarvisCinema.play(cinemaPayload);
+              if (cinemaPayload.detect_url && window.JarvisCinema.detectUrl) {
+                window.JarvisCinema.detectUrl(cinemaPayload.detect_url, cinemaPayload.title);
+              } else {
+                window.JarvisCinema.play(cinemaPayload);
+              }
             } else {
               console.warn('JarvisCinema não disponível');
             }
@@ -1057,8 +1081,8 @@
               <span class="material-symbols-outlined text-primary-fixed-dim text-2xl" style="font-variation-settings:'FILL' 1;">movie</span>
               <div>
                 <p class="text-sm font-semibold text-white">🎬 Jarvis Cinema</p>
-                <p class="text-xs text-on-surface-variant">Reproduzindo: <span class="text-primary-fixed-dim font-bold">${cinemaPayload.title || ''}${epStr}</span></p>
-                <p class="text-[11px] text-on-surface-variant/60 mt-0.5">Player aberto • Sem anúncios • 5 servidores disponíveis</p>
+                <p class="text-xs text-on-surface-variant">Selecionado: <span class="text-primary-fixed-dim font-bold">${cinemaPayload.title || ''}${epStr}</span></p>
+                <p class="text-[11px] text-on-surface-variant/60 mt-0.5">Trailer e disponibilidade oficial abertos</p>
               </div>
             </div>`;
           messagesContainer.appendChild(createDemoResponse(cinemaHtml, false));
@@ -1072,6 +1096,8 @@
         } catch(e) {
           console.warn('Falha ao parsear payload de cinema', e);
         }
+      }
+
       }
 
       // Detecta se o summary é na verdade uma mensagem de erro (vinda do orquestrador)

@@ -1,0 +1,143 @@
+      <div className="cal-main">
+        <div className="cal-grid-area">
+          <div className="cal-grid-head">
+            <div className="cal-subtitle">
+              <button type="button" className="cal-nav-btn" onClick={() => shiftMonth(-1)} aria-label="Mês anterior">‹</button>
+              <strong>{MONTHS_PT[viewMonth]} {viewYear}</strong>
+              <button type="button" className="cal-nav-btn" onClick={() => shiftMonth(1)} aria-label="Próximo mês">›</button>
+              <button type="button" className="cal-today-btn" onClick={goToday}>Hoje</button>
+            </div>
+            <div className="cal-grid-controls">
+              <button type="button" className="cal-add-btn" onClick={() => setModalOpen(true)}>+ Novo evento</button>
+            </div>
+          </div>
+          <div className="cal-weekdays">
+            {WEEKDAYS.map(day => <span key={day}>{day}</span>)}
+          </div>
+          <div className="cal-grid">
+            {loadingEvents ? (
+              <div className="cal-loading">Carregando eventos…</div>
+            ) : (
+              gridCells.map((cell, index) => {
+                const key = toLocalInputValue(cell.date)
+                const dayEvents = eventsByDay.get(key) || []
+                const isToday = key === todayKey
+                return (
+                  <div
+                    key={`${key}-${index}`}
+                    className={`cal-cell${cell.inMonth ? '' : ' cal-cell-out'}${isToday ? ' cal-cell-today' : ''}`}
+                  >
+                    <span className="cal-cell-day">{cell.day}</span>
+                    {dayEvents.slice(0, 2).map(event => (
+                      <button
+                        type="button"
+                        key={event.id}
+                        className="cal-event-chip"
+                        title={`${event.title} • ${formatTime(event.start)}`}
+                        onClick={() => removeEvent(event.id)}
+                      >
+                        <span className="cal-chip-time">{formatTime(event.start)}</span>
+                        <span className="cal-chip-title">{event.title}</span>
+                      </button>
+                    ))}
+                    {dayEvents.length > 2 && <span className="cal-cell-more">+{dayEvents.length - 2}</span>}
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+
+        <aside className="cal-side">
+          <div className="cal-side-head">
+            <h3>Próximos eventos</h3>
+          </div>
+          {upcoming.length ? (
+            <div className="cal-upcoming">
+              {upcoming.map(event => (
+                <div className="cal-upcoming-item" key={event.id}>
+                  <div className="cal-upcoming-date">
+                    <strong>{parseEventDate(event.start).getDate()}</strong>
+                    <span>{MONTHS_PT_SHORT[parseEventDate(event.start).getMonth()]}</span>
+                  </div>
+                  <div className="cal-upcoming-copy">
+                    <p>{event.title}</p>
+                    <span>{formatDate(event.start)} • {formatTime(event.start)}{event.location ? ` • ${event.location}` : ''}</span>
+                  </div>
+                  <button type="button" className="cal-upcoming-remove" title="Remover" onClick={() => removeEvent(event.id)}>✕</button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="cal-empty">Nenhum evento futuro. Adicione um novo evento clicando em “+ Novo evento”.</div>
+          )}
+
+          <div className="cal-side-block">
+            <h3>Progresso do dia</h3>
+            <p className="cal-progress-copy">{doneToday} de {totalToday} itens concluídos ({progress}%)</p>
+            <div className="cal-progress-track">
+              <div className="cal-progress-bar" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
+
+          {reminders.length > 0 && (
+            <div className="cal-side-block">
+              <h3>Lembretes</h3>
+              <div className="cal-reminder-list">
+                {reminders.slice(0, 4).map((reminder, index) => (
+                  <div className="cal-reminder-row" key={reminder.id || index}>
+                    <span>{reminder.message || 'Lembrete'}</span>
+                    <small>{reminder.target_time ? new Date(reminder.target_time).toLocaleString('pt-BR') : 'Pendente'}</small>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </aside>
+      </div>
+
+      {modalOpen && (
+        <div className="cal-modal" role="dialog" aria-modal="true" aria-label="Novo evento">
+          <form className="cal-modal-card" onSubmit={submitEvent}>
+            <div className="cal-modal-head">
+              <h3>Novo evento</h3>
+              <button type="button" className="cal-modal-close" onClick={() => setModalOpen(false)} aria-label="Fechar">✕</button>
+            </div>
+            <label className="cal-field">
+              <span>Título</span>
+              <input type="text" value={formTitle} onChange={event => setFormTitle(event.target.value)} placeholder="Ex.: Reunião de planejamento" autoFocus />
+            </label>
+            <div className="cal-form-row">
+              <label className="cal-field">
+                <span>Data</span>
+                <input type="date" value={formDate} onChange={event => setFormDate(event.target.value)} />
+              </label>
+              <label className="cal-field">
+                <span>Hora</span>
+                <input type="time" value={formTime} onChange={event => setFormTime(event.target.value)} />
+              </label>
+            </div>
+            <label className="cal-field">
+              <span>Local</span>
+              <input type="text" value={formLocation} onChange={event => setFormLocation(event.target.value)} placeholder="Opcional" />
+            </label>
+            <label className="cal-field">
+              <span>Descrição</span>
+              <textarea value={formDescription} onChange={event => setFormDescription(event.target.value)} placeholder="Opcional" rows={2} />
+            </label>
+            <label className="cal-field">
+              <span>Lembrete</span>
+              <select value={formReminder} onChange={event => setFormReminder(event.target.value)}>
+                {REMINDER_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <div className="cal-modal-actions">
+              <button type="button" className="cal-btn-ghost" onClick={() => setModalOpen(false)}>Cancelar</button>
+              <button type="submit" className="cal-btn-primary" disabled={saving}>{saving ? 'Salvando…' : 'Criar evento'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+    </section>
+  )
+}

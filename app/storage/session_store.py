@@ -33,10 +33,100 @@ def _find_session(data: dict[str, Any], session_id: str) -> dict[str, Any] | Non
 
 
 def list_sessions(session_type: str | None = None) -> List[dict]:
-    sessions = _read().get("sessions", [])
+    sessions = [s for s in _read().get("sessions", []) if not s.get("deleted_at")]
     if session_type:
         return [s for s in sessions if s.get("type", "chat") == session_type]
     return sessions
+
+
+def list_trash(session_type: str | None = None) -> List[dict]:
+    sessions = [s for s in _read().get("sessions", []) if s.get("deleted_at")]
+    if session_type:
+        sessions = [s for s in sessions if s.get("type", "chat") == session_type]
+    return sessions
+
+
+def trash_session(session_id: str) -> bool:
+    import time
+    data = _read()
+    session = _find_session(data, session_id)
+    if not session:
+        return False
+    session["deleted_at"] = time.time()
+    session["updated_at"] = time.time()
+    _write(data)
+    return True
+
+
+def restore_session(session_id: str) -> bool:
+    data = _read()
+    session = _find_session(data, session_id)
+    if not session:
+        return False
+    session.pop("deleted_at", None)
+    _write(data)
+    return True
+
+
+def purge_session(session_id: str) -> bool:
+    return delete_session(session_id)
+
+
+def list_categories() -> List[dict]:
+    return list(_read().get("study_categories", []))
+
+
+def add_category(category: dict) -> dict:
+    import time
+    data = _read()
+    category.setdefault("created_at", time.time())
+    data.setdefault("study_categories", []).append(category)
+    _write(data)
+    return category
+
+
+def update_session(session_id: str, patch: dict) -> dict | None:
+    import time
+    data = _read()
+    session = _find_session(data, session_id)
+    if not session:
+        return None
+    allowed = {"title", "category_id", "category_color", "deleted_at"}
+    for key, value in patch.items():
+        if key in allowed:
+            if value is None or value == "":
+                session.pop(key, None)
+            else:
+                session[key] = value
+    session["updated_at"] = time.time()
+    _write(data)
+    return dict(session)
+
+
+def update_category(category_id: str, patch: dict) -> dict | None:
+    data = _read()
+    category = next((item for item in data.setdefault("study_categories", []) if item.get("id") == category_id), None)
+    if not category:
+        return None
+    for key in ("name", "color"):
+        if key in patch and patch[key]:
+            category[key] = patch[key]
+    _write(data)
+    return dict(category)
+
+
+def delete_category(category_id: str) -> bool:
+    data = _read()
+    categories = data.setdefault("study_categories", [])
+    before = len(categories)
+    data["study_categories"] = [item for item in categories if item.get("id") != category_id]
+    if len(data["study_categories"]) == before:
+        return False
+    for session in data.get("sessions", []):
+        if session.get("category_id") == category_id:
+            session.pop("category_id", None)
+    _write(data)
+    return True
 
 
 def add_session(session: dict) -> None:

@@ -144,6 +144,10 @@ tailwind.config = {
 <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">chat_bubble</span>
 <span class="text-label-md font-label-md">Chat</span>
 </a>
+<button id="cinema-open-button" type="button" class="text-on-surface-variant flex items-center gap-3 px-4 py-3 text-left hover:bg-white/5 hover:text-secondary-fixed-dim transition-all hover:translate-x-1 duration-200">
+<span class="material-symbols-outlined">movie</span>
+<span class="text-label-md font-label-md">Cinema</span>
+</button>
 <!-- Calendar -->
 <a class="nav-button text-on-surface-variant flex items-center gap-3 px-4 py-3 hover:bg-white/5 hover:text-secondary-fixed-dim transition-all hover:translate-x-1 duration-200" href="#" data-screen="calendar">
 <span class="material-symbols-outlined">calendar_today</span>
@@ -254,8 +258,8 @@ tailwind.config = {
 <span class="material-symbols-outlined">more_vert</span>
 </div>
 <div class="relative z-10 my-8">
-<div id="climate-temperature" class="temperature-readout text-[64px] font-headline-xl font-bold text-white tracking-tighter leading-none mb-2" style="text-shadow: 0 0 20px rgba(223, 183, 255, 0.3);">72°</div>
-<p id="climate-caption" class="text-label-md font-label-md text-on-surface-variant">Set to 72°</p>
+<div id="climate-temperature" class="temperature-readout text-[64px] font-headline-xl font-bold text-white tracking-tighter leading-none mb-2" style="text-shadow: 0 0 20px rgba(223, 183, 255, 0.3);">22°C</div>
+<p id="climate-caption" class="text-label-md font-label-md text-on-surface-variant">Definido para 22°C (painel)</p>
 </div>
 <div class="flex gap-4 w-full relative z-10">
 <button data-temperature-step="-1" class="interactive-control flex-1 h-12 rounded-full border void-border bg-surface hover:bg-white/5 flex items-center justify-center transition-colors">
@@ -1527,20 +1531,6 @@ Virtual Studio 04
 <!-- Toast Container -->
 <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3 pointer-events-none max-w-sm w-full"></div>
 
-<!-- UI and Orb scripts -->
-<script src="/static/js/orb.js"></script>
-<script src="/static/js/voice.js"></script>
-<script src="/static/js/panel.js"></script>
-<script src="/static/js/home-dashboard.js"></script>
-<script src="/static/js/cinema.js"></script>
-<script src="/static/js/study/toolbar.js"></script>
-<script src="/static/js/study/flashcards.js"></script>
-<script src="/static/js/study/feynman.js"></script>
-<script src="/static/js/study/assessment.js"></script>
-<script src="/static/js/study/dashboard.js"></script>
-<script src="/static/js/study/enem.js"></script>
-<script src="/static/js/study-canvas.js"></script>
-<script src="/static/js/live_call.js"></script>
 <!-- Script Confirmation Modal -->
 <div id="script-modal-backdrop" class="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm hidden" style="animation: fadeIn 0.2s ease;">
   <div id="script-modal" class="relative w-full max-w-xl mx-4 rounded-2xl border border-white/10 bg-[#0d1117] shadow-2xl overflow-hidden" style="animation: slideUp 0.25s ease;">
@@ -1694,29 +1684,8 @@ Virtual Studio 04
       </div>
     </div>
 
-    <!-- Provider selector -->
-    <div class="flex items-center gap-2 shrink-0">
-      <span class="text-xs text-on-surface-variant hidden sm:block">Servidor:</span>
-      <select id="cinema-provider-select" class="bg-surface border border-primary-fixed-dim/20 text-white text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-primary-fixed-dim/60 cursor-pointer">
-        <option value="VidSrc CC">VidSrc CC</option>
-        <option value="EmbedSu">EmbedSu</option>
-        <option value="AutoEmbed">AutoEmbed</option>
-        <option value="VidSrc Me">VidSrc Me</option>
-        <option value="2Embed">2Embed</option>
-      </select>
-    </div>
-
-    <!-- TV Controls (Season + Episode) -->
-    <div id="cinema-tv-controls" class="hidden items-center gap-2 shrink-0">
-      <select id="cinema-season-select" class="bg-surface border border-purple-500/30 text-white text-xs rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"></select>
-      <select id="cinema-episode-select" class="bg-surface border border-purple-500/30 text-white text-xs rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"></select>
-    </div>
-
     <!-- Action Buttons -->
     <div class="flex items-center gap-2 shrink-0">
-      <button id="cinema-fullscreen-btn" title="Tela Cheia" class="p-2 rounded-lg text-on-surface-variant hover:text-primary-fixed-dim hover:bg-primary-fixed-dim/10 transition-colors">
-        <span class="material-symbols-outlined text-xl">fullscreen</span>
-      </button>
       <button id="cinema-modal-close" title="Fechar" class="p-2 rounded-lg text-on-surface-variant hover:text-white hover:bg-white/10 transition-colors">
         <span class="material-symbols-outlined text-xl">close</span>
       </button>
@@ -1729,40 +1698,72 @@ Virtual Studio 04
     <div class="hidden lg:flex flex-col gap-3 w-44 shrink-0">
       <img id="cinema-modal-poster" src="" alt="Poster" class="w-full rounded-xl border border-white/10 object-cover shadow-[0_0_20px_rgba(0,0,0,0.8)]" style="max-height:250px;object-fit:cover" />
       <div class="flex flex-col gap-2 mt-1">
-        <div class="text-[11px] text-on-surface-variant font-mono uppercase tracking-wider">Servidores</div>
-        <div class="text-[11px] text-on-surface-variant/60 leading-relaxed">Se um servidor travar, troque pelo seletor acima ↑</div>
+        <div class="text-[11px] text-on-surface-variant font-mono uppercase tracking-wider">Cinema</div>
+        <div class="text-[11px] text-on-surface-variant/60 leading-relaxed">Confira o trailer e a disponibilidade oficial do título.</div>
         <div class="mt-2 flex items-center gap-1.5">
           <span class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span class="text-[11px] text-emerald-400 font-mono">AD-FREE MODE</span>
+          <span class="text-[11px] text-emerald-400 font-mono">LEGAL SOURCES</span>
         </div>
       </div>
     </div>
 
-    <!-- Main Video Iframe -->
+    <!-- Main content area -->
     <div class="flex-1 rounded-2xl overflow-hidden border border-primary-fixed-dim/15 shadow-[0_0_50px_rgba(0,218,248,0.07)] bg-black relative" style="min-height:420px;">
       <!-- HUD corner decorations -->
       <div class="absolute top-3 left-3 w-6 h-6 border-t-2 border-l-2 border-primary-fixed-dim/30 rounded-tl pointer-events-none z-10"></div>
       <div class="absolute top-3 right-3 w-6 h-6 border-t-2 border-r-2 border-primary-fixed-dim/30 rounded-tr pointer-events-none z-10"></div>
       <div class="absolute bottom-3 left-3 w-6 h-6 border-b-2 border-l-2 border-primary-fixed-dim/30 rounded-bl pointer-events-none z-10"></div>
       <div class="absolute bottom-3 right-3 w-6 h-6 border-b-2 border-r-2 border-primary-fixed-dim/30 rounded-br pointer-events-none z-10"></div>
-      <!-- Iframe -->
-      <iframe
-        id="cinema-player-iframe"
-        src="about:blank"
-        class="w-full h-full"
-        style="min-height:420px;border:none;"
-        allowfullscreen
-        allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-        referrerpolicy="origin"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-presentation"
-      ></iframe>
+      <video id="cinema-video-player" class="hidden h-full min-h-[420px] w-full bg-black" controls playsinline></video>
+      <div id="cinema-discovery-state" class="h-full min-h-[420px] flex flex-col items-center justify-center gap-5 p-8 text-center">
+        <span class="material-symbols-outlined text-primary-fixed-dim text-6xl">movie</span>
+        <div>
+          <p class="text-xl font-semibold text-white">Jarvis Cinema</p>
+          <p class="mt-2 max-w-md text-sm text-on-surface-variant">Reproduza URLs diretas que você adicionar ou confira trailer e disponibilidade oficial de um título.</p>
+        </div>
+        <div class="flex flex-wrap justify-center gap-3">
+          <a id="cinema-trailer-link" target="_blank" rel="noopener noreferrer" class="rounded-lg bg-primary-fixed-dim px-4 py-2.5 text-sm font-semibold text-background transition hover:brightness-110">Ver trailer</a>
+          <a id="cinema-watch-link" target="_blank" rel="noopener noreferrer" class="rounded-lg border border-white/20 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10">Onde assistir</a>
+          <a id="cinema-imdb-link" target="_blank" rel="noopener noreferrer" class="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-on-surface-variant transition hover:bg-white/5">IMDb</a>
+        </div>
+      </div>
     </div>
+  </div>
+
+  <div class="w-full max-w-7xl grid gap-3 px-4 pb-4 lg:grid-cols-[1.3fr_1fr]">
+    <section class="rounded-xl border border-white/10 bg-surface-container-low/80 p-3">
+      <div class="mb-2 flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-primary-fixed-dim"><span class="material-symbols-outlined text-base">video_library</span> Biblioteca</div>
+      <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <select id="cinema-library-select" class="rounded-lg border border-white/10 bg-surface px-2 py-2 text-xs text-white sm:col-span-2"><option value="">Selecione uma mídia salva</option></select>
+        <select id="cinema-season-select" class="hidden rounded-lg border border-white/10 bg-surface px-2 py-2 text-xs text-white"></select>
+        <select id="cinema-episode-select" class="hidden rounded-lg border border-white/10 bg-surface px-2 py-2 text-xs text-white"></select>
+        <select id="cinema-quality-select" class="rounded-lg border border-white/10 bg-surface px-2 py-2 text-xs text-white"><option value="">Fonte / qualidade</option></select>
+        <button id="cinema-play-library" type="button" class="rounded-lg bg-primary-fixed-dim px-3 py-2 text-xs font-bold text-background">Reproduzir</button>
+        <button id="cinema-next-episode" type="button" class="hidden rounded-lg border border-primary-fixed-dim/40 px-3 py-2 text-xs font-bold text-primary-fixed-dim">Próximo episódio</button>
+      </div>
+      <div class="mt-3 border-t border-white/10 pt-3">
+        <div class="mb-2 text-xs font-mono uppercase tracking-wider text-primary-fixed-dim">Pesquisar fontes aprovadas</div>
+        <div class="flex gap-2"><input id="cinema-discovery-query" maxlength="160" placeholder="Nome do filme ou série" class="min-w-0 flex-1 rounded-lg border border-white/10 bg-surface px-2 py-2 text-xs text-white placeholder:text-on-surface-variant" /><button id="cinema-discovery-search" type="button" class="rounded-lg border border-primary-fixed-dim/40 px-3 py-2 text-xs font-bold text-primary-fixed-dim">Pesquisar</button></div>
+        <div id="cinema-discovery-results" class="mt-2 max-h-32 space-y-1 overflow-y-auto text-xs text-on-surface-variant"></div>
+      </div>
+    </section>
+    <section class="rounded-xl border border-white/10 bg-surface-container-low/80 p-3">
+      <div class="mb-2 flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-primary-fixed-dim"><span class="material-symbols-outlined text-base">add_link</span> Adicionar URL</div>
+      <div class="grid gap-2 sm:grid-cols-2">
+        <input id="cinema-source-title" maxlength="160" placeholder="Título" class="rounded-lg border border-white/10 bg-surface px-2 py-2 text-xs text-white placeholder:text-on-surface-variant" />
+        <input id="cinema-source-url" type="url" placeholder="https://.../video.mp4 ou .m3u8" class="rounded-lg border border-white/10 bg-surface px-2 py-2 text-xs text-white placeholder:text-on-surface-variant" />
+        <select id="cinema-source-type" class="rounded-lg border border-white/10 bg-surface px-2 py-2 text-xs text-white"><option value="movie">Filme</option><option value="tv">Série</option></select>
+        <input id="cinema-source-label" maxlength="50" placeholder="Qualidade (ex.: 1080p)" class="rounded-lg border border-white/10 bg-surface px-2 py-2 text-xs text-white placeholder:text-on-surface-variant" />
+        <div id="cinema-source-episode-fields" class="hidden grid grid-cols-2 gap-2"><input id="cinema-source-season" type="number" min="1" value="1" title="Temporada" class="rounded-lg border border-white/10 bg-surface px-2 py-2 text-xs text-white" /><input id="cinema-source-episode" type="number" min="1" value="1" title="Episódio" class="rounded-lg border border-white/10 bg-surface px-2 py-2 text-xs text-white" /></div>
+        <button id="cinema-save-source" type="button" class="rounded-lg border border-primary-fixed-dim/40 px-3 py-2 text-xs font-bold text-primary-fixed-dim">Salvar fonte</button>
+      </div>
+    </section>
   </div>
 
   <!-- Footer scanning bar -->
   <div class="w-full h-px bg-gradient-to-r from-transparent via-primary-fixed-dim/40 to-transparent"></div>
   <div class="w-full px-5 py-2 flex items-center justify-between text-[11px] font-mono text-on-surface-variant/40">
-    <span>JARVIS CINEMA SYSTEM v1.0 · AD-FREE PLAYER</span>
+    <span>JARVIS CINEMA SYSTEM v1.0 · TRAILERS &amp; DISCOVERY</span>
     <span id="cinema-footer-imdb" class="text-primary-fixed-dim/50">IMDb: —</span>
   </div>
 </div>
@@ -1978,69 +1979,20 @@ Virtual Studio 04
 })();
 </script>
 
-<!-- Jarvis Cinema Modal -->
-<div id="cinema-modal-overlay" class="fixed inset-0 z-[120] hidden bg-black/85 backdrop-blur-md">
-  <div class="relative mx-auto mt-8 w-[min(92vw,1200px)] rounded-3xl border border-white/10 bg-surface-container-high/95 p-6 shadow-[0_0_60px_rgba(0,0,0,0.55)]">
-    <button id="cinema-modal-close" class="absolute right-4 top-4 rounded-full border border-white/10 bg-white/5 p-2 text-on-surface-variant transition hover:bg-white/10" aria-label="Fechar cinema">
-      <span class="material-symbols-outlined">close</span>
-    </button>
-
-    <div class="flex flex-col gap-6 lg:flex-row">
-      <div class="w-full lg:w-72">
-        <img id="cinema-modal-poster" class="hidden h-80 w-full rounded-2xl border border-white/10 object-cover" alt="Poster do conteúdo" />
-      </div>
-
-      <div class="flex-1">
-        <div class="flex items-center gap-3">
-          <span id="cinema-modal-type-badge" class="text-[11px] font-mono font-bold uppercase tracking-[0.2em] rounded-full border border-primary-fixed-dim/40 bg-primary-fixed-dim/20 px-2.5 py-0.5 text-primary-fixed-dim">FILME</span>
-          <span class="text-[11px] font-mono uppercase tracking-[0.2em] text-on-surface-variant">Jarvis Cinema</span>
-        </div>
-
-        <h3 id="cinema-modal-title" class="mt-3 text-2xl font-semibold text-white">Carregando...</h3>
-
-        <div class="mt-4 flex flex-wrap items-center gap-3">
-          <label class="flex items-center gap-2 text-sm text-on-surface-variant">
-            <span class="text-[11px] uppercase tracking-[0.2em]">Provedor</span>
-            <select id="cinema-provider-select" class="rounded-lg border border-white/10 bg-surface px-3 py-2 text-sm text-white">
-              <option value="VidSrc CC">VidSrc CC</option>
-              <option value="EmbedSu">EmbedSu</option>
-              <option value="AutoEmbed">AutoEmbed</option>
-              <option value="VidSrc Me">VidSrc Me</option>
-              <option value="2Embed">2Embed</option>
-            </select>
-          </label>
-
-          <div id="cinema-tv-controls" class="hidden flex flex-wrap items-center gap-3">
-            <label class="flex items-center gap-2 text-sm text-on-surface-variant">
-              <span class="text-[11px] uppercase tracking-[0.2em]">Temporada</span>
-              <select id="cinema-season-select" class="rounded-lg border border-white/10 bg-surface px-3 py-2 text-sm text-white"></select>
-            </label>
-            <label class="flex items-center gap-2 text-sm text-on-surface-variant">
-              <span class="text-[11px] uppercase tracking-[0.2em]">Episódio</span>
-              <select id="cinema-episode-select" class="rounded-lg border border-white/10 bg-surface px-3 py-2 text-sm text-white"></select>
-            </label>
-          </div>
-        </div>
-
-        <div class="mt-5 overflow-hidden rounded-2xl border border-white/10 bg-black/70">
-          <iframe id="cinema-player-iframe" title="Jarvis Cinema Player" src="about:blank" class="h-[480px] w-full"></iframe>
-        </div>
-
-        <div class="mt-3 flex items-center justify-between text-sm text-on-surface-variant">
-          <span id="cinema-footer-imdb">IMDb: —</span>
-          <button id="cinema-fullscreen-btn" class="rounded-lg border border-white/10 bg-white/5 px-3 py-2 transition hover:bg-white/10">Tela cheia</button>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
 <script src="/static/js/app.js"></script>
-<script src="/static/js/home-dashboard.js"></script>
 <script src="/static/js/orb.js"></script>
 <script src="/static/js/voice.js"></script>
 <script src="/static/js/panel.js"></script>
+<script src="/static/js/home-dashboard.js"></script>
 <script src="/static/js/cinema.js"></script>
+<script src="/static/js/study/toolbar.js"></script>
+<script src="/static/js/study/flashcards.js"></script>
+<script src="/static/js/study/feynman.js"></script>
+<script src="/static/js/study/assessment.js"></script>
+<script src="/static/js/study/dashboard.js"></script>
+<script src="/static/js/study/enem.js"></script>
+<script src="/static/js/study-canvas.js"></script>
+<script src="/static/js/live_call.js"></script>
 </body>
 </html>
 

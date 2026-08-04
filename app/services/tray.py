@@ -226,5 +226,14 @@ class TrayService:
             except Exception:
                 pass
 
+    def notify(self, title: str, message: str) -> None:
+        """Shows a native tray notification when the desktop tray is available."""
+        if not self._icon:
+            return
+        try:
+            self._icon.notify(message, title)
+        except Exception as exc:
+            print(f"[TrayService] Falha ao notificar: {exc}")
+
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()

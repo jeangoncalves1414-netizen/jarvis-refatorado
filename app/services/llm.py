@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
@@ -189,6 +190,7 @@ class LLMService:
         self,
         contents: Any,
         on_chunk: Any = None,
+        on_reasoning: Any = None,
         tools: list[dict[str, Any]] | None = None,
         system_instruction: str | None = None,
         provider: str | None = None,
@@ -200,8 +202,8 @@ class LLMService:
             raise ValueError(f"{key_name} não configurada.")
 
         if active == "groq":
-            return self._generate_groq_stream(contents, on_chunk, tools, system_instruction, api_key)
-        return self._generate_gemini_stream(contents, on_chunk, tools, system_instruction, api_key)
+            return self._generate_groq_stream(contents, on_chunk, tools, system_instruction, api_key, on_reasoning)
+        return self._generate_gemini_stream(contents, on_chunk, tools, system_instruction, api_key, on_reasoning)
 
     def _generate_groq_stream(
         self,
@@ -210,6 +212,7 @@ class LLMService:
         tools: list[dict[str, Any]] | None,
         system_instruction: str | None,
         api_key: str,
+        on_reasoning: Any = None,
     ) -> LLMResponse:
         from groq import Groq
         client = Groq(api_key=api_key)
@@ -226,8 +229,19 @@ class LLMService:
         try:
             stream_resp = client.chat.completions.create(**kwargs)
             for chunk in stream_resp:
-                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                    text_delta = chunk.choices[0].delta.content
+                if not getattr(chunk, "choices", None):
+                    continue
+                delta = chunk.choices[0].delta
+                if delta is None:
+                    continue
+                reason = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
+                if reason and on_reasoning:
+                    try:
+                        on_reasoning(reason)
+                    except Exception:
+                        pass
+                text_delta = getattr(delta, "content", None)
+                if text_delta:
                     full_chunks.append(text_delta)
                     if on_chunk:
                         try:
@@ -246,27 +260,43 @@ class LLMService:
         tools: list[dict[str, Any]] | None,
         system_instruction: str | None,
         api_key: str,
+        on_reasoning: Any = None,
     ) -> LLMResponse:
         from google import genai
+        from google.genai import types
         client = genai.Client(api_key=api_key)
         model_name = getattr(self.settings, "llm_model", "gemini-flash-latest")
         config_args: dict[str, Any] = {}
         if system_instruction:
             config_args["system_instruction"] = system_instruction
+        config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
 
         full_chunks = []
         try:
             response_stream = client.models.generate_content_stream(
                 model=model_name,
                 contents=contents,
-                config=config_args if config_args else None
+                config=types.GenerateContentConfig(**config_args) if config_args else None,
             )
             for chunk in response_stream:
-                if hasattr(chunk, "text") and chunk.text:
-                    full_chunks.append(chunk.text)
+                text_piece = getattr(chunk, "text", None)
+                for candidate in getattr(chunk, "candidates", []):
+                    for part in getattr(getattr(candidate, "content", None), "parts", []):
+                        if getattr(part, "thought", False):
+                            thought_text = getattr(part, "text", None)
+                            if thought_text and on_reasoning:
+                                try:
+                                    on_reasoning(thought_text)
+                                except Exception:
+                                    pass
+                            continue
+                        if not text_piece and getattr(part, "text", None):
+                            text_piece = part.text
+                if text_piece:
+                    full_chunks.append(text_piece)
                     if on_chunk:
                         try:
-                            on_chunk(chunk.text)
+                            on_chunk(text_piece)
                         except Exception:
                             pass
             return LLMResponse(text="".join(full_chunks))
@@ -301,7 +331,15 @@ class LLMService:
             if tools:
                 kwargs["tools"] = tools
             
-            completion = client.chat.completions.create(**kwargs)
+            try:
+                completion = client.chat.completions.create(**kwargs)
+            except Exception as request_error:
+                if "reasoning_effort" in str(request_error).lower() or "include_reasoning" in str(request_error).lower():
+                    kwargs.pop("reasoning_effort", None)
+                    kwargs.pop("include_reasoning", None)
+                    completion = client.chat.completions.create(**kwargs)
+                else:
+                    raise
             message = completion.choices[0].message
             function_calls: list[Any] = []
 
@@ -406,6 +444,10 @@ class LLMService:
             "messages": messages,
             "temperature": 0.4,
         }
+        if model_name.lower().startswith("openai/gpt-oss"):
+            default_effort = "high" if "MODO DE PLANEJAMENTO" in (system_instruction or "") else "medium"
+            kwargs["reasoning_effort"] = os.getenv("GROQ_REASONING_EFFORT", default_effort).lower()
+            kwargs["include_reasoning"] = True
         
         # Tenta com tools, mas se falhar, retry sem tools
         try:
@@ -460,8 +502,13 @@ class LLMService:
         on_function_call: callable | None = None,
         on_chunk: callable | None = None,
         force_tool: bool = False,
+        on_reasoning: callable | None = None,
     ) -> str | None:
-        """Chat com function calling nativo para Gemini e Groq."""
+        """Chat com function calling nativo para Gemini e Groq.
+
+        on_reasoning recebe, em tempo real, os fragmentos de raciocínio do modelo
+        (reasoning_content no Groq / thought parts no Gemini) para exibição ao vivo.
+        """
         active_provider = self.get_active_provider()
         if active_provider == "groq":
             return self._chat_groq_stream(
@@ -470,6 +517,7 @@ class LLMService:
                 tools=tools,
                 on_function_call=on_function_call,
                 on_chunk=on_chunk,
+                on_reasoning=on_reasoning,
             )
 
         api_key = self._api_key_for("gemini")
@@ -512,6 +560,7 @@ class LLMService:
             config_args: dict[str, Any] = {}
             if system_instruction:
                 config_args["system_instruction"] = system_instruction
+            config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
 
             if tools:
                 declarations = [
@@ -538,7 +587,7 @@ class LLMService:
 
             function_calls: list[tuple[str, dict, Any]] = []
             full_text = ""
-            
+
             for chunk in response_stream:
                 # O chunk pode ter texto direto ou function_calls
                 text_piece = getattr(chunk, "text", None)
@@ -546,15 +595,24 @@ class LLMService:
                     full_text += text_piece
                     if on_chunk:
                         on_chunk(text_piece)
-                
-                # Procura por tools ou pedaços de texto dentro dos candidates
+
+                # Procura por tools, pedacos de texto e raciocinio (thought) dentro dos candidates
                 for candidate in getattr(chunk, "candidates", []):
                     for part in getattr(getattr(candidate, "content", None), "parts", []):
+                        # Parts de raciocinio (thought=True) -> reasoning ao vivo
+                        if getattr(part, "thought", False):
+                            thought_text = getattr(part, "text", None)
+                            if thought_text and on_reasoning:
+                                try:
+                                    on_reasoning(thought_text)
+                                except Exception:
+                                    pass
+                            continue
                         fc = getattr(part, "function_call", None)
                         if fc:
                             args = dict(fc.args) if fc.args else {}
                             function_calls.append((fc.name, args, part))
-                        # As vezes o chunk.text é None mas o part.text existe
+                        # As vezes o chunk.text eh None mas o part.text existe
                         elif not text_piece and getattr(part, "text", None):
                             text_p = part.text
                             full_text += text_p
@@ -588,6 +646,7 @@ class LLMService:
 
             config2 = types.GenerateContentConfig(
                 system_instruction=system_instruction if system_instruction else None,
+                thinking_config=types.ThinkingConfig(include_thoughts=True),
             )
             final_stream = client.models.generate_content_stream(
                 model=model_name,
@@ -602,15 +661,22 @@ class LLMService:
                     final_text += text_piece
                     if on_chunk:
                         on_chunk(text_piece)
-                else:
-                    for candidate in getattr(chunk, "candidates", []):
-                        for part in getattr(getattr(candidate, "content", None), "parts", []):
-                            if getattr(part, "text", None):
-                                text_p = part.text
-                                final_text += text_p
-                                if on_chunk:
-                                    on_chunk(text_p)
-                                    
+                # Parts de raciocinio (thought=True) -> reasoning ao vivo
+                for candidate in getattr(chunk, "candidates", []):
+                    for part in getattr(getattr(candidate, "content", None), "parts", []):
+                        if getattr(part, "thought", False):
+                            thought_text = getattr(part, "text", None)
+                            if thought_text and on_reasoning:
+                                try:
+                                    on_reasoning(thought_text)
+                                except Exception:
+                                    pass
+                        elif not text_piece and getattr(part, "text", None):
+                            text_p = part.text
+                            final_text += text_p
+                            if on_chunk:
+                                on_chunk(text_p)
+
             return final_text if final_text else None
 
         except Exception as e:
@@ -654,6 +720,7 @@ class LLMService:
                         tools=tools,
                         on_function_call=on_function_call,
                         on_chunk=on_chunk,
+                        on_reasoning=on_reasoning,
                     )
                 except Exception as groq_err:
                     print(f"[LLM] Falha no fallback Groq: {groq_err}")
@@ -671,8 +738,9 @@ class LLMService:
         tools: list[dict[str, Any]] | None = None,
         on_function_call: callable | None = None,
         on_chunk: callable | None = None,
+        on_reasoning: callable | None = None,
     ) -> str | None:
-        """Function Calling nativo de 2 etapas para Groq (OpenAI format)."""
+        """Function calling nativo de 2 etapas para Groq (streaming + reasoning)."""
         from groq import Groq
         api_key = self._api_key_for("groq")
         if not api_key:
@@ -705,64 +773,156 @@ class LLMService:
                 for tool in tools
             ]
 
-        kwargs: dict[str, Any] = {
-            "model": model_name,
-            "messages": formatted_messages,
-            "temperature": 0.4,
-        }
-        if groq_tools:
-            kwargs["tools"] = groq_tools
-            kwargs["tool_choice"] = "auto"
+        def _emit_reasoning(piece: str) -> None:
+            if piece and on_reasoning:
+                try:
+                    on_reasoning(piece)
+                except Exception:
+                    pass
+
+        def _emit_chunk(piece: str) -> None:
+            if piece and on_chunk:
+                try:
+                    on_chunk(piece)
+                except Exception:
+                    pass
+
+        def _stream_turn(
+            msgs: list[dict[str, Any]], with_tools: bool = True
+        ) -> tuple[str, dict[int, dict[str, str]]]:
+            """Streams one turn. Emite reasoning (delta.reasoning | delta.reasoning_content)
+            e conteudo (delta.content) em tempo real.
+            Retorna (texto_acumulado, tool_calls_agrupadas_por_index)."""
+            kwargs: dict[str, Any] = {
+                "model": model_name,
+                "messages": msgs,
+                "temperature": 0.4,
+                "stream": True,
+            }
+            if model_name.lower().startswith("openai/gpt-oss"):
+                # GPT-OSS só emite raciocínio quando este parâmetro é enviado.
+                # O valor pode ser ajustado sem alterar código: low|medium|high.
+                default_effort = "high" if "MODO DE PLANEJAMENTO" in (system_instruction or "") else "medium"
+                kwargs["reasoning_effort"] = os.getenv("GROQ_REASONING_EFFORT", default_effort).lower()
+                kwargs["include_reasoning"] = True
+            if with_tools and groq_tools:
+                kwargs["tools"] = groq_tools
+                kwargs["tool_choice"] = "auto"
+
+            text = ""
+            tool_calls: dict[int, dict[str, str]] = {}
+
+            try:
+                stream = client.chat.completions.create(**kwargs)
+            except Exception as request_error:
+                if "reasoning_effort" in str(request_error).lower() or "include_reasoning" in str(request_error).lower():
+                    kwargs.pop("reasoning_effort", None)
+                    kwargs.pop("include_reasoning", None)
+                    stream = client.chat.completions.create(**kwargs)
+                else:
+                    raise
+            for chunk in stream:
+                if not getattr(chunk, "choices", None):
+                    continue
+                delta = chunk.choices[0].delta
+                if delta is None:
+                    continue
+
+                reason = getattr(delta, "reasoning", None)
+                if not reason:
+                    reason = getattr(delta, "reasoning_content", None)
+                if reason:
+                    _emit_reasoning(reason)
+
+                content = getattr(delta, "content", None)
+                if content:
+                    text += content
+                    _emit_chunk(content)
+
+                tcs = getattr(delta, "tool_calls", None)
+                if tcs:
+                    for tc in tcs:
+                        idx = getattr(tc, "index", None) or 0
+                        entry = tool_calls.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                        if getattr(tc, "id", None):
+                            entry["id"] = tc.id
+                        fn = getattr(tc, "function", None)
+                        if fn is not None:
+                            if getattr(fn, "name", None):
+                                entry["name"] = fn.name
+                            args = getattr(fn, "arguments", None)
+                            if args:
+                                entry["arguments"] += args
+
+            return text, tool_calls
+
+        def _ordered_tool_calls(tool_calls: dict[int, dict[str, str]]) -> list[dict[str, str]]:
+            return [tool_calls[i] for i in sorted(tool_calls)]
 
         try:
-            completion = client.chat.completions.create(**kwargs)
-            msg = completion.choices[0].message
-            tool_calls = getattr(msg, "tool_calls", None) or []
+            first_text, first_tools = _stream_turn(formatted_messages, with_tools=bool(groq_tools))
 
-            if tool_calls:
-                formatted_messages.append(msg)
-                for tc in tool_calls:
-                    fn_name = tc.function.name
-                    args_raw = tc.function.arguments or "{}"
+            if not first_tools:
+                return first_text if first_text else None
+
+            # Executar as tools e montar a segunda rodada
+            assistant_msg: dict[str, Any] = {
+                "role": "assistant",
+                "content": first_text or None,
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {"name": tc["name"], "arguments": tc["arguments"] or "{}"},
+                    }
+                    for tc in _ordered_tool_calls(first_tools)
+                ],
+            }
+            formatted_messages.append(assistant_msg)
+
+            for tc in _ordered_tool_calls(first_tools):
+                fn_name = tc["name"]
+                args_raw = tc["arguments"] or "{}"
+                try:
+                    args = json.loads(args_raw) if isinstance(args_raw, str) else dict(args_raw)
+                except Exception:
+                    args = {}
+
+                tool_result = ""
+                if on_function_call:
                     try:
-                        args = json.loads(args_raw) if isinstance(args_raw, str) else dict(args_raw)
-                    except Exception:
-                        args = {}
-
-                    tool_result = ""
-                    if on_function_call:
                         tool_result = str(on_function_call(fn_name, args))
+                    except Exception as exfn:
+                        print(f"[Groq] Erro ao executar tool {fn_name}: {exfn}")
 
-                    formatted_messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": tool_result or "Ação concluída com sucesso."
-                    })
+                formatted_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": tool_result or "Acao concluida com sucesso.",
+                })
 
-                final_completion = client.chat.completions.create(
-                    model=model_name,
-                    messages=formatted_messages,
-                    temperature=0.4,
-                )
-                final_text = final_completion.choices[0].message.content or ""
-                if on_chunk and final_text:
-                    on_chunk(final_text)
-                return final_text
+            # Segunda rodada sem o bloco assistant/tool_calls. Alguns modelos
+            # GPT-OSS tentam chamar a ferramenta novamente ao enxergar esse
+            # bloco mesmo com tools desabilitadas, gerando "Tool choice is none".
+            tool_summary = "\n".join(
+                f"Resultado de {tc['name']}: {next((m.get('content', '') for m in reversed(formatted_messages) if m.get('role') == 'tool' and m.get('tool_call_id') == tc['id']), '')}"
+                for tc in _ordered_tool_calls(first_tools)
+            )
+            final_messages = formatted_messages[:-(len(first_tools) + 1)]
+            final_messages.append({"role": "user", "content": f"As ações solicitadas foram executadas. Resultados:\n{tool_summary}\nResponda ao usuário diretamente, sem chamar ferramentas novamente."})
+            final_text, _final_tools = _stream_turn(final_messages, with_tools=False)
+            return final_text if final_text else (first_text or None)
 
-            text = msg.content or ""
-            if on_chunk and text:
-                on_chunk(text)
-            return text
         except Exception as e:
             err_msg = str(e)
             # Tratar caso o Groq retorne erro 400 tool_use_failed com failed_generation
             if "failed_generation" in err_msg and ("<function=" in err_msg or "function=" in err_msg):
                 import re
-                print(f"[Groq] Resgatando chamada de função do failed_generation: {err_msg}")
-                match = re.search(r'<function=([a-zA-Z0-9_]+)(\(\{.*?\}\)|\{.*?\})', err_msg)
+                print(f"[Groq] Resgatando chamada de funcao do failed_generation: {err_msg}")
+                match = re.search(r"<function=([a-zA-Z0-9_]+)(\(\{.*?\}\)|\{.*?\})", err_msg)
                 if not match:
-                    match = re.search(r'function=([a-zA-Z0-9_]+)(\(\{.*?\}\)|\{.*?\})', err_msg)
-                
+                    match = re.search(r"function=([a-zA-Z0-9_]+)(\(\{.*?\}\)|\{.*?\})", err_msg)
+
                 if match:
                     fn_name = match.group(1)
                     raw_args = match.group(2).lstrip("(").rstrip(")")
@@ -770,22 +930,21 @@ class LLMService:
                         args = json.loads(raw_args) if raw_args else {}
                     except Exception:
                         args = {}
-                    
+
                     tool_result = ""
                     if on_function_call:
                         tool_result = str(on_function_call(fn_name, args))
 
-                    # Gerar resposta final em linguagem natural
-                    formatted_messages.append({"role": "user", "content": f"O resultado da ação {fn_name} foi: {tool_result}. Responda ao usuário com elegância em 1 frase."})
+                    # Gerar resposta final em linguagem natural (streaming, com reasoning)
+                    formatted_messages.append({"role": "user", "content": f"O resultado da acao {fn_name} foi: {tool_result}. Responda ao usuario com elegancia em 1 frase."})
                     try:
-                        kwargs_retry = {"model": model_name, "messages": formatted_messages, "temperature": 0.4}
-                        final_res = client.chat.completions.create(**kwargs_retry)
-                        txt = final_res.choices[0].message.content or tool_result
+                        rescued_text, _rescued_tools = _stream_turn(formatted_messages, with_tools=False)
+                        txt = rescued_text or tool_result
                         if on_chunk and txt:
-                            on_chunk(txt)
+                            _emit_chunk(txt)
                         return txt
                     except Exception:
-                        return tool_result or "Ação processada com sucesso."
+                        return tool_result or "Acao processada com sucesso."
 
             print(f"[Groq Function Calling Stream] Erro: {e}")
             err_str = str(e).lower()
@@ -793,10 +952,10 @@ class LLMService:
                 # Marca a chave atual em cooldown (10 min)
                 _key_rotator.mark_cooldown(api_key, duration_seconds=600.0)
 
-                # Tenta a próxima chave do pool Groq
+                # Tenta a proxima chave do pool Groq
                 next_key = _key_rotator.rotate_next("groq", self.settings)
                 if next_key and next_key != api_key:
-                    print(f"[Groq] Alternando para próxima chave do pool ({next_key[:8]}...)...")
+                    print(f"[Groq] Alternando para proxima chave do pool ({next_key[:8]}...)...")
                     try:
                         return self._chat_groq_stream(
                             system_instruction=system_instruction,
@@ -804,14 +963,15 @@ class LLMService:
                             tools=tools,
                             on_function_call=on_function_call,
                             on_chunk=on_chunk,
+                            on_reasoning=on_reasoning,
                         )
                     except Exception as retry_err:
-                        print(f"[Groq] Falha com chave secundária: {retry_err}")
+                        print(f"[Groq] Falha com chave secundaria: {retry_err}")
 
-                # Fallback automático para Gemini se todas as chaves Groq falharem
+                # Fallback automatico para Gemini se todas as chaves Groq falharem
                 gemini_key = self._api_key_for("gemini")
                 if gemini_key:
-                    print("[LLM] Todas as chaves Groq esgotadas. Fallback automático de emergência para Gemini...")
+                    print("[LLM] Todas as chaves Groq esgotadas. Fallback automatico de emergencia para Gemini...")
                     try:
                         return self.chat_with_functions_stream(
                             system_instruction=system_instruction,
@@ -819,11 +979,12 @@ class LLMService:
                             tools=tools,
                             on_function_call=on_function_call,
                             on_chunk=on_chunk,
+                            on_reasoning=on_reasoning,
                         )
                     except Exception as gem_err:
                         print(f"[LLM] Falha no fallback para Gemini: {gem_err}")
 
-                raise ValueError("Todas as chaves da API Groq atingiram o limite de cota (TPD/TPM). Por favor, adicione mais chaves em GROQ_API_KEYS no .env ou altere para 'Gemini' nas Configurações.")
+                raise ValueError("Todas as chaves da API Groq atingiram o limite de cota (TPD/TPM). Por favor, adicione mais chaves em GROQ_API_KEYS no .env ou altere para 'Gemini' nas Configuracoes.")
             raise
 
 

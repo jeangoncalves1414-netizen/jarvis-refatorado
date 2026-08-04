@@ -10,13 +10,14 @@ from .browser_agent import BrowserAgentTool
 from .timer import TimerTool
 from .whatsapp import WhatsAppTool
 from .spotify import SpotifyTool
-from .whiteboard import WhiteboardAddTextTool, WhiteboardAddImageTool, WhiteboardClearTool
+from .whiteboard import WhiteboardAddTextTool, WhiteboardAddImageTool, WhiteboardClearTool, WhiteboardEditTool
 from .clipboard import ClipboardTool, NewsTool
 from .open_windows_app import OpenWindowsAppTool
 from .script_runner import ScriptRunnerTool
 from .vision_tool import VisionTool
 from .realtime_tool import RealTimeTool
 from .cinema_tool import CinemaTool
+from .calendar_tool import CalendarTool
 try:
     from .system_tray_tool import SystemTrayTool
     TRAY_TOOL_AVAILABLE = True
@@ -44,11 +45,11 @@ except ImportError:
 GENERAL_TOOL_NAMES = {
     "file_manager", "system_control", "jarvis_mode", "web_search", "browser_agent", "timer",
     "whatsapp", "spotify", "clipboard", "news_reader", "open_windows_app", "script_runner",
-    "vision", "realtime", "proactive_agent", "system_tray", "cinema",
+    "vision", "realtime", "proactive_agent", "system_tray", "cinema", "calendar",
 }
 
 TUTOR_TOOL_NAMES = {
-    "whiteboard_add_text", "whiteboard_add_image", "whiteboard_clear",
+    "whiteboard_add_text", "whiteboard_add_image", "whiteboard_edit", "whiteboard_clear",
     "tutor_save_progress", "tutor_add_flashcard", "tutor_save_feynman", "enem_save_question",
 }
 
@@ -87,11 +88,13 @@ class ToolRegistry:
         self._register(VisionTool())
         self._register(RealTimeTool())
         self._register(CinemaTool())
+        self._register(CalendarTool())
         self._register(ProactiveAgentTool())
         if TRAY_TOOL_AVAILABLE:
             self._register(SystemTrayTool())
         self._register(WhiteboardAddTextTool())
         self._register(WhiteboardAddImageTool())
+        self._register(WhiteboardEditTool())
         self._register(WhiteboardClearTool())
         if tutor_store:
             self._register(TutorSaveProgressTool(tutor_store))

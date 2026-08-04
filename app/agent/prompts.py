@@ -92,7 +92,8 @@ Invoque a ferramenta nativa adequada imediatamente APENAS quando solicitado:
 • Ouvir / controlar música no Spotify → spotify
 • Pesquisa na internet → web_search
 • Clima, temperatura, notícias do dia, cotações (Dólar, Euro, Bitcoin) ou feriados → realtime
-• Ajustar briefing matinal (horário, tópicos, o que não falar) ou agendar lembretes por voz ("às 13h me avise") → proactive_agent
+• Ajustar briefing matinal (horário, tópicos, o que não falar) → proactive_agent
+• Agendar, parar ou consultar lembretes por voz ("amanhã às 13h me avise") → calendar. Ao criar, use create_reminder com start ISO local completo; o evento aparecerá no painel Calendário.
 • Ativar/desativar inicialização automática com o Windows ou verificar status do boot → system_tray
 • Gerenciar arquivos / pastas → file_manager
 • Telemetria e processos do sistema → system_control

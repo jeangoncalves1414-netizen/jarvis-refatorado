@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -12,40 +13,76 @@ from typing import Any
 class RealTimeService:
     """Busca dados atualizados em tempo real de APIs públicas e gratuitas sem necessidade de chave."""
 
+    _WEATHER_CODES = {
+        0: "Céu limpo", 1: "Predominantemente limpo", 2: "Parcialmente nublado",
+        3: "Nublado", 45: "Neblina", 48: "Neblina com geada", 51: "Garoa leve",
+        53: "Garoa", 55: "Garoa intensa", 61: "Chuva leve", 63: "Chuva",
+        65: "Chuva forte", 71: "Neve leve", 73: "Neve", 75: "Neve forte",
+        80: "Pancadas leves", 81: "Pancadas", 82: "Pancadas fortes",
+        95: "Trovoadas", 96: "Trovoadas com granizo", 99: "Trovoadas fortes com granizo",
+    }
+
     @staticmethod
-    def get_weather(city: str = "") -> dict[str, Any]:
-        """Obtém dados meteorológicos de wttr.in em formato JSON."""
-        encoded_city = urllib.parse.quote(city.strip()) if city.strip() else ""
-        url = f"https://wttr.in/{encoded_city}?format=j1&lang=pt" if encoded_city else "https://wttr.in/?format=j1&lang=pt"
+    def _get_json(url: str, timeout: int = 6) -> dict[str, Any]:
+        request = urllib.request.Request(url, headers={"User-Agent": "Jarvis-Rebuild/1.0"})
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    @classmethod
+    def _resolve_city(cls, city: str) -> str:
+        requested = city.strip() or os.getenv("WEATHER_CITY", "").strip()
+        if requested:
+            return requested
+        try:
+            location = cls._get_json("https://ipapi.co/json/", timeout=4)
+            return str(location.get("city", "")).strip()
+        except Exception:
+            return ""
+
+    @classmethod
+    def get_weather(cls, city: str = "") -> dict[str, Any]:
+        """Obtém clima pelo Open-Meteo, uma API gratuita e sem chave."""
+        requested_city = cls._resolve_city(city)
+        if not requested_city:
+            return {
+                "ok": False,
+                "error": "Informe uma cidade ou defina WEATHER_CITY no arquivo .env.",
+            }
 
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            encoded_city = urllib.parse.quote(requested_city)
+            geocoding = cls._get_json(
+                "https://geocoding-api.open-meteo.com/v1/search"
+                f"?name={encoded_city}&count=1&language=pt&format=json"
+            )
+            result = (geocoding.get("results") or [None])[0]
+            if not result:
+                return {"ok": False, "error": f"Cidade não encontrada: {requested_city}."}
 
-            current = data.get("current_condition", [{}])[0]
-            weather_desc = current.get("lang_pt", [{}])[0].get("value") or current.get("weatherDesc", [{}])[0].get("value", "Desconhecido")
-            nearest_area = data.get("nearest_area", [{}])[0]
-            area_name = nearest_area.get("areaName", [{}])[0].get("value", city or "Sua localização")
-            region_name = nearest_area.get("region", [{}])[0].get("value", "")
-
-            forecast_today = data.get("weather", [{}])[0]
-            max_temp = forecast_today.get("maxtempC", "N/A")
-            min_temp = forecast_today.get("mintempC", "N/A")
+            latitude, longitude = result["latitude"], result["longitude"]
+            forecast = cls._get_json(
+                "https://api.open-meteo.com/v1/forecast"
+                f"?latitude={latitude}&longitude={longitude}"
+                "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code"
+                "&daily=temperature_2m_max,temperature_2m_min&forecast_days=1&timezone=auto"
+            )
+            current = forecast.get("current", {})
+            daily = forecast.get("daily", {})
+            place = ", ".join(part for part in (result.get("name"), result.get("admin1")) if part)
 
             return {
                 "ok": True,
-                "city": (f"{area_name}, {region_name}" if region_name else area_name).strip(),
-                "temp_c": current.get("temp_C"),
-                "feels_like_c": current.get("FeelsLikeC"),
-                "description": weather_desc,
-                "humidity": current.get("humidity"),
-                "wind_kmh": current.get("windspeedKmph"),
-                "temp_max": max_temp,
-                "temp_min": min_temp,
+                "city": place or requested_city,
+                "temp_c": current.get("temperature_2m"),
+                "feels_like_c": current.get("apparent_temperature"),
+                "description": cls._WEATHER_CODES.get(current.get("weather_code"), "Condições indisponíveis"),
+                "humidity": current.get("relative_humidity_2m"),
+                "wind_kmh": current.get("wind_speed_10m"),
+                "temp_max": (daily.get("temperature_2m_max") or ["N/A"])[0],
+                "temp_min": (daily.get("temperature_2m_min") or ["N/A"])[0],
             }
-        except Exception as e:
-            return {"ok": False, "error": f"Erro ao buscar clima: {e}"}
+        except Exception as exc:
+            return {"ok": False, "error": f"Erro ao buscar clima: {exc}"}
 
     @staticmethod
     def get_finance() -> dict[str, Any]:

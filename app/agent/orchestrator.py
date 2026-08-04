@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -18,6 +19,7 @@ from app.storage.enem_store import EnemStore
 from app.storage.tutor_store import TutorStore
 from app.agent.agent_model import AgentManager
 from app.storage.vector import SemanticMemory
+from app.storage.vector.semantic_memory import is_technical_error_memory
 from app.core import RateLimiter, ToolGuardrails, CriticalConfirm, Telemetry, Scheduler, Heartbeat, SettingsManager, UserManager, PatternLearner
 from app.services import AppManager, WindowControl, FileProcessor, CalendarService, CalendarEvent
 
@@ -53,6 +55,37 @@ class AgentPlan:
     actions: list[str]
     context: dict[str, Any] = field(default_factory=dict)
     whiteboard_updated: bool = False
+
+
+def _build_search_marker(tool_results: dict[str, dict[str, Any]]) -> str:
+    """Converte o resultado estruturado da busca em um bloco renderizável no chat."""
+    result = tool_results.get("web_search") or {}
+    data = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+        return ""
+    payload = {
+        "query": str(data.get("query") or ""),
+        "workflow": str(data.get("workflow") or "search"),
+        "steps": data.get("steps") or [],
+        "results": data.get("results") or [],
+    }
+    try:
+        return "__SEARCH__" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return ""
+
+
+def _build_cinema_marker(tool_results: dict[str, dict[str, Any]]) -> str:
+    result = tool_results.get("cinema") or {}
+    data = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(data, dict):
+        return ""
+    if not any(key in data for key in ("catalog_results", "discovery_results", "detect_url", "imdb_id")):
+        return ""
+    try:
+        return "__CINEMA_PLAY__" + json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return ""
 
 
 class AgentOrchestrator:
@@ -222,7 +255,7 @@ class AgentOrchestrator:
                 prompt = f"{EXTRACT_MEMORY_PROMPT}\n\nMensagem do usuário: '{text}'"
                 response = self.llm_service.ask(prompt)
                 
-                if response and "VAZIO" not in response:
+                if response and "VAZIO" not in response and not is_technical_error_memory(response):
                     for line in response.splitlines():
                         line = line.strip().strip("-* 1234567890.")
                         if line and len(line) > 5 and line.lower() != "vazio":
@@ -271,6 +304,8 @@ class AgentOrchestrator:
         history: list[dict],
         enem_question: dict[str, Any] | None = None,
         on_chunk: callable | None = None,
+        on_reasoning: callable | None = None,
+        on_search: callable | None = None,
     ) -> AgentPlan:
         # Reset guardrails for new turn
         self.tool_guardrails.reset_turn()
@@ -331,6 +366,24 @@ class AgentOrchestrator:
                     evolution_notes=evolution_notes,
                     critical_confirm_enabled=False,
                 )
+
+            if mode == "planning":
+                system += """
+
+MODO DE PLANEJAMENTO: responda com um plano público, conciso e verificável.
+Estruture em Objetivo, Plano de ação, Próximos passos e Riscos/decisões quando fizer sentido.
+Não exponha raciocínio interno, cadeias de pensamento ou texto de deliberação privada.
+Use ferramentas somente se elas ajudarem a validar ou executar uma etapa solicitada.
+"""
+            elif mode == "research":
+                system += """
+
+MODO DE PESQUISA: quando a pergunta depender de dados atuais ou de fontes externas,
+use a ferramenta web_search com action='research' antes de concluir. Ela deve pesquisar
+mais de uma fonte e retornar os links consultados. Diferencie fatos encontrados de
+inferências e forneça URLs ou nomes das fontes usadas. Não invente fontes nem alegue
+ter pesquisado se não pesquisou.
+"""
         
         # Preparar ferramentas para function calling nativo
         tools_decl = self.registry.get_tool_declarations()
@@ -372,6 +425,17 @@ class AgentOrchestrator:
                             'message': getattr(tr, 'message', ''),
                             'data': getattr(tr, 'data', None)
                         }
+                        if name == "web_search" and on_search:
+                            try:
+                                payload = {
+                                    "query": (getattr(tr, "data", {}) or {}).get("query", args.get("query", "")),
+                                    "workflow": (getattr(tr, "data", {}) or {}).get("workflow", "search"),
+                                    "steps": (getattr(tr, "data", {}) or {}).get("steps", []),
+                                    "results": (getattr(tr, "data", {}) or {}).get("results", []),
+                                }
+                                on_search(payload)
+                            except Exception:
+                                pass
                         return getattr(tr, 'message', '')
                 except Exception:
                     pass
@@ -384,11 +448,18 @@ class AgentOrchestrator:
                 tools=tools_decl,
                 on_function_call=on_function_call,
                 on_chunk=on_chunk,
+                on_reasoning=on_reasoning,
                 force_tool=False
             )
             raw = result or "Sem resposta."
             from app.agent.tool_markers import parse_tool_markers
             summary, _ = parse_tool_markers(raw)
+            search_marker = _build_search_marker(executed_tool_results)
+            if search_marker:
+                summary = f"{summary.rstrip()}\n\n{search_marker}" if summary.strip() else search_marker
+            cinema_marker = _build_cinema_marker(executed_tool_results)
+            if cinema_marker:
+                summary = f"{summary.rstrip()}\n\n{cinema_marker}" if summary.strip() else cinema_marker
             return AgentPlan(
                 intent="tool_execution" if executed_actions else ("tutor" if mode == "tutor" else "general"),
                 summary=summary,
@@ -402,7 +473,7 @@ class AgentOrchestrator:
             tools_decl = None
             contents = self.llm_service.build_contents(history, text)
             if on_chunk and hasattr(self.llm_service, "generate_stream"):
-                response = self.llm_service.generate_stream(contents, on_chunk=on_chunk, tools=tools_decl, system_instruction=system)
+                response = self.llm_service.generate_stream(contents, on_chunk=on_chunk, tools=tools_decl, system_instruction=system, on_reasoning=on_reasoning)
             else:
                 response = self.llm_service.generate(contents, tools=tools_decl, system_instruction=system)
             summary = getattr(response, "text", None) or "Sem resposta."
@@ -416,10 +487,21 @@ class AgentOrchestrator:
             
             if tool_steps:
                 # Criar executor com proteções
+                legacy_tool_results: dict[str, dict[str, Any]] = {}
+
+                def legacy_execute(name: str, args: dict, user_line: str) -> str:
+                    tool_result = self.registry.run_by_marker(name, args.get("command") if args else None, user_line)
+                    legacy_tool_results[name] = {
+                        "ok": getattr(tool_result, "ok", False),
+                        "message": getattr(tool_result, "message", ""),
+                        "data": getattr(tool_result, "data", None),
+                    }
+                    return getattr(tool_result, "message", "")
+
                 executor = ActionExecutor(
                     allowed_tool_names=frozenset(self.registry.tools.keys()),
                     guardrails=self.tool_guardrails,
-                    legacy_execute=lambda name, args, user_line: self.registry.run_by_marker(name, args.get("command") if args else None, user_line).message
+                    legacy_execute=legacy_execute
                 )
                 
                 for step in tool_steps:
@@ -449,6 +531,12 @@ class AgentOrchestrator:
             
             # Se houver ferramentas executadas, usar o texto limpo (agora com resultados incluídos)
             final_summary = speakable if tool_steps else summary
+            search_marker = _build_search_marker(legacy_tool_results) if tool_steps else ""
+            if search_marker:
+                final_summary = f"{final_summary.rstrip()}\n\n{search_marker}" if final_summary.strip() else search_marker
+            cinema_marker = _build_cinema_marker(legacy_tool_results) if tool_steps else ""
+            if cinema_marker:
+                final_summary = f"{final_summary.rstrip()}\n\n{cinema_marker}" if final_summary.strip() else cinema_marker
             
             return AgentPlan(
                 intent="tool_execution" if tool_steps else ("tutor" if mode == "tutor" else "general"),
@@ -468,6 +556,8 @@ class AgentOrchestrator:
         enem_context: dict[str, Any] | None = None,
         enem_question_id: str | None = None,
         on_chunk: Any = None,
+        on_reasoning: Any = None,
+        on_search: Any = None,
     ) -> AgentPlan:
         try:
             from app.core.logger import logger
@@ -546,9 +636,9 @@ class AgentOrchestrator:
                 return plan
             try:
                 plan = self._run_llm_with_tools(
-                    text, mode, session_id, history, enem_question=enem_question, on_chunk=on_chunk
+                    text, mode, session_id, history, enem_question=enem_question, on_chunk=on_chunk, on_reasoning=on_reasoning, on_search=on_search
                 )
-                if session_id:
+                if session_id and plan.intent != "error" and not is_technical_error_memory(plan.summary):
                     updated = list(history)
                     updated.append({"role": "user", "content": text})
                     updated.append({"role": "assistant", "content": plan.summary})
@@ -570,6 +660,8 @@ class AgentOrchestrator:
                 elif "connection" in str(e).lower():
                     error_msg = "Erro de conexão com a API. Verifique sua internet."
                 
+                if "tool choice is none" in str(e).lower() or "model called a tool" in str(e).lower():
+                    error_msg = "O Groq encontrou uma incompatibilidade ao chamar uma ferramenta. Tente novamente ou altere o provedor para Gemini."
                 plan = AgentPlan(
                     intent="error",
                     summary=error_msg,
@@ -631,12 +723,15 @@ class AgentOrchestrator:
         def on_chunk(chunk_text: str):
             q.put({"type": "chunk", "text": chunk_text})
 
+        def on_reasoning(reason_text: str):
+            q.put({"type": "reasoning", "text": reason_text})
+
         def run_llm():
             try:
                 plan = self._run_llm_with_tools(
-                    text, mode, session_id, history, enem_question=enem_question, on_chunk=on_chunk
+                    text, mode, session_id, history, enem_question=enem_question, on_chunk=on_chunk, on_reasoning=on_reasoning
                 )
-                if session_id:
+                if session_id and plan.intent != "error" and not is_technical_error_memory(plan.summary):
                     updated = list(history)
                     updated.append({"role": "user", "content": text})
                     updated.append({"role": "assistant", "content": plan.summary})
@@ -648,6 +743,8 @@ class AgentOrchestrator:
                 print(f"[Orchestrator] Falha LLM Stream: {e}")
                 print(f"[Orchestrator] Traceback: {traceback.format_exc()}")
                 error_msg = f"Erro ao processar: {str(e)}"
+                if "tool choice is none" in str(e).lower() or "model called a tool" in str(e).lower():
+                    error_msg = "O Groq encontrou uma incompatibilidade ao chamar uma ferramenta. Tente novamente ou altere o provedor para Gemini."
                 plan = AgentPlan(intent="error", summary=error_msg, actions=[])
                 self.last_plan = plan
                 q.put({"type": "error", "plan": plan})
@@ -667,3 +764,5 @@ class AgentOrchestrator:
                 break
             elif msg["type"] == "chunk":
                 yield {"status": "streaming", "chunk": msg["text"]}
+            elif msg["type"] == "reasoning":
+                yield {"status": "reasoning", "text": msg["text"]}

@@ -1,4 +1,4 @@
-"""Serviço de busca de filmes/séries e geração de players de streaming (Jarvis Cinema)."""
+"""Busca de filmes/séries e links para fontes legais no Jarvis Cinema."""
 from __future__ import annotations
 
 import json
@@ -8,7 +8,7 @@ from typing import Any
 
 
 class CinemaService:
-    """Busca filmes e séries via Stremio Cinemeta API e gera links de players abertos sem anúncios."""
+    """Busca metadados e cria atalhos para trailer e disponibilidade legal."""
 
     _STREMIO_BASE = "https://v3-cinemeta.strem.io"
 
@@ -64,41 +64,25 @@ class CinemaService:
         season: int = 1,
         episode: int = 1,
     ) -> dict[str, Any]:
-        """
-        Gera dados e links de servidores abertos para reprodução do filme/série em embed livre de anúncios.
-        """
+        """Gera dados para apresentar o título em vez de incorporar streams de terceiros."""
         clean_id = imdb_id.strip()
+        if not clean_id.startswith("tt") or not clean_id[2:].isdigit():
+            return {"ok": False, "error": "ID do IMDb inválido."}
+
         is_tv = media_type.lower() in ("tv", "series")
-
-        # Provedores de embed abertos e limpos (VidSrc, EmbedSu, AutoEmbed, 2Embed, Videasy)
-        if is_tv:
-            providers = {
-                "VidSrc CC": f"https://vidsrc.cc/v2/embed/tv/{clean_id}/{season}/{episode}",
-                "EmbedSu": f"https://embed.su/embed/tv/{clean_id}/{season}/{episode}",
-                "AutoEmbed": f"https://autoembed.co/tv/imdb/{clean_id}-{season}-{episode}",
-                "VidSrc Me": f"https://vidsrc.me/embed/tv?imdb={clean_id}&season={season}&episode={episode}",
-                "2Embed": f"https://www.2embed.cc/embedtv/{clean_id}&s={season}&e={episode}",
-            }
-        else:
-            providers = {
-                "VidSrc CC": f"https://vidsrc.cc/v2/embed/movie/{clean_id}",
-                "EmbedSu": f"https://embed.su/embed/movie/{clean_id}",
-                "AutoEmbed": f"https://autoembed.co/movie/imdb/{clean_id}",
-                "VidSrc Me": f"https://vidsrc.me/embed/movie?imdb={clean_id}",
-                "2Embed": f"https://www.2embed.cc/embed/{clean_id}",
-            }
-
-        default_provider = "VidSrc CC"
-        default_url = providers[default_provider]
+        clean_title = title.strip() or clean_id
+        query = urllib.parse.quote_plus(f"{clean_title} trailer oficial")
+        watch_query = urllib.parse.quote_plus(clean_title)
 
         return {
             "ok": True,
             "imdb_id": clean_id,
-            "title": title or clean_id,
+            "title": clean_title,
             "type": "tv" if is_tv else "movie",
             "poster": poster,
             "season": season,
             "episode": episode,
-            "default_url": default_url,
-            "providers": providers,
+            "trailer_url": f"https://www.youtube.com/results?search_query={query}",
+            "watch_url": f"https://www.justwatch.com/br/busca?q={watch_query}",
+            "imdb_url": f"https://www.imdb.com/title/{clean_id}/",
         }

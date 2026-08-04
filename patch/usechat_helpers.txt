@@ -1,0 +1,52 @@
+
+  const postChat = async (message: string, mode: string, activeSessionId: string) => {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, mode, session_id: activeSessionId }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || data.ok === false) {
+      throw new Error(data.error || 'Não foi possível obter resposta do Jarvis.')
+    }
+    commitRestReply(data.reply || data.summary || '')
+  }
+
+  const commitRestReply = (reply: string) => {
+    stopTyping()
+    finalReasoningRef.current = ''
+    const marker = '__SCRIPT_CONFIRM__'
+    const markerIndex = reply.indexOf(marker)
+    finalReplyRef.current = markerIndex >= 0 ? reply.slice(0, markerIndex).trim() : reply
+    reasoningBufferRef.current = ''
+    typingBufferRef.current = finalReplyRef.current
+    const script = getScriptRequest(reply)
+    if (script) setPendingScript(script)
+    setStreamingReply('Pensando…')
+    setLiveReasoning('')
+    liveReasoningRef.current = ''
+    finalizePendingRef.current = true
+    pumpTyping()
+  }
+
+  const failReply = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error || '')
+    const generic = 'Não foi possível obter resposta do Jarvis. Verifique a conexão e tente novamente.'
+    if (isTechnicalError(message)) {
+      setAnswer('Jarvis encontrou um problema técnico. Verifique as configurações da API e tente novamente.')
+      setChatError(message)
+    } else {
+      setAnswer(generic)
+    }
+    setStreamingReply('')
+    setLiveReasoning('')
+    liveReasoningRef.current = ''
+    reasoningBufferRef.current = ''
+    typingBufferRef.current = ''
+    stopTyping()
+    setLoading(false)
+    if (waitForReplyRef.current) {
+      waitForReplyRef.current()
+      waitForReplyRef.current = null
+    }
+  }

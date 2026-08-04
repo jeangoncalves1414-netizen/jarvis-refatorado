@@ -18,15 +18,30 @@ from app.ui.panel.api.enem import handle_enem_get, handle_enem_post
 from app.ui.panel.api.settings import handle_settings_get, handle_settings_post
 from app.ui.panel.api.tutor import handle_tutor_get, handle_tutor_post
 from app.ui.panel.api.voice import handle_voice_post
+from app.storage.vector.semantic_memory import is_technical_error_memory
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _STATIC_DIR   = Path(__file__).parent / "static"
+_REACT_DIST_DIR = Path(__file__).resolve().parents[3] / "frontend" / "dist"
 
 _orchestrator: Any = None
 _wake_word_enabled: bool = True
 _wake_word_detector: Any = None  # WakeWordDetector instance
 _ws_loop: asyncio.AbstractEventLoop | None = None  # asyncio loop do WS para broadcast
 _ws_clients: set = set()  # connected WebSocket clients for broadcast
+
+
+def _calendar_conversation_prefix() -> str:
+    """Consumes calendar reminders deliberately configured for the next chat."""
+    try:
+        from app.services.calendar import CalendarService
+        due = CalendarService().due_reminders(on_conversation=True)
+        if not due:
+            return ""
+        lines = [f"Sir, antes de continuarmos: lembrete — {event.title}." for event in due]
+        return "\n".join(lines) + "\n\n"
+    except Exception:
+        return ""
 
 # ──────────────────────────────────────────────────────────── HTTP handler ──
 
@@ -98,8 +113,50 @@ class PanelHandler(BaseHTTPRequestHandler):
 
         # ── HTML pages ───────────────────────────────────────────────────────
         if path in ("/", "/index.html"):
+            f = _REACT_DIST_DIR / "index.html"
+            self._send_html(
+                f.read_text(encoding="utf-8")
+                if f.exists()
+                else "<h1>Interface React nao compilada. Execute npm run build em frontend.</h1>"
+            )
+            return
+
+        if path in ("/legacy", "/legacy/"):
             f = _TEMPLATE_DIR / "index.html"
             self._send_html(f.read_text(encoding="utf-8") if f.exists() else "<h1>index.html não encontrado</h1>")
+            return
+
+        if path in ("/app", "/app/"):
+            self.send_response(301)
+            self.send_header("Location", "/")
+            self.end_headers()
+            return
+
+        if path.startswith("/assets/"):
+            try:
+                asset = (_REACT_DIST_DIR / path.removeprefix("/")).resolve()
+                asset.relative_to(_REACT_DIST_DIR.resolve())
+            except ValueError:
+                self._send_404()
+                return
+            if asset.is_file():
+                self._send_file(asset)
+            else:
+                self._send_404()
+            return
+
+        # Compatibilidade com builds antigos servidos em /app/assets/
+        if path.startswith("/app/assets/"):
+            try:
+                asset = (_REACT_DIST_DIR / path.removeprefix("/app/")).resolve()
+                asset.relative_to(_REACT_DIST_DIR.resolve())
+            except ValueError:
+                self._send_404()
+                return
+            if asset.is_file():
+                self._send_file(asset)
+            else:
+                self._send_404()
             return
 
         if path == "/spotlight":
@@ -109,6 +166,13 @@ class PanelHandler(BaseHTTPRequestHandler):
 
         if path == "/camera-modal":
             f = _TEMPLATE_DIR / "camera-modal.html"
+            (self._send_html(f.read_text(encoding="utf-8")) if f.exists() else self._send_404())
+            return
+
+        # Página mínima para testar a ponte em outro dispositivo da mesma LAN.
+        # O app móvel definitivo será construído depois, usando o mesmo contrato.
+        if path in ("/bridge", "/bridge/"):
+            f = _TEMPLATE_DIR / "bridge.html"
             (self._send_html(f.read_text(encoding="utf-8")) if f.exists() else self._send_404())
             return
 
@@ -137,6 +201,23 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_json(200, {"sessions": list_sessions()})
                 except Exception:
                     self._send_json(200, {"sessions": []})
+                return
+
+            # Study workspace metadata (categories are persisted alongside sessions).
+            if len(parts) == 3 and parts[1] == "study" and parts[2] == "categories":
+                try:
+                    from app.storage.session_store import list_categories
+                    self._send_json(200, {"categories": list_categories()})
+                except Exception as exc:
+                    self._send_json(500, {"error": str(exc)})
+                return
+
+            if len(parts) == 3 and parts[1] == "study" and parts[2] == "trash":
+                try:
+                    from app.storage.session_store import list_trash
+                    self._send_json(200, {"sessions": list_trash("tutor")})
+                except Exception as exc:
+                    self._send_json(500, {"error": str(exc)})
                 return
 
             # /api/sessions/<id> or sub-routes (/history, /whiteboard)
@@ -233,6 +314,20 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_json(200, {"weather": {"ok": False}, "finance": {"ok": False}, "error": str(exc)})
                 return
 
+            if len(parts) == 2 and parts[1] == "climate":
+                from app.services.climate_control import ClimateControlService
+                self._send_json(200, ClimateControlService().get_state())
+                return
+
+            # /api/bridge -> registry, conexões e eventos da ponte local
+            if len(parts) == 2 and parts[1] == "bridge":
+                try:
+                    from app.services.device_bridge import DeviceBridgeService
+                    self._send_json(200, DeviceBridgeService().get_status())
+                except Exception as exc:
+                    self._send_json(500, {"ok": False, "error": str(exc)})
+                return
+
             # /api/proactive -> status do briefing e lembretes
             if len(parts) == 2 and parts[1] == "proactive":
                 try:
@@ -245,6 +340,29 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_json(200, {"config": {}, "reminders": [], "error": str(exc)})
                 return
 
+            # /api/calendar -> eventos do calendário (filtro opcional ?start=&end=)
+            if len(parts) == 2 and parts[1] == "calendar":
+                try:
+                    import urllib.parse
+                    from datetime import datetime
+                    from app.services.calendar import CalendarService
+                    query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                    srv = CalendarService()
+                    start_s = (query.get("start") or [""])[0]
+                    end_s = (query.get("end") or [""])[0]
+                    if start_s or end_s:
+                        start = datetime.fromisoformat(start_s) if start_s else None
+                        end = datetime.fromisoformat(end_s) if end_s else None
+                        events = srv.get_events(start, end)
+                    else:
+                        events = srv.get_all_events()
+                    self._send_json(200, {"events": [e.to_dict() for e in events]})
+                except ValueError as exc:
+                    self._send_json(400, {"error": f"Datas inválidas: {exc}"})
+                except Exception as exc:
+                    self._send_json(500, {"error": str(exc)})
+                return
+
             # /api/tray -> status do boot automático
             if len(parts) == 2 and parts[1] == "tray":
                 try:
@@ -255,6 +373,23 @@ class PanelHandler(BaseHTTPRequestHandler):
                 return
 
             # /api/cinema/search?q={query}
+            if len(parts) >= 3 and parts[1] == "cinema" and parts[2] == "library":
+                from app.services.cinema_library import CinemaLibraryService
+                self._send_json(200, CinemaLibraryService().list_items())
+                return
+
+            if len(parts) >= 4 and parts[1] == "cinema" and parts[2] == "discovery" and parts[3] == "search":
+                try:
+                    import urllib.parse
+                    query = urllib.parse.urlparse(self.path).query
+                    q = urllib.parse.parse_qs(query).get("q", [""])[0]
+                    from app.services.cinema_discovery import CinemaDiscoveryService
+                    result = CinemaDiscoveryService().search(q)
+                    self._send_json(200 if result.get("ok") else 400, result)
+                except Exception as exc:
+                    self._send_json(500, {"ok": False, "error": str(exc)})
+                return
+
             if len(parts) >= 3 and parts[1] == "cinema" and parts[2] == "search":
                 try:
                     import urllib.parse
@@ -316,18 +451,55 @@ class PanelHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_DELETE(self) -> None:
-        path = self.path.split("?")[0]
+        import urllib.parse
+        parsed_path = urllib.parse.urlparse(self.path)
+        path = parsed_path.path
+        if path.startswith("/api/study/categories/"):
+            try:
+                from app.storage.session_store import delete_category
+                category_id = path.rsplit("/", 1)[-1]
+                deleted = delete_category(category_id)
+                self._send_json(200, {"ok": deleted})
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+            return
+
+        if path.startswith("/api/sessions/") and path.endswith("/restore"):
+            try:
+                from app.storage.session_store import restore_session
+                parts_restore = [p for p in path.split("/") if p]
+                session_id = parts_restore[2] if len(parts_restore) >= 4 else ""
+                restored = restore_session(session_id)
+                self._send_json(200, {"ok": restored})
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+            return
         if path.startswith("/api/sessions/"):
             parts = [p for p in path.split("/") if p]
             if len(parts) == 3 and parts[1] == "sessions":
                 session_id = parts[2]
                 try:
-                    from app.storage.session_store import delete_session
-                    deleted = delete_session(session_id)
+                    from app.storage.session_store import delete_session, trash_session
+                    permanent = (urllib.parse.parse_qs(parsed_path.query).get("permanent", ["0"])[0] == "1")
+                    deleted = delete_session(session_id) if permanent else trash_session(session_id)
                     self._send_json(200, {"ok": deleted})
                 except Exception as exc:
                     self._send_json(500, {"error": str(exc)})
                 return
+        if path == "/api/calendar":
+            import urllib.parse
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            event_id = (query.get("id") or [""])[0]
+            if not event_id:
+                self._send_json(400, {"ok": False, "error": "Parâmetro 'id' obrigatório."})
+                return
+            try:
+                from app.services.calendar import CalendarService
+                deleted = CalendarService().delete_event_by_id(event_id)
+                self._send_json(200, {"ok": deleted})
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
         self._send_404()
 
     # ── POST ─────────────────────────────────────────────────────────────────
@@ -339,6 +511,58 @@ class PanelHandler(BaseHTTPRequestHandler):
 
         if not path.startswith("/api/"):
             self._send_404()
+            return
+
+        if path == "/api/automation":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+                if payload.get("action") != "set_temperature" or payload.get("device") != "climate":
+                    self._send_json(400, {"ok": False, "error": "Ação de automação inválida."})
+                    return
+                from app.services.climate_control import ClimateControlService
+                result = ClimateControlService().set_target(payload.get("value"))
+                self._send_json(200 if result.get("ok") else 400, result)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                self._send_json(400, {"ok": False, "error": "JSON inválido."})
+            return
+
+        # Contrato da ponte: o celular e o desktop usam as mesmas operações,
+        # independentemente do adaptador físico (Tuya, BLE, Matter etc.).
+        if path == "/api/bridge":
+            try:
+                from app.services.device_bridge import DeviceBridgeService
+                payload = json.loads(body.decode("utf-8") or "{}")
+                action = str(payload.get("action") or "").strip()
+                service = DeviceBridgeService()
+                if action in {"pair", "register"}:
+                    result = service.register_device(
+                        payload.get("device_id"), payload.get("name"), payload.get("kind", "client"),
+                        payload.get("platform", "unknown"), payload.get("transport", "lan"), payload.get("pairing_code"),
+                    )
+                elif action == "heartbeat":
+                    result = service.heartbeat(payload.get("device_id"))
+                elif action == "command":
+                    result = service.command(payload.get("target_id"), payload.get("command"), payload.get("payload"), payload.get("source", "desktop"))
+                elif action == "remove":
+                    result = {"ok": service.remove_device(payload.get("device_id"))}
+                else:
+                    result = {"ok": False, "error": "Ação de ponte inválida."}
+                self._send_json(200 if result.get("ok") else 400, result)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                self._send_json(400, {"ok": False, "error": "JSON inválido."})
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/memories/cleanup":
+            try:
+                if not _orchestrator or not getattr(_orchestrator, "semantic_memory", None):
+                    self._send_json(200, {"ok": True, "removed": 0})
+                    return
+                removed = _orchestrator.semantic_memory.cleanup_technical_error_memories()
+                self._send_json(200, {"ok": True, "removed": removed})
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
             return
 
         # /api/proactive -> atualiza briefing ou adiciona lembrete
@@ -388,6 +612,48 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": str(exc)})
             return
 
+        # /api/calendar -> cria evento
+        if path == "/api/calendar":
+            try:
+                from datetime import datetime, timedelta
+                from app.services.calendar import CalendarService, CalendarEvent
+                payload = json.loads(body.decode("utf-8") or "{}")
+                if payload.get("action") == "cancel_reminder":
+                    event_id = str(payload.get("id") or "")
+                    ok = CalendarService().cancel_reminder(event_id)
+                    self._send_json(200 if ok else 404, {"ok": ok, "error": "Lembrete não encontrado." if not ok else ""})
+                    return
+                title = (payload.get("title") or "").strip()
+                start_s = (payload.get("start") or "").strip()
+                if not title or not start_s:
+                    self._send_json(400, {"error": "Campos 'title' e 'start' são obrigatórios."})
+                    return
+                start = datetime.fromisoformat(start_s)
+                end = None
+                if payload.get("end"):
+                    end = datetime.fromisoformat(str(payload["end"]))
+                reminder_at = datetime.fromisoformat(str(payload["reminder_at"])) if payload.get("reminder_at") else None
+                event = CalendarEvent(
+                    title=title,
+                    start=start,
+                    end=end,
+                    description=payload.get("description") or "",
+                    location=payload.get("location") or "",
+                    reminder_minutes=int(payload.get("reminder_minutes") or 15),
+                    reminder_policy=str(payload.get("reminder_policy") or "once"),
+                    reminder_at=reminder_at,
+                    reminder_instructions=payload.get("reminder_instructions") or "",
+                )
+                ok = CalendarService().add_event(event)
+                self._send_json(200 if ok else 500, {"ok": ok, "event": event.to_dict()})
+            except ValueError as exc:
+                self._send_json(400, {"error": f"Dados inválidos: {exc}"})
+            except (TypeError, json.JSONDecodeError):
+                self._send_json(400, {"error": "JSON ou payload inválido."})
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+            return
+
         # /api/chat → call orchestrator
 
         if path == "/api/chat":
@@ -403,6 +669,9 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_json(400, {"error": "Mensagem não pode ser vazia."})
                     return
                 plan = _orchestrator.handle_request(message, session_id=session_id, mode=mode)
+                prefix = _calendar_conversation_prefix()
+                if prefix:
+                    plan.summary = prefix + getattr(plan, "summary", str(plan))
                 self._send_json(200, {
                     "ok": True,
                     "status": "complete",
@@ -493,7 +762,68 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": str(exc)})
             return
 
+        # A imagem chega aqui somente após uma ação explícita no espaço de câmeras.
+        if path == "/api/vision/analyze-frame":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+                image_data = str(payload.get("image", ""))
+                prompt = str(payload.get("prompt", "Descreva a imagem."))[:4000].strip()
+                camera_name = str(payload.get("camera_name", "Câmera"))[:120].strip() or "Câmera"
+                if not image_data.startswith("data:image/") or "," not in image_data or len(image_data) > 12_000_000:
+                    self._send_json(400, {"ok": False, "error": "Frame de câmera inválido."})
+                    return
+
+                import base64
+                from io import BytesIO
+                from PIL import Image
+                encoded_image = image_data.split(",", 1)[1]
+                image = Image.open(BytesIO(base64.b64decode(encoded_image))).convert("RGB")
+
+                api_key = ""
+                provider = "gemini"
+                if _orchestrator and hasattr(_orchestrator, "settings"):
+                    st = _orchestrator.settings
+                    provider = getattr(st, "llm_provider", "gemini")
+                    api_key = getattr(st, "groq_api_key", "") if provider == "groq" else getattr(st, "gemini_api_key", "")
+
+                from app.services.vision import VisionService
+                result = VisionService(api_key=api_key, provider=provider).analyze(
+                    prompt=f"A imagem veio da câmera chamada '{camera_name}'. {prompt}",
+                    image=image,
+                    api_key=api_key,
+                    provider=provider,
+                )
+                filename = result.get("capture_filename", "")
+                self._send_json(200, {
+                    "ok": True,
+                    "reply": result.get("reply", "Análise concluída."),
+                    "capture_url": f"/api/vision/file/{filename}" if filename else None,
+                })
+            except Exception as exc:
+                self._send_json(400, {"ok": False, "error": f"Não foi possível analisar o frame: {exc}"})
+            return
+
         # /api/cinema/play (POST)
+        if path == "/api/cinema/library":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+                from app.services.cinema_library import CinemaLibraryService
+                result = CinemaLibraryService().upsert_source(payload)
+                self._send_json(200 if result.get("ok") else 400, result)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                self._send_json(400, {"ok": False, "error": "JSON inválido."})
+            return
+
+        if path == "/api/cinema/discovery/probe":
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+                from app.services.cinema_discovery import CinemaDiscoveryService
+                result = CinemaDiscoveryService().probe(payload.get("url", ""))
+                self._send_json(200 if result.get("ok") else 400, result)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                self._send_json(400, {"ok": False, "error": "JSON inválido."})
+            return
+
         if path == "/api/cinema/play":
             try:
                 payload = json.loads(body.decode("utf-8") or "{}")
@@ -561,6 +891,44 @@ class PanelHandler(BaseHTTPRequestHandler):
                 if _wake_word_detector:
                     _wake_word_detector.set_enabled(_wake_word_enabled)
                 self._send_json(200, {"ok": True, "enabled": _wake_word_enabled})
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+            return
+
+        # Study categories and session metadata
+        if path == "/api/study/categories":
+            try:
+                import uuid
+                from app.storage.session_store import add_category
+                payload = json.loads(body.decode("utf-8") or "{}")
+                name = str(payload.get("name", "Nova categoria") or "Nova categoria").strip()[:60]
+                color = str(payload.get("color", "#00daf8") or "#00daf8")[:20]
+                category = add_category({"id": str(uuid.uuid4()), "name": name, "color": color})
+                self._send_json(200, {"ok": True, "category": category})
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+            return
+
+        if path.startswith("/api/study/categories/"):
+            try:
+                import uuid
+                from app.storage.session_store import update_category
+                category_id = path.rsplit("/", 1)[-1]
+                payload = json.loads(body.decode("utf-8") or "{}")
+                category = update_category(category_id, payload)
+                self._send_json(200 if category else 404, {"ok": bool(category), "category": category})
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+            return
+
+        # Update persisted title/category without replacing history or whiteboard.
+        if path.startswith("/api/sessions/") and len([p for p in path.split("/") if p]) == 3:
+            try:
+                from app.storage.session_store import update_session
+                session_id = [p for p in path.split("/") if p][2]
+                payload = json.loads(body.decode("utf-8") or "{}")
+                session = update_session(session_id, payload)
+                self._send_json(200 if session else 404, {"ok": bool(session), "session": session})
             except Exception as exc:
                 self._send_json(500, {"error": str(exc)})
             return
@@ -676,10 +1044,32 @@ async def _ws_chat_handler(websocket) -> None:
                         except Exception:
                             pass
 
+                def on_reasoning(reason_text: str) -> None:
+                    if reason_text:
+                        try:
+                            asyncio.run_coroutine_threadsafe(
+                                websocket.send(json.dumps({"type": "reasoning", "text": reason_text})),
+                                loop
+                            )
+                        except Exception:
+                            pass
+
+                def on_search(payload: dict) -> None:
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            websocket.send(json.dumps({"type": "search", "payload": payload}, ensure_ascii=False)),
+                            loop,
+                        )
+                    except Exception:
+                        pass
+
                 # Run the blocking orchestrator call in a thread
                 plan = await loop.run_in_executor(
-                    None, lambda: _orchestrator.handle_request(message, session_id=session_id, mode=mode, on_chunk=on_chunk)
+                    None, lambda: _orchestrator.handle_request(message, session_id=session_id, mode=mode, on_chunk=on_chunk, on_reasoning=on_reasoning, on_search=on_search)
                 )
+                prefix = _calendar_conversation_prefix()
+                if prefix:
+                    plan.summary = prefix + getattr(plan, "summary", str(plan))
                 await websocket.send(json.dumps({
                     "type":    "complete",
                     "summary": getattr(plan, "summary", str(plan)),
@@ -689,7 +1079,13 @@ async def _ws_chat_handler(websocket) -> None:
                 }))
 
                 # Fase 7: salvar conversa na memória semântica em background
-                if _orchestrator and hasattr(_orchestrator, "semantic_memory") and _orchestrator.semantic_memory:
+                if (
+                    _orchestrator
+                    and hasattr(_orchestrator, "semantic_memory")
+                    and _orchestrator.semantic_memory
+                    and getattr(plan, "intent", "") != "error"
+                    and not is_technical_error_memory(getattr(plan, "summary", ""))
+                ):
                     try:
                         convo_text = f"Usuário: {message}\nJarvis: {getattr(plan, 'summary', '')}"
                         import threading as _t

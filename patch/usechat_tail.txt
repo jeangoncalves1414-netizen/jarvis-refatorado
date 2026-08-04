@@ -1,0 +1,193 @@
+
+        socket.send(JSON.stringify({ type: 'message', message, mode, session_id: activeSessionId }))
+        await new Promise<void>(resolve => {
+          waitForReplyRef.current = resolve
+        })
+      } else {
+        await postChat(message, mode, activeSessionId)
+      }
+    } catch (error) {
+      failReply(error)
+    }
+  }
+
+  const sendVisionQuestion = async (prompt: string, image: string, label = 'Imagem') => {
+    if (!prompt || loading) return
+    setLoading(true)
+    setChatError('')
+    setAnswer('Pensando…')
+    const userMessage: ChatMessage = { role: 'user', content: prompt }
+    let activeSessionId = sessionId
+    try {
+      if (!activeSessionId) activeSessionId = await createSession(`Análise: ${label}`.slice(0, 32))
+      const baseHistory = [...messages, userMessage]
+      setMessages(baseHistory)
+      pendingHistoryRef.current = baseHistory
+      const socket = chatSocketRef.current
+      if (socket?.readyState === WebSocket.OPEN) {
+        stopTyping()
+        typingBufferRef.current = ''
+        reasoningBufferRef.current = ''
+        finalizePendingRef.current = false
+        setStreamingReply('Pensando…')
+        setLiveReasoning('')
+        liveReasoningRef.current = ''
+        socket.send(JSON.stringify({ type: 'message', message: prompt, mode: 'vision', session_id: activeSessionId }))
+        await new Promise<void>(resolve => {
+          waitForReplyRef.current = resolve
+        })
+      } else {
+        await postChat(prompt, 'vision', activeSessionId)
+      }
+    } catch (error) {
+      failReply(error)
+    }
+  }
+
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const basePort = Number(window.location.port || (window.location.protocol === 'https:' ? 443 : 80))
+    const wsUrl = `${protocol}://${window.location.hostname}:${basePort + 1}/ws/chat`
+    let reconnectTimer: number | null = null
+    let disposed = false
+
+    const connect = () => {
+      if (disposed) return
+      let socket: WebSocket
+      try {
+        socket = new WebSocket(wsUrl)
+      } catch {
+        reconnectTimer = window.setTimeout(connect, 3000)
+        return
+      }
+      chatSocketRef.current = socket
+      socket.onopen = () => setChatError('')
+      socket.onmessage = (event) => {
+        let data: { type?: string; text?: string; message?: string; summary?: string } = {}
+        try {
+          data = JSON.parse(String(event.data))
+        } catch {
+          return
+        }
+        const { type, text = '', message = '', summary = '' } = data
+        if (type === 'reasoning') {
+          reasoningBufferRef.current += text || message
+          pumpTyping()
+        } else if (type === 'chunk') {
+          typingBufferRef.current += text || message
+          pumpTyping()
+        } else if (type === 'complete') {
+          finalReasoningRef.current = (liveReasoningRef.current + reasoningBufferRef.current).trim()
+          finalReplyRef.current = summary || message || ''
+          const script = getScriptRequest(summary)
+          if (script) setPendingScript(script)
+          finalizePendingRef.current = true
+          pumpTyping()
+          if (waitForReplyRef.current) {
+            waitForReplyRef.current()
+            waitForReplyRef.current = null
+          }
+        } else if (type === 'error') {
+          failReply(message || 'Falha na comunicação com o Jarvis.')
+        }
+      }
+      socket.onclose = () => {
+        chatSocketRef.current = null
+        if (waitForReplyRef.current) {
+          failReply('Conexão com o servidor perdida. Tente novamente.')
+        }
+        if (!disposed) reconnectTimer = window.setTimeout(connect, 3000)
+      }
+      socket.onerror = () => socket.close()
+    }
+
+    connect()
+    refreshSessions()
+      .then((items) => {
+        const saved = localStorage.getItem('jarvis-react-session')
+        const match = items.find((item) => item.id === saved)
+        const target = (match || items[0])?.id
+        if (target) selectSession(target).catch(() => undefined)
+      })
+      .catch(() => undefined)
+
+    return () => {
+      disposed = true
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer)
+      const socket = chatSocketRef.current
+      chatSocketRef.current = null
+      if (socket) {
+        socket.onclose = null
+        socket.onerror = null
+        socket.close()
+      }
+      stopTyping()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const runPendingScript = async () => {
+    if (!pendingScript) return
+    const script = pendingScript
+    setPendingScript(null)
+    setLoading(true)
+    setChatError('')
+    try {
+      const response = await fetch('/api/script/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language: script.language, code: script.code }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data.ok === false) throw new Error(data.error || 'Não foi possível executar o script.')
+      const output = [data.stdout, data.stderr].filter(Boolean).join('\n').trim()
+      const preview = script.code.split('\n').slice(0, 8).join('\n')
+      const visibleReply = [
+        `Script ${script.language} executado${data.returncode === 0 ? '' : ` (código de saída ${data.returncode})`}.`,
+        script.description,
+        '```',
+        preview,
+        '```',
+      ].join('\n') + (output ? `\n\nSaída:\n\`\`\`\n${output}\n\`\`\`` : '')
+      const content = buildAssistantContent('', visibleReply)
+      const history = [...pendingHistoryRef.current, { role: 'assistant' as const, content }]
+      setMessages(history)
+      setAnswer(visibleReply)
+      setStreamingReply('')
+      setLoading(false)
+      if (activeSessionRef.current) {
+        fetch(`/api/sessions/${activeSessionRef.current}/history`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ history }),
+        }).catch(() => undefined)
+      }
+      refreshSessions().catch(() => undefined)
+    } catch (error) {
+      failReply(error)
+    }
+  }
+
+  return {
+    answer,
+    chatError,
+    createSession,
+    deleteSession,
+    loading,
+    liveReasoning,
+    messages,
+    pendingScript,
+    query,
+    runPendingScript,
+    selectSession,
+    sendText,
+    sendVisionQuestion,
+    sessionId,
+    sessions,
+    setAnswer,
+    setChatError,
+    setPendingScript,
+    setQuery,
+    streamingReply,
+  }
+}

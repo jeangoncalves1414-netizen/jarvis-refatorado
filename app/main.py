@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import threading
 import time
 
@@ -88,6 +89,12 @@ def build_app() -> tuple[AgentOrchestrator, PanelServer]:
         agent_manager=agent_manager,
         semantic_memory=semantic_memory,
     )
+
+    # Remove entradas técnicas gravadas por versões anteriores; elas não são
+    # memória sobre a pessoa e não devem influenciar conversas futuras.
+    removed_error_memories = semantic_memory.cleanup_technical_error_memories()
+    if removed_error_memories:
+        print(f"[Jarvis] {removed_error_memories} memória(s) técnica(s) removida(s).")
     
     # Injeta tool_registry no orchestrator
     orchestrator.registry = tool_registry
@@ -108,7 +115,8 @@ def build_app() -> tuple[AgentOrchestrator, PanelServer]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Jarvis Rebuild: modular desktop assistant")
     parser.add_argument("--demo", action="store_true", help="Executa uma demonstração simples após subir o painel")
-    parser.add_argument("--desktop", action="store_true", help="Abre uma janela desktop embutida (pywebview) se disponível")
+    parser.add_argument("--desktop", action="store_true", help="Abre uma janela desktop embutida (pywebview)")
+    parser.add_argument("--server", action="store_true", help="Inicia apenas o servidor local, sem abrir janela desktop")
     parser.add_argument("--tray", action="store_true", help="Mostra ícone no System Tray; duplo-clique abre a janela desktop")
     args = parser.parse_args()
 
@@ -116,19 +124,27 @@ def main() -> None:
     settings = orchestrator.settings
     host = getattr(settings, "host", "127.0.0.1")
     port = getattr(settings, "port", 8000)
-    url = f"http://{host}:{port}"
+    # 0.0.0.0 é válido apenas para o bind do servidor. Navegadores e
+    # pywebview precisam de um endereço roteável para abrir a janela local.
+    client_host = "127.0.0.1" if host in {"0.0.0.0", "::", ""} else host
+    url = f"http://{client_host}:{port}"
+    desktop_url = f"{url}/app/"
 
     print(f"Iniciando {settings.app_name}...")
     _free_port(port)
     panel.start()
-    print(f"Painel disponível em {url}")
+    print(f"Painel disponível em {url} (rede: http://{host}:{port})")
+
+    from app.services.proactive import ProactiveDaemon, ProactiveService
+    proactive_daemon: ProactiveDaemon | None = None
 
     import time as _time
     _time.sleep(0.5)
     panel.start_wake_word()
 
     # ── Modo Desktop (pywebview) com System Tray integrado ──────────────────
-    if (args.desktop or args.tray) and start_desktop is not None:
+    desktop_mode = not args.server or args.desktop or args.tray
+    if desktop_mode and start_desktop is not None:
         # Referência mutável para a janela webview criada dentro de start_desktop
         _webview_window_ref: list = []  # [webview.Window | None]
 
@@ -151,11 +167,17 @@ def main() -> None:
         tray: "TrayService | None" = None
         if TRAY_AVAILABLE:
             tray = TrayService(
-                panel_url=url,
+                panel_url=desktop_url,
                 on_quit=lambda: os._exit(0),  # força saída imediata de tudo
                 on_open=_show_or_create_window,
             )
             tray.start()
+
+        proactive_daemon = ProactiveDaemon(
+            ProactiveService(),
+            on_notify=tray.notify if tray else lambda title, message: print(f"[{title}] {message}"),
+        )
+        proactive_daemon.start()
 
         # Sobrescreve start_desktop para capturar a janela principal criada
         try:
@@ -165,8 +187,11 @@ def main() -> None:
                 """Wrapper que captura a referência da janela principal."""
                 _host = getattr(s, "host", "127.0.0.1")
                 _port = getattr(s, "port", 8000)
-                _url = f"http://{_host}:{_port}/"
-                _spotlight_url = f"http://{_host}:{_port}/spotlight"
+                _client_host = "127.0.0.1" if _host in {"0.0.0.0", "::", ""} else _host
+                # A versão React é a interface principal da janela desktop.
+                # O painel legado continua disponível em / para comparação e backup.
+                _url = f"http://{_client_host}:{_port}/app/"
+                _spotlight_url = f"http://{_client_host}:{_port}/spotlight"
 
                 from app.ui.desktop import DesktopAPI
                 api = DesktopAPI(s, ps)
@@ -203,6 +228,19 @@ def main() -> None:
                     js_api=api,
                 )
                 api._spotlight_window = spotlight_window
+
+                # Em algumas versões do backend Win32 do pywebview, `hidden=True`
+                # ainda deixa a janela auxiliar visível durante o carregamento.
+                # Reforçamos o estado oculto no evento de carregamento para que
+                # o Spotlight só apareça quando o usuário usar Alt+Space/Alt+V.
+                def hide_spotlight_on_start() -> None:
+                    try:
+                        spotlight_window.hide()
+                    except Exception:
+                        pass
+
+                spotlight_window.events.loaded += hide_spotlight_on_start
+                threading.Timer(0.25, hide_spotlight_on_start).start()
 
                 def on_loaded():
                     script = """
@@ -263,6 +301,8 @@ def main() -> None:
             except KeyboardInterrupt:
                 pass
         finally:
+            if proactive_daemon:
+                proactive_daemon.stop()
             if tray:
                 tray.stop()
         return

@@ -149,6 +149,17 @@ def start_desktop(settings: Any, panel_server: Any = None) -> None:
         js_api=api
     )
     api._spotlight_window = spotlight_window
+
+    # Garantia adicional para backends Win32 que ignoram `hidden=True` no
+    # primeiro ciclo de renderização.
+    def hide_spotlight_on_start() -> None:
+        try:
+            spotlight_window.hide()
+        except Exception:
+            pass
+
+    spotlight_window.events.loaded += hide_spotlight_on_start
+    threading.Timer(0.25, hide_spotlight_on_start).start()
     
     def on_loaded():
         # Inject JavaScript mapping without overriding voice.js recording engine

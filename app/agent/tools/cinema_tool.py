@@ -1,9 +1,10 @@
-"""Ferramenta de busca e reprodução de filmes e séries no Jarvis Cinema (Ad-Free Player)."""
+"""Ferramenta de busca de filmes e séries no Jarvis Cinema."""
 from __future__ import annotations
 
 from typing import Any
 from .base import BaseTool, ToolResult
 from app.services.cinema import CinemaService
+from app.services.cinema_discovery import CinemaDiscoveryService
 
 
 class CinemaTool(BaseTool):
@@ -14,8 +15,8 @@ class CinemaTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Busca e reproduz filmes e séries de TV em tempo real em um player futurista integrado livre de anúncios. "
-            "Use quando o usuário pedir para assistir ou colocar um filme ou série de TV."
+            "Busca filmes e séries de TV e abre o Jarvis Cinema com trailer e links de disponibilidade legal. "
+            "Use quando o usuário pedir informações, trailer ou onde assistir a um título."
         )
 
     @property
@@ -25,10 +26,11 @@ class CinemaTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["search", "play"],
+                    "enum": ["search", "play", "discover", "detect_url"],
                     "description": (
                         "Ação a realizar: 'search' (buscar lista de filmes/séries) ou "
-                        "'play' (abrir o player diretamente para reproduzir o título)."
+                        "'play' (abrir a ficha do título), 'discover' (pesquisar fontes aprovadas) ou "
+                        "'detect_url' (analisar uma página escolhida pelo usuário)."
                     ),
                 },
                 "query": {
@@ -38,6 +40,10 @@ class CinemaTool(BaseTool):
                 "imdb_id": {
                     "type": "string",
                     "description": "ID do IMDb do filme/série (ex: 'tt0133093') se já conhecido.",
+                },
+                "url": {
+                    "type": "string",
+                    "description": "URL pública de uma página que o usuário quer analisar para detectar mídia exposta normalmente.",
                 },
                 "media_type": {
                     "type": "string",
@@ -63,6 +69,7 @@ class CinemaTool(BaseTool):
 
         query = str(args.get("query", "") or "").strip()
         imdb_id = str(args.get("imdb_id", "") or "").strip()
+        url = str(args.get("url", "") or "").strip()
         media_type = str(args.get("media_type", "auto") or "auto").strip()
         season = int(args.get("season", 1) or 1)
         episode = int(args.get("episode", 1) or 1)
@@ -80,7 +87,38 @@ class CinemaTool(BaseTool):
                 type_label = "Filme" if item["type"] == "movie" else "Série"
                 lines.append(f"{idx}. {item['title']} ({item['year']}) [{type_label}] - ID: {item['id']}")
 
-            return ToolResult(ok=True, message="\n".join(lines), data=res)
+            payload = {"ok": True, "title": query, "type": "movie", "catalog_results": items}
+            import json as _json
+            return ToolResult(
+                ok=True,
+                message="\n".join(lines) + f"\n__CINEMA_PLAY__{_json.dumps(payload, ensure_ascii=False)}",
+                data=payload,
+            )
+
+        if action == "discover":
+            if not query:
+                return ToolResult(ok=False, message="Informe o título para pesquisar nas fontes aprovadas.")
+            res = CinemaDiscoveryService().search(query)
+            if not res.get("ok"):
+                return ToolResult(ok=False, message=res.get("error", "Não foi possível pesquisar fontes."))
+            payload = {"ok": True, "title": query, "type": "movie", "discovery_results": res.get("results", [])}
+            import json as _json
+            return ToolResult(
+                ok=True,
+                message=f"Resultados de fontes aprovadas para **{query}**.\n__CINEMA_PLAY__{_json.dumps(payload, ensure_ascii=False)}",
+                data=payload,
+            )
+
+        if action == "detect_url":
+            if not url:
+                return ToolResult(ok=False, message="Informe a URL que deseja analisar.")
+            payload = {"ok": True, "title": query or "Mídia detectada", "type": "movie", "detect_url": url}
+            import json as _json
+            return ToolResult(
+                ok=True,
+                message=f"Analisando a página escolhida.\n__CINEMA_PLAY__{_json.dumps(payload, ensure_ascii=False)}",
+                data=payload,
+            )
 
         elif action == "play":
             target_item = None
@@ -109,10 +147,14 @@ class CinemaTool(BaseTool):
                 episode=episode,
             )
 
-            # Garantir que exista uma URL de player válida antes de emitir o marcador
-            default_url = str(player_data.get("default_url") or "").strip()
-            if not default_url or not default_url.lower().startswith("http"):
-                return ToolResult(ok=False, message="Não foi possível gerar um player válido para este título.")
+            if not player_data.get("ok"):
+                return ToolResult(ok=False, message=player_data.get("error", "Não foi possível preparar o título."))
+
+            try:
+                discovery = CinemaDiscoveryService().search(player_data.get("title", query), limit=8)
+                player_data["discovery_results"] = discovery.get("results", []) if discovery.get("ok") else []
+            except Exception:
+                player_data["discovery_results"] = []
 
             # Resposta formatada para acionar a reprodução na UI via marcador __CINEMA_PLAY__
             import json as _json

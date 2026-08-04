@@ -10,6 +10,7 @@ RUNTIME_SETTINGS_FILE = os.path.join(DATA_DIR, "runtime_settings.json")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 _VALID_PROVIDERS = {"gemini", "groq"}
+_VALID_TTS_PROVIDERS = {"gemini", "edge"}
 
 
 def _read() -> dict[str, Any]:
@@ -56,4 +57,34 @@ def get_llm_settings(default_provider: str = "gemini") -> dict[str, Any]:
         "llm_provider": provider,
         "gemini_configured": bool(os.getenv("GEMINI_API_KEY", "")),
         "groq_configured": bool(os.getenv("GROQ_API_KEY", "")),
+    }
+
+
+def get_tts_provider(default: str = "gemini") -> str:
+    data = _read()
+    if "tts_provider" in data:
+        provider = str(data["tts_provider"]).lower()
+        return provider if provider in _VALID_TTS_PROVIDERS else "gemini"
+    env_provider = os.getenv("TTS_PROVIDER", default).lower()
+    return env_provider if env_provider in _VALID_TTS_PROVIDERS else "gemini"
+
+
+def set_tts_provider(provider: str) -> str:
+    normalized = str(provider).lower()
+    if normalized not in _VALID_TTS_PROVIDERS:
+        raise ValueError(f"Provider TTS inválido: {provider}")
+    data = _read()
+    data["tts_provider"] = normalized
+    _write(data)
+    os.environ["TTS_PROVIDER"] = normalized
+    return normalized
+
+
+def get_tts_settings(default_provider: str = "gemini") -> dict[str, Any]:
+    provider = get_tts_provider(default_provider)
+    return {
+        "tts_provider": provider,
+        "tts_voice": os.getenv("TTS_VOICE", "pt-BR-AntonioNeural"),
+        "tts_gemini_voice": os.getenv("TTS_GEMINI_VOICE", "Charon"),
+        "gemini_configured": bool(os.getenv("GEMINI_API_KEY", "")),
     }

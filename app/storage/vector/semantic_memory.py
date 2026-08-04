@@ -7,6 +7,25 @@ from typing import Any, List
 
 logger = logging.getLogger(__name__)
 
+_TECHNICAL_ERROR_MARKERS = (
+    "erro ao acessar a api",
+    "erro de autenticação",
+    "limite de taxa",
+    "api key",
+    "gemini_api_key",
+    "groq_api_key",
+    "timeout na conexão",
+    "erro de conexão com a api",
+    "orquestrador não disponível",
+    "não consegui falar com o núcleo",
+)
+
+
+def is_technical_error_memory(text: str) -> bool:
+    """Retorna se um texto descreve uma falha operacional, não uma memória do usuário."""
+    normalized = " ".join((text or "").lower().split())
+    return any(marker in normalized for marker in _TECHNICAL_ERROR_MARKERS)
+
 # Tenta importar ChromaDB, mas lida com falha gracefully
 try:
     import chromadb
@@ -63,7 +82,7 @@ class SemanticMemory:
         importance: float = 1.0
     ) -> bool:
         """Adiciona uma memória à coleção com timestamp e importância."""
-        if not self.client:
+        if not self.client or is_technical_error_memory(text):
             return False
         
         collection = self.get_or_create_collection(collection_name)
@@ -183,6 +202,28 @@ class SemanticMemory:
         """Remove memórias expiradas da coleção. Retorna quantidade removida."""
         if not self.client:
             return 0
+
+    def cleanup_technical_error_memories(self, collection_names: list[str] | None = None) -> int:
+        """Remove erros operacionais que tenham sido gravados por versões antigas."""
+        if not self.client:
+            return 0
+
+        removed = 0
+        for collection_name in collection_names or ["user_memory", "conversations", "episodic_memory"]:
+            collection = self.get_or_create_collection(collection_name)
+            if not collection:
+                continue
+            try:
+                results = collection.get()
+                documents = results.get("documents") or []
+                ids = results.get("ids") or []
+                stale_ids = [ids[index] for index, document in enumerate(documents) if is_technical_error_memory(document)]
+                if stale_ids:
+                    collection.delete(ids=stale_ids)
+                    removed += len(stale_ids)
+            except Exception as exc:
+                logger.error("Falha ao limpar erros técnicos de %s: %s", collection_name, exc)
+        return removed
         
         collection = self.get_or_create_collection(collection_name)
         if not collection:

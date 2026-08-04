@@ -39,10 +39,16 @@ class VisionTool(BaseTool):
         }
 
     def execute(self, args: dict[str, Any], context: dict[str, Any] | None = None) -> ToolResult:
+        action = str(args.get("action", "analyze_screen")).lower()
+        # The React camera workspace owns device selection and consent.  The
+        # assistant must not silently open the operating-system default camera.
+        if action == "analyze_camera":
+            return ToolResult(
+                ok=False,
+                message="Abra o Espaço de Câmeras, selecione a transmissão desejada e faça a pergunta por lá.",
+            )
         if not VISION_AVAILABLE:
             return ToolResult(ok=False, message="Visão computacional indisponível (dependências mss/Pillow ausentes).")
-
-        action = str(args.get("action", "analyze_screen")).lower()
         prompt = str(args.get("prompt", "Descreva detalhadamente o conteúdo desta imagem.")).strip()
 
         # Obter API Key dos settings do context ou settings globais

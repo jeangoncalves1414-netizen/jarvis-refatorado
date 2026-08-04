@@ -1,0 +1,58 @@
+.chat-history {
+  position: relative;
+}
+
+.chat-error-layer {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(8, 8, 12, .72);
+  backdrop-filter: blur(5px);
+}
+
+.chat-error-layer > div {
+  width: min(420px, 100%);
+  padding: 20px;
+  border: 1px solid #ffb4ab70;
+  border-radius: 14px;
+  background: #201517;
+  box-shadow: 0 18px 45px #0008;
+}
+
+.chat-error-layer small {
+  color: #ffb4ab;
+  font: 10px 'DM Mono';
+  letter-spacing: 1px;
+}
+
+.chat-error-layer p {
+  margin: 9px 0 16px;
+  color: #f1d8d5;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chat-error-layer button,
+.memory-actions button {
+  border: 1px solid #ffb4ab70;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #ffe1dc;
+  background: #ffb4ab18;
+  font-size: 11px;
+}
+
+.memory-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.memory-actions button:last-child {
+  color: #ffcb94;
+  border-color: #ffcb9470;
+  background: #ffcb9410;
+}
