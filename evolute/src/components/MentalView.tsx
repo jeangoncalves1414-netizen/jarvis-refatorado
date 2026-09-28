@@ -33,7 +33,7 @@ export const MentalView: React.FC<MentalViewProps> = ({
   onDeleteMentalLog
 }) => {
   const [moodScore, setMoodScore] = useState<number>(mentalLog.moodScore || 3);
-  const [moodTags, setMoodTags] = useState<string[]>(mentalLog.moodTags || []);
+  const [moodTags, setMoodTags] = useState<string[]>(Array.isArray(mentalLog.moodTags) ? mentalLog.moodTags : []);
   const [journalText, setJournalText] = useState<string>(mentalLog.journalText || '');
   const [socialStranger, setSocialStranger] = useState<boolean>(mentalLog.socialStranger || false);
   const [socialDeepContact, setSocialDeepContact] = useState<boolean>(mentalLog.socialDeepContact || false);
@@ -45,7 +45,7 @@ export const MentalView: React.FC<MentalViewProps> = ({
   // Synchronize local form inputs whenever mentalLog or selectedDate changes
   useEffect(() => {
     setMoodScore(mentalLog.moodScore || 3);
-    setMoodTags(mentalLog.moodTags || []);
+    setMoodTags(Array.isArray(mentalLog.moodTags) ? mentalLog.moodTags : []);
     setJournalText(mentalLog.journalText || '');
     setSocialStranger(mentalLog.socialStranger || false);
     setSocialDeepContact(mentalLog.socialDeepContact || false);
@@ -122,7 +122,7 @@ export const MentalView: React.FC<MentalViewProps> = ({
         const stored = getStoredItem<MentalLog | null>(`${StorageKeys.MENTAL_PREFIX}${dStr}`, null);
         if (stored) {
           score = stored.moodScore || 3;
-          tags = stored.moodTags || [];
+          tags = Array.isArray(stored.moodTags) ? stored.moodTags : [];
           journal = stored.journalText || '';
           hasRecord = true;
         }
@@ -134,7 +134,7 @@ export const MentalView: React.FC<MentalViewProps> = ({
         score,
         hasRecord,
         journalSnippet: journal ? (journal.length > 50 ? journal.slice(0, 48) + '...' : journal) : '',
-        tags: tags.join(', ')
+        tags: (Array.isArray(tags) ? tags : []).join(', ')
       });
     }
     return list;

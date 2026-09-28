@@ -260,7 +260,20 @@ function mergeVaults(
   const remoteTs = remote.fieldTimestamps || {}
   
   // Merge de campos simples
-  merged.keys = mergeField('keys', local.keys, remote.keys, localTs.keys || 0, remoteTs.keys || 0)
+  // Para 'keys': verificar se realmente tem valores preenchidos (não apenas defaults vazios)
+  const localKeysHaveValue = keysHaveValue(local.keys)
+  const remoteKeysHaveValue = keysHaveValue(remote.keys)
+  if (!localKeysHaveValue && remoteKeysHaveValue) {
+    // Local só tem padrões vazios, remote tem chaves reais → usar remote
+    console.log('[JarvisCloud] Keys: using remote (local is default/empty, remote has real keys)')
+    merged.keys = remote.keys
+  } else if (localKeysHaveValue && !remoteKeysHaveValue) {
+    merged.keys = local.keys
+    console.log('[JarvisCloud] Keys: using local (remote is empty)')
+  } else {
+    // Ambos têm ou ambos não têm → resolver por timestamp
+    merged.keys = mergeField('keys', local.keys, remote.keys, localTs.keys || 0, remoteTs.keys || 0)
+  }
   merged.provider = mergeField('provider', local.provider, remote.provider, localTs.provider || 0, remoteTs.provider || 0)
   merged.oxyyModels = mergeField('oxyyModels', local.oxyyModels, remote.oxyyModels, localTs.oxyyModels || 0, remoteTs.oxyyModels || 0)
   merged.providerModels = mergeField('providerModels', local.providerModels, remote.providerModels, localTs.providerModels || 0, remoteTs.providerModels || 0)

@@ -3,7 +3,7 @@
  * Prioritizes dynamic freshness for /api/* and caches static shell.
  */
 
-const CACHE_NAME = 'jarvis-shell-v2'
+const CACHE_NAME = 'jarvis-shell-v4'
 
 self.addEventListener('install', (event) => {
   self.skipWaiting()
