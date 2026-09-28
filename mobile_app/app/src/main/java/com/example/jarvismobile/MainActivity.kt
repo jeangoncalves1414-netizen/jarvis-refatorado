@@ -78,6 +78,7 @@ class MainActivity : ComponentActivity() {
                 displayZoomControls = false
             }
 
+            clearCache(true)
             setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
             webChromeClient = object : WebChromeClient() {
