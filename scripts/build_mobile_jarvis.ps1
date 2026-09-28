@@ -1,5 +1,6 @@
 param(
-    [switch]$Install
+    [switch]$Install,
+    [switch]$RebuildWeb
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,19 +22,26 @@ function Build-WebApp([string]$Path, [bool]$RelativeBase) {
     }
 }
 
-# Jarvis is the app root; Evolute remains a panel at /evolute/.
-Build-WebApp $frontend $false
-Build-WebApp $evolute $true
+if ($RebuildWeb) {
+    Write-Host "[BUILD] Recompilando frontend e evolute da pasta src..." -ForegroundColor Cyan
+    Build-WebApp $frontend $false
+    Build-WebApp $evolute $true
 
-if (Test-Path -LiteralPath $assets) {
-    Remove-Item -LiteralPath $assets -Recurse -Force
+    if (Test-Path -LiteralPath $assets) {
+        $backupDir = Join-Path $root "backups\assets_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+        Write-Host "[BACKUP] Salvando backup dos assets atuais em $backupDir" -ForegroundColor Yellow
+        Copy-Item -Path $assets -Destination $backupDir -Recurse -Force
+        Remove-Item -LiteralPath $assets -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $assets -Force | Out-Null
+    Copy-Item -Path (Join-Path $frontend 'dist\*') -Destination $assets -Recurse -Force
+
+    $evoluteAssets = Join-Path $assets 'evolute'
+    New-Item -ItemType Directory -Path $evoluteAssets -Force | Out-Null
+    Copy-Item -Path (Join-Path $evolute 'dist\*') -Destination $evoluteAssets -Recurse -Force
+} else {
+    Write-Host "[OK] Utilizando assets estaveis verificados em mobile_app/app/src/main/assets" -ForegroundColor Green
 }
-New-Item -ItemType Directory -Path $assets -Force | Out-Null
-Copy-Item -Path (Join-Path $frontend 'dist\*') -Destination $assets -Recurse -Force
-
-$evoluteAssets = Join-Path $assets 'evolute'
-New-Item -ItemType Directory -Path $evoluteAssets -Force | Out-Null
-Copy-Item -Path (Join-Path $evolute 'dist\*') -Destination $evoluteAssets -Recurse -Force
 
 Push-Location (Join-Path $root 'mobile_app')
 try {
