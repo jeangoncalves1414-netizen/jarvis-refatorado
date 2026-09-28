@@ -698,13 +698,13 @@ function MobileApiConfig() {
   }
 
   return (
-    <article className="settings-card" style={{ border: '1px solid rgba(251,191,36,0.3)', boxShadow: '0 0 25px rgba(251,191,36,0.1)' }}>
+    <article className="settings-card" style={{ border: '1px solid rgba(0, 218, 248, 0.3)', boxShadow: '0 0 25px rgba(0, 218, 248, 0.1)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-        <p className="eyebrow" style={{ color: '#fbbf24' }}>📱 MOBILE · PARIDADE COM DESKTOP</p>
+        <p className="eyebrow" style={{ color: 'var(--jarvis-cyan)' }}>📱 MOBILE · PARIDADE COM DESKTOP</p>
         <button
           type="button"
           onClick={resetToPcDefaults}
-          style={{ padding: '4px 8px', borderRadius: 6, background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+          style={{ padding: '4px 8px', borderRadius: 6, background: 'rgba(0, 218, 248, 0.1)', border: '1px solid rgba(0, 218, 248, 0.3)', color: 'var(--jarvis-cyan)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
           title="Limpar chaves salvas neste celular"
         >
           🔄 Limpar chaves
@@ -726,9 +726,9 @@ function MobileApiConfig() {
               onClick={() => setProvider(p)}
               style={{
                 flex: 1, padding: '10px 4px', borderRadius: 10, fontSize: 12, fontWeight: 700,
-                border: provider === p ? '1px solid #fbbf24' : '1px solid rgba(255,255,255,0.1)',
-                background: provider === p ? 'rgba(251,191,36,0.14)' : 'rgba(255,255,255,0.04)',
-                color: provider === p ? '#fbbf24' : '#94a3b8', cursor: 'pointer',
+                border: provider === p ? '1px solid var(--jarvis-cyan)' : '1px solid rgba(255,255,255,0.1)',
+                background: provider === p ? 'rgba(0, 218, 248, 0.14)' : 'rgba(255,255,255,0.04)',
+                color: provider === p ? 'var(--jarvis-cyan)' : '#94a3b8', cursor: 'pointer',
               }}
             >
               {p === 'oxyy' ? '🔮 Oxxy (PC Default)' : p === 'groq' ? '⚡ Groq' : '🔵 Gemini'}
@@ -738,7 +738,7 @@ function MobileApiConfig() {
 
         {/* Gerenciador de Chaves */}
         <div style={{ padding: 12, borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: '#fbbf24', letterSpacing: 1 }}>🔑 CHAVES DE API (PC & MOBILE)</p>
+          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--jarvis-cyan)', letterSpacing: 1 }}>🔑 CHAVES DE API (PC & MOBILE)</p>
 
           {[
             { id: 'oxyy', label: 'Oxyy API Key (Principal)', placeholder: 'sk-oxyy-...' },
@@ -777,8 +777,8 @@ function MobileApiConfig() {
 
         {/* Modelo por Capacidade (Oxxy Router) */}
         {provider === 'oxyy' && (
-          <div style={{ padding: 12, borderRadius: 12, background: 'rgba(251,191,36,0.03)', border: '1px solid rgba(251,191,36,0.15)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <p style={{ fontSize: 11, fontWeight: 700, color: '#fbbf24', letterSpacing: 1 }}>🎯 ROTEAMENTO DE MODELOS (OXXY)</p>
+          <div style={{ padding: 12, borderRadius: 12, background: 'rgba(0, 218, 248, 0.03)', border: '1px solid rgba(0, 218, 248, 0.15)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--jarvis-cyan)', letterSpacing: 1 }}>🎯 ROTEAMENTO DE MODELOS (OXXY)</p>
             {[
               { id: 'chat', label: 'Chat / Raciocínio', options: ['codestral-2508', 'gemini-2.5-flash', 'gpt-4o-mini', 'llama-3.3-70b-instruct', 'grok-4'] },
               { id: 'tts', label: 'Síntese de Voz (TTS)', options: ['tts-1-hd', 'eleven_v3', 'gemini-tts'] },
@@ -819,7 +819,7 @@ function MobileApiConfig() {
           <button
             type="button"
             onClick={save}
-            style={{ flex: 1, padding: '10px', borderRadius: 10, background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.4)', color: '#fbbf24', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+            style={{ flex: 1, padding: '10px', borderRadius: 10, background: 'rgba(0, 218, 248, 0.15)', border: '1px solid rgba(0, 218, 248, 0.4)', color: 'var(--jarvis-cyan)', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
           >
             <Save size={14} /> Salvar
           </button>

@@ -46,7 +46,7 @@ export function JarvisOrb({
         width: size,
         height: size,
         cursor: interactive ? 'pointer' : 'default',
-        background: 'radial-gradient(circle, rgba(245, 158, 11, 0.25) 0%, rgba(16, 185, 129, 0.15) 50%, transparent 75%)',
+        background: 'radial-gradient(circle, rgba(0, 218, 248, 0.25) 0%, rgba(157, 5, 255, 0.15) 50%, transparent 75%)',
         borderRadius: '50%',
         display: 'inline-flex',
         alignItems: 'center',
@@ -59,25 +59,25 @@ export function JarvisOrb({
         className="jarvis-orb-core"
         style={{
           color: '#ffffff',
-          textShadow: '0 0 12px #fbbf24, 0 0 24px #f59e0b',
+          textShadow: '0 0 12px #00daf8, 0 0 24px rgba(0, 218, 248, 0.6)',
           fontSize: Math.max(14, size * 0.25),
           fontWeight: 700,
         }}
       >
-        解
+        J
       </div>
       <div
         className="jarvis-orb-ring"
         style={{
-          borderColor: 'rgba(251, 191, 36, 0.75)',
-          boxShadow: '0 0 14px rgba(245, 158, 11, 0.4), inset 0 0 14px rgba(16, 185, 129, 0.2)',
+          borderColor: 'rgba(0, 218, 248, 0.75)',
+          boxShadow: '0 0 14px rgba(0, 218, 248, 0.4), inset 0 0 14px rgba(157, 5, 255, 0.2)',
         }}
         aria-hidden="true"
       />
       <div
         className="jarvis-orb-ring jarvis-orb-ring-2"
         style={{
-          borderColor: 'rgba(16, 185, 129, 0.45)',
+          borderColor: 'rgba(157, 5, 255, 0.45)',
         }}
         aria-hidden="true"
       />

@@ -3,7 +3,7 @@
   width: 260px;
   min-height: 100vh;
   padding: 28px 14px 20px;
-  border-right: 1px solid rgba(251, 191, 36, 0.12);
+  border-right: 1px solid rgba(0, 218, 248, 0.14);
   background: rgba(8, 11, 16, 0.94);
   backdrop-filter: blur(20px);
   display: flex;
@@ -20,7 +20,7 @@
   right: 0;
   bottom: 0;
   width: 1px;
-  background: linear-gradient(to bottom, transparent, rgba(251, 191, 36, 0.3) 30%, rgba(16, 185, 129, 0.25) 70%, transparent);
+  background: linear-gradient(to bottom, transparent, rgba(0, 218, 248, 0.3) 30%, rgba(157, 5, 255, 0.25) 70%, transparent);
   pointer-events: none;
 }
 
@@ -48,8 +48,8 @@
   font-style: normal;
   font-size: 15px;
   border-radius: 10px;
-  color: #07090d;
-  background: linear-gradient(135deg, #fffbeb, #fbbf24 45%, #d97706);
+  color: #001f25;
+  background: linear-gradient(135deg, #b8f4ff, var(--jarvis-cyan));
   box-shadow: var(--jarvis-glow);
 }
 
@@ -90,11 +90,11 @@
 
 .sidebar-nav button:hover {
   color: #f1f5f9;
-  background: rgba(251, 191, 36, 0.08);
+  background: rgba(0, 218, 248, 0.08);
 }
 
 .sidebar-nav button:hover .nav-icon {
-  color: #fbbf24;
+  color: var(--jarvis-cyan);
 }
 
 .sidebar-nav button.nav-active {
@@ -111,7 +111,7 @@
   width: 3px;
   height: 60%;
   border-radius: 0 3px 3px 0;
-  background: linear-gradient(to bottom, #fbbf24, #10b981);
+  background: linear-gradient(to bottom, var(--jarvis-cyan), var(--jarvis-purple));
 }
 
 .sidebar-nav button.nav-active .nav-icon {
@@ -126,7 +126,7 @@
 .sidebar-quick {
   margin-top: 20px;
   padding-top: 16px;
-  border-top: 1px solid rgba(251, 191, 36, 0.08);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -168,7 +168,7 @@
 
 .sidebar-action-btn:hover {
   color: #f1f5f9;
-  background: rgba(251, 191, 36, 0.06);
+  background: rgba(0, 218, 248, 0.08);
 }
 
 .sidebar-action-btn.sidebar-action-active {
