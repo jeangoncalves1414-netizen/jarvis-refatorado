@@ -19,9 +19,9 @@ const glowColorMap = {
 }
 
 const sizeMap = {
-  sm: 'w-48 h-64',
-  md: 'w-64 h-80',
-  lg: 'w-80 h-96'
+  sm: 'spotlight-card-sm',
+  md: 'spotlight-card-md',
+  lg: 'spotlight-card-lg',
 }
 
 const SpotlightCard: React.FC<SpotlightCardProps> = ({ 
@@ -162,21 +162,9 @@ const SpotlightCard: React.FC<SpotlightCardProps> = ({
         ref={cardRef}
         data-spotlight
         style={getInlineStyles()}
-        className={`
-          ${getSizeClasses()}
-          ${!customSize ? 'aspect-[3/4]' : ''}
-          rounded-2xl 
-          relative 
-          grid 
-          grid-rows-[1fr_auto] 
-          shadow-[0_1rem_2rem_-1rem_black] 
-          p-4 
-          gap-4 
-          backdrop-blur-[5px]
-          ${className}
-        `}
+        className={`spotlight-card ${getSizeClasses()} ${!customSize ? 'spotlight-card-aspect' : ''} ${className}`}
       >
-        <div ref={innerRef} data-spotlight></div>
+        <div ref={innerRef} data-spotlight className="spotlight-card-inner"></div>
         {children}
       </div>
     </>

@@ -5,9 +5,12 @@ import subprocess
 import sys
 import time
 import psutil
+import logging
 from typing import Any
 from .base import BaseTool, ToolResult
 from app.services.system import SystemMetrics
+
+logger = logging.getLogger(__name__)
 
 # Virtual Key Codes para controle de mídia e volume do Windows
 _VK_MEDIA_PLAY_PAUSE = 0xB3
@@ -18,6 +21,21 @@ _VK_VOLUME_DOWN = 0xAE
 _VK_VOLUME_UP = 0xAF
 _KEYEVENTF_EXTENDEDKEY = 0x0001
 _KEYEVENTF_KEYUP = 0x0002
+
+# Whitelist of allowed applications with their executable names
+# Only these applications can be opened by the system_control tool
+ALLOWED_APPS = {
+    "notepad": "notepad.exe",
+    "calc": "calc.exe",
+    "mspaint": "mspaint.exe",
+    "cmd": "cmd.exe",
+    "explorer": "explorer.exe",
+    "notepad++": "notepad++.exe",
+    "code": "code.exe",  # VS Code
+    "chrome": "chrome.exe",
+    "firefox": "firefox.exe",
+    "edge": "msedge.exe",
+}
 
 def _press_media_key(vk: int, repeat: int = 1) -> None:
     try:
@@ -61,6 +79,26 @@ class SystemControlTool(BaseTool):
             "required": ["action"]
         }
 
+    def _validate_app_name(self, app_name: str) -> str | None:
+        """Validate and normalize application name against whitelist.
+        
+        Args:
+            app_name: The application name to validate
+            
+        Returns:
+            The normalized executable name if valid, None otherwise
+        """
+        if not app_name or not isinstance(app_name, str):
+            return None
+        
+        app_name = app_name.strip().lower()
+        
+        # Check against whitelist
+        if app_name in ALLOWED_APPS:
+            return ALLOWED_APPS[app_name]
+        
+        return None
+
     def execute(self, args: dict[str, Any], context: dict[str, Any] | None = None) -> ToolResult:
         action = str(args.get("action", "telemetry")).lower()
 
@@ -84,44 +122,60 @@ class SystemControlTool(BaseTool):
                 msg = f"Aplicativos em execução:\n" + "\n".join(f"- {p}" for p in processes)
                 return ToolResult(ok=True, message=msg, data={"processes": processes})
             except Exception as e:
+                logger.error(f"Error listing processes: {e}")
                 return ToolResult(ok=False, message=f"Erro ao listar processos: {e}")
 
         elif action == "open_app":
-            app_name = args.get("app_name", "").strip().lower()
-            allowed_apps = {"notepad": "notepad.exe", "calc": "calc.exe", "mspaint": "mspaint.exe"}
+            app_name = args.get("app_name", "")
             
-            if app_name not in allowed_apps:
+            # Validate app name
+            exe_name = self._validate_app_name(app_name)
+            if not exe_name:
+                logger.warning(f"Attempted to open unapproved application: {app_name}")
                 return ToolResult(ok=False, message=f"Aplicativo '{app_name}' não é permitido ou seguro de abrir.")
 
             try:
-                subprocess.Popen(allowed_apps[app_name], shell=True)
+                # Use shell=False to prevent command injection
+                subprocess.Popen(exe_name, shell=False)
+                logger.info(f"Successfully opened application: {app_name} -> {exe_name}")
                 return ToolResult(ok=True, message=f"Aplicativo '{app_name}' iniciado com sucesso.")
+            except FileNotFoundError:
+                logger.error(f"Application executable not found: {exe_name}")
+                return ToolResult(ok=False, message=f"Aplicativo '{app_name}' não encontrado no sistema.")
             except Exception as e:
+                logger.error(f"Failed to start application {app_name}: {e}")
                 return ToolResult(ok=False, message=f"Falha ao iniciar aplicativo: {e}")
 
         # --- Controle Universal de Mídia & Volume ---
         elif action in ("media_play_pause", "play", "pause"):
             _press_media_key(_VK_MEDIA_PLAY_PAUSE)
+            logger.info("Media play/pause executed")
             return ToolResult(ok=True, message="Play/Pause de mídia alterado no sistema.")
 
         elif action in ("media_next", "next"):
             _press_media_key(_VK_MEDIA_NEXT)
+            logger.info("Media next executed")
             return ToolResult(ok=True, message="Avançado para a próxima faixa no player ativo.")
 
         elif action in ("media_prev", "prev", "previous"):
             _press_media_key(_VK_MEDIA_PREV)
+            logger.info("Media previous executed")
             return ToolResult(ok=True, message="Retornado para a faixa anterior no player ativo.")
 
         elif action == "volume_up":
             _press_media_key(_VK_VOLUME_UP, repeat=5)
+            logger.info("Volume up executed")
             return ToolResult(ok=True, message="Volume do sistema aumentado.")
 
         elif action == "volume_down":
             _press_media_key(_VK_VOLUME_DOWN, repeat=5)
+            logger.info("Volume down executed")
             return ToolResult(ok=True, message="Volume do sistema diminuído.")
 
         elif action == "volume_mute":
             _press_media_key(_VK_VOLUME_MUTE)
+            logger.info("Volume mute executed")
             return ToolResult(ok=True, message="Mute/Unmute do sistema alterado.")
 
+        logger.warning(f"Unknown action attempted: {action}")
         return ToolResult(ok=False, message=f"Ação desconhecida: {action}")

@@ -29,6 +29,8 @@ dependencies = [
     "pillow>=10.0.0",
     "pyautogui>=0.9.54",
     "keyboard>=0.13.5",
+    "onnxruntime>=1.26,<2",
+    "kaldi-native-fbank>=1.22,<2",
 ]
 
 [project.scripts]
@@ -36,3 +38,11 @@ jarvis-rebuild = "app.main:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not integration and not live and not network and not hardware'"
+markers = [
+    "unit: teste local, determinístico e sem efeitos externos",
+    "integration: integra múltiplos componentes; execução explícita",
+    "live: requer o Jarvis já iniciado e dados locais reais",
+    "network: acessa rede externa",
+    "hardware: acessa clipboard, mídia, microfone, registro ou hardware",
+]

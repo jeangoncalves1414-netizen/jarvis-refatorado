@@ -9,8 +9,18 @@ RUNTIME_SETTINGS_FILE = os.path.join(DATA_DIR, "runtime_settings.json")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
-_VALID_PROVIDERS = {"gemini", "groq"}
-_VALID_TTS_PROVIDERS = {"gemini", "edge"}
+_VALID_PROVIDERS = {"gemini", "groq", "oxyy"}
+_VALID_TTS_PROVIDERS = {"fish", "gemini", "edge", "oxyy"}
+_VALID_STT_PROVIDERS = {"groq", "oxyy", "google", "whisper_local"}
+_OXYY_MODEL_DEFAULTS = {
+    "chat": "gpt-4o-mini",
+    "tts": "tts-1-hd",
+    "tts_voice": "alloy",
+    "stt": "whisper-1",
+    "image": "dall-e-3",
+    "video": "veo-3",
+    "embedding": "gemini-embedding-001",
+}
 
 
 def _read() -> dict[str, Any]:
@@ -28,13 +38,154 @@ def _write(data: dict[str, Any]) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def get_llm_provider(default: str = "gemini") -> str:
+def sync_api_keys_to_env() -> None:
+    """Carrega chaves salvas em runtime_settings.json para as variáveis de ambiente.
+    
+    NOTE: This function should be called explicitly after the application is fully
+    initialized, not at module import time, to avoid race conditions with file I/O.
+    """
+    data = _read()
+    keys = data.get("api_keys", {})
+    if isinstance(keys, dict):
+        mapping = {
+            "oxyy": ("OXYY_API_KEY", "OXYY_API_KEYS"),
+            "groq": ("GROQ_API_KEY", "GROQ_API_KEYS"),
+            "gemini": ("GEMINI_API_KEY", "GEMINI_API_KEYS"),
+            "openrouter": ("OPENROUTER_API_KEY", "OPENROUTER_API_KEYS"),
+            "fish": ("FISH_API_KEY", "FISH_API_KEYS"),
+        }
+        for key_id, (env_key, env_keys) in mapping.items():
+            val = str(keys.get(key_id) or "").strip()
+            if val:
+                os.environ[env_key] = val
+                os.environ[env_keys] = val
+
+
+def get_api_keys() -> dict[str, str]:
+    """Retorna as chaves de API atualmente configuradas (mascaradas e brutas para gerenciamento).
+    Retorna todas as chaves separadas por vírgula quando disponíveis no ambiente.
+    """
+    data = _read()
+    saved = data.get("api_keys", {}) if isinstance(data.get("api_keys"), dict) else {}
+    mapping = {
+        "oxyy": ("OXYY_API_KEY", "OXYY_API_KEYS"),
+        "groq": ("GROQ_API_KEY", "GROQ_API_KEYS"),
+        "gemini": ("GEMINI_API_KEY", "GEMINI_API_KEYS"),
+        "openrouter": ("OPENROUTER_API_KEY", "OPENROUTER_API_KEYS"),
+        "fish": ("FISH_API_KEY", "FISH_API_KEYS"),
+    }
+    result = {}
+    for key_id, (env_key, env_keys) in mapping.items():
+        # Prioriza chave salva no runtime_settings.json
+        if saved.get(key_id):
+            result[key_id] = str(saved[key_id]).strip()
+        else:
+            # Se não tiver salva, pega do ambiente (suporta múltiplas chaves separadas por vírgula)
+            env_val = os.getenv(env_keys) or os.getenv(env_key) or ""
+            if env_val:
+                # Normaliza as chaves (separadas por vírgula ou newline)
+                keys = [k.strip() for k in env_val.replace("\n", ",").split(",") if k.strip()]
+                result[key_id] = ",".join(keys)
+            else:
+                result[key_id] = ""
+    return result
+
+
+def set_api_keys(keys: dict[str, str], settings_obj: Any | None = None) -> dict[str, str]:
+    """Salva chaves de API no runtime_settings.json e aplica ao ambiente.
+    Suporta múltiplas chaves separadas por vírgula.
+    """
+    if not isinstance(keys, dict):
+        raise ValueError("keys deve ser um dicionário.")
+    data = _read()
+    current = data.get("api_keys", {}) if isinstance(data.get("api_keys"), dict) else {}
+    allowed = {"oxyy", "groq", "gemini", "openrouter", "fish"}
+    mapping = {
+        "oxyy": ("OXYY_API_KEY", "OXYY_API_KEYS"),
+        "groq": ("GROQ_API_KEY", "GROQ_API_KEYS"),
+        "gemini": ("GEMINI_API_KEY", "GEMINI_API_KEYS"),
+        "openrouter": ("OPENROUTER_API_KEY", "OPENROUTER_API_KEYS"),
+        "fish": ("FISH_API_KEY", "FISH_API_KEYS"),
+    }
+    for key_id, val in keys.items():
+        if key_id in allowed:
+            clean_val = str(val or "").strip()
+            # Normaliza as chaves (separadas por vírgula ou newline)
+            if clean_val:
+                keys_list = [k.strip() for k in clean_val.replace("\n", ",").split(",") if k.strip()]
+                clean_val = ",".join(keys_list)
+            current[key_id] = clean_val
+            env_key, env_keys = mapping[key_id]
+            # Aplica tanto a versão singular quanto plural
+            os.environ[env_key] = clean_val
+            os.environ[env_keys] = clean_val
+    data["api_keys"] = current
+    _write(data)
+    
+    # Update in-memory Settings object if provided
+    if settings_obj:
+        sync_settings_to_obj(settings_obj)
+    
+    return get_api_keys()
+
+
+def sync_settings_to_obj(settings_obj: Any) -> None:
+    """Sincroniza runtime_settings.json e env para o objeto Settings em memória.
+    
+    Args:
+        settings_obj: The Settings dataclass instance to update
+    """
+    data = _read()
+    
+    # Sync API keys to Settings object
+    keys = data.get("api_keys", {}) if isinstance(data.get("api_keys"), dict) else {}
+    
+    # Update singular and plural fields
+    if "groq" in keys:
+        groq_val = str(keys["groq"]).strip()
+        settings_obj.groq_api_key = groq_val.split(",")[0].strip() if groq_val else ""
+        settings_obj.groq_api_keys = [k.strip() for k in groq_val.replace("\n", ",").split(",") if k.strip()]
+    
+    if "gemini" in keys:
+        gemini_val = str(keys["gemini"]).strip()
+        settings_obj.gemini_api_key = gemini_val.split(",")[0].strip() if gemini_val else ""
+        settings_obj.gemini_api_keys = [k.strip() for k in gemini_val.replace("\n", ",").split(",") if k.strip()]
+    
+    if "oxyy" in keys:
+        oxyy_val = str(keys["oxyy"]).strip()
+        settings_obj.oxyy_api_key = oxyy_val.split(",")[0].strip() if oxyy_val else ""
+        settings_obj.oxyy_api_keys = [k.strip() for k in oxyy_val.replace("\n", ",").split(",") if k.strip()]
+    
+    if "fish" in keys:
+        fish_val = str(keys["fish"]).strip()
+        settings_obj.fish_api_key = fish_val
+    
+    # Sync providers
+    if "llm_provider" in data:
+        settings_obj.llm_provider = str(data["llm_provider"]).lower()
+    if "tts_provider" in data:
+        settings_obj.tts_provider = str(data["tts_provider"]).lower()
+    if "stt_provider" in data:
+        settings_obj.stt_provider = str(data["stt_provider"]).lower()
+    
+    # Sync Oxyy models
+    if isinstance(data.get("oxyy_models"), dict):
+        oxyy_models = data["oxyy_models"]
+        settings_obj.oxyy_chat_model = str(oxyy_models.get("chat", settings_obj.oxyy_chat_model))
+        settings_obj.oxyy_tts_model = str(oxyy_models.get("tts", settings_obj.oxyy_tts_model))
+        settings_obj.oxyy_tts_voice = str(oxyy_models.get("tts_voice", settings_obj.oxyy_tts_voice))
+        settings_obj.oxyy_stt_model = str(oxyy_models.get("stt", settings_obj.oxyy_stt_model))
+        settings_obj.oxyy_image_model = str(oxyy_models.get("image", settings_obj.oxyy_image_model))
+        settings_obj.oxyy_video_model = str(oxyy_models.get("video", settings_obj.oxyy_video_model))
+        settings_obj.oxyy_embedding_model = str(oxyy_models.get("embedding", settings_obj.oxyy_embedding_model))
+
+
+def get_llm_provider(default: str | None = None) -> str:
     data = _read()
     if "llm_provider" in data:
         provider = str(data["llm_provider"]).lower()
         return provider if provider in _VALID_PROVIDERS else "gemini"
-    # Sem arquivo json: respeita a variável de ambiente LLM_PROVIDER
-    env_provider = os.getenv("LLM_PROVIDER", default).lower()
+    env_provider = str(default if default is not None else os.getenv("LLM_PROVIDER", "gemini")).lower()
     return env_provider if env_provider in _VALID_PROVIDERS else "gemini"
 
 
@@ -49,24 +200,75 @@ def set_llm_provider(provider: str) -> str:
     return normalized
 
 
-
 def get_llm_settings(default_provider: str = "gemini") -> dict[str, Any]:
-    data = _read()
     provider = get_llm_provider(default_provider)
+    routes = resolve_ai_routes({"llm_provider": default_provider})
+    chat = routes["chat"]
     return {
         "llm_provider": provider,
-        "gemini_configured": bool(os.getenv("GEMINI_API_KEY", "")),
-        "groq_configured": bool(os.getenv("GROQ_API_KEY", "")),
+        "gemini_configured": _configured("gemini"),
+        "groq_configured": _configured("groq"),
+        "oxyy_configured": _configured("oxyy"),
+        "effective_provider": (chat.get("effective") or {}).get("provider"),
+        "effective_model": (chat.get("effective") or {}).get("model"),
+        "fallback_used": bool(chat.get("fallback_used")),
+        "fallback_reason": chat.get("reason", ""),
+        "route": chat,
     }
 
 
-def get_tts_provider(default: str = "gemini") -> str:
+def get_oxyy_settings(defaults: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Retorna escolhas por capacidade sem expor chaves secretas."""
+    data = _read()
+    merged = dict(_OXYY_MODEL_DEFAULTS)
+    if defaults:
+        for key, value in defaults.items():
+            if value:
+                merged[key] = value
+    saved = data.get("oxyy_models")
+    if isinstance(saved, dict):
+        for key in merged:
+            value = saved.get(key)
+            if isinstance(value, str) and value.strip():
+                merged[key] = value.strip()
+    raw_keys = os.getenv("OXYY_API_KEYS", os.getenv("OXYY_API_KEY", ""))
+    keys = [key.strip() for key in raw_keys.replace("\n", ",").split(",") if key.strip()]
+    return {
+        "models": merged,
+        "oxyy_configured": bool(keys),
+        "key_count": len(keys),
+        "keys": [{"label": f"Chave {index + 1}", "masked": f"{key[:4]}…{key[-4:]}" if len(key) > 8 else "••••"} for index, key in enumerate(keys)],
+        "base_url": os.getenv("OXYY_BASE_URL", "https://api.oxyy.ai/v1"),
+    }
+
+
+def set_oxyy_models(models: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(models, dict):
+        raise ValueError("models deve ser um objeto.")
+    data = _read()
+    current = dict(data.get("oxyy_models") or {})
+    allowed = set(_OXYY_MODEL_DEFAULTS)
+    for key, value in models.items():
+        if key not in allowed:
+            continue
+        value = str(value or "").strip()
+        # Ignorar valores de placeholder do frontend tipo "official-chat"
+        if not value or value.startswith("official-"):
+            continue
+        current[key] = value[:180]
+    data["oxyy_models"] = current
+    _write(data)
+    return get_oxyy_settings()
+
+
+
+def get_tts_provider(default: str = "fish") -> str:
     data = _read()
     if "tts_provider" in data:
         provider = str(data["tts_provider"]).lower()
-        return provider if provider in _VALID_TTS_PROVIDERS else "gemini"
+        return provider if provider in _VALID_TTS_PROVIDERS else default
     env_provider = os.getenv("TTS_PROVIDER", default).lower()
-    return env_provider if env_provider in _VALID_TTS_PROVIDERS else "gemini"
+    return env_provider if env_provider in _VALID_TTS_PROVIDERS else default
 
 
 def set_tts_provider(provider: str) -> str:
@@ -80,11 +282,217 @@ def set_tts_provider(provider: str) -> str:
     return normalized
 
 
-def get_tts_settings(default_provider: str = "gemini") -> dict[str, Any]:
+def get_tts_settings(default_provider: str = "fish") -> dict[str, Any]:
     provider = get_tts_provider(default_provider)
     return {
         "tts_provider": provider,
         "tts_voice": os.getenv("TTS_VOICE", "pt-BR-AntonioNeural"),
         "tts_gemini_voice": os.getenv("TTS_GEMINI_VOICE", "Charon"),
+        "fish_reference_id": os.getenv("FISH_REFERENCE_ID", "78d40157e19a43ebb725f09fc6125585"),
+        "fish_model": os.getenv("FISH_TTS_MODEL", "s2.1-pro-free"),
+        "fish_configured": bool(os.getenv("FISH_API_KEY", "")),
         "gemini_configured": bool(os.getenv("GEMINI_API_KEY", "")),
+        "oxyy_configured": bool(os.getenv("OXYY_API_KEY", "") or os.getenv("OXYY_API_KEYS", "")),
+        "oxyy_model": os.getenv("OXYY_TTS_MODEL", "tts-1-hd"),
+        "oxyy_voice": os.getenv("OXYY_TTS_VOICE", "alloy"),
     }
+
+
+def get_stt_provider(default: str = "groq") -> str:
+    data = _read()
+    value = data.get("stt_provider", os.getenv("STT_PROVIDER", default))
+    value = str(value).lower()
+    return value if value in _VALID_STT_PROVIDERS else default
+
+
+def set_stt_provider(provider: str) -> str:
+    normalized = str(provider).lower()
+    if normalized not in _VALID_STT_PROVIDERS:
+        raise ValueError(f"Provider STT inválido: {provider}")
+    data = _read()
+    data["stt_provider"] = normalized
+    _write(data)
+    os.environ["STT_PROVIDER"] = normalized
+    return normalized
+
+
+def get_stt_settings(default_provider: str = "groq") -> dict[str, Any]:
+    try:
+        from app.services.voice.whisper_stt import WHISPER_AVAILABLE
+    except Exception:
+        WHISPER_AVAILABLE = False
+    return {
+        "stt_provider": get_stt_provider(default_provider),
+        "groq_configured": bool(os.getenv("GROQ_API_KEY", "") or os.getenv("GROQ_API_KEYS", "")),
+        "oxyy_configured": bool(os.getenv("OXYY_API_KEY", "") or os.getenv("OXYY_API_KEYS", "")),
+        "oxyy_model": os.getenv("OXYY_STT_MODEL", "whisper-1"),
+        "whisper_local_available": WHISPER_AVAILABLE,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Capability routes
+# ---------------------------------------------------------------------------
+# This is deliberately kept beside runtime_settings so every UI adapter and
+# service reads the same effective route.  A catalog model never changes the
+# selected provider by itself.
+_CAPABILITIES = ("chat", "tts", "stt", "image", "video", "embedding")
+_CAPABILITY_PROVIDERS = {
+    "chat": ("gemini", "groq", "oxyy"),
+    "tts": ("fish", "gemini", "edge", "oxyy"),
+    "stt": ("groq", "oxyy", "google", "whisper_local"),
+    "image": ("oxyy", "gemini"),
+    "video": ("oxyy",),
+    "embedding": ("oxyy", "gemini"),
+}
+
+
+def _keys_for(provider: str) -> list[str]:
+    env_names = {
+        "gemini": ("GEMINI_API_KEYS", "GEMINI_API_KEY"),
+        "groq": ("GROQ_API_KEYS", "GROQ_API_KEY"),
+        "oxyy": ("OXYY_API_KEYS", "OXYY_API_KEY"),
+        "fish": ("FISH_API_KEYS", "FISH_API_KEY"),
+        "google": ("GOOGLE_API_KEYS", "GOOGLE_API_KEY"),
+    }
+    for name in env_names.get(provider, ()):
+        raw = os.getenv(name, "")
+        if raw:
+            return [part.strip() for part in raw.replace("\n", ",").split(",") if part.strip()]
+    return []
+
+
+def _configured(provider: str) -> bool:
+    # Edge is local and does not require an API key; all other remote routes
+    # need credentials.  Google STT is intentionally marked unavailable when
+    # no explicit key is present rather than pretending browser APIs are live.
+    return provider == "edge" or bool(_keys_for(provider))
+
+
+def _model_for(capability: str, provider: str, defaults: dict[str, Any] | None = None) -> str:
+    defaults = defaults or {}
+    oxyy = get_oxyy_settings(defaults.get("oxyy_models") if isinstance(defaults.get("oxyy_models"), dict) else None).get("models", {})
+    env = {
+        ("chat", "gemini"): os.getenv("GEMINI_MODEL", os.getenv("LLM_MODEL", "gemini-2.5-flash")),
+        ("chat", "groq"): os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        ("chat", "oxyy"): oxyy.get("chat", "gemini-2.5-flash"),
+        ("tts", "fish"): os.getenv("FISH_TTS_MODEL", "s2.1-pro-free"),
+        ("tts", "gemini"): os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts"),
+        ("tts", "edge"): "edge-tts",
+        ("tts", "oxyy"): oxyy.get("tts", "tts-1-hd"),
+        ("stt", "groq"): os.getenv("GROQ_STT_MODEL", "whisper-large-v3-turbo"),
+        ("stt", "oxyy"): oxyy.get("stt", "whisper-1"),
+        ("stt", "google"): os.getenv("GOOGLE_STT_MODEL", "google-speech"),
+        ("image", "oxyy"): oxyy.get("image", "dall-e-3"),
+        ("image", "gemini"): os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.0-flash-exp"),
+        ("video", "oxyy"): oxyy.get("video", "veo-3"),
+        ("embedding", "oxyy"): oxyy.get("embedding", "gemini-embedding-001"),
+        ("embedding", "gemini"): os.getenv("GEMINI_EMBEDDING_MODEL", "text-embedding-004"),
+    }
+    _SAFE_DEFAULTS = {
+        ("chat", "oxyy"): "gpt-4o-mini",
+        ("chat", "gemini"): "gemini-2.5-flash",
+        ("chat", "groq"): "llama-3.3-70b-versatile",
+        ("tts", "oxyy"): "tts-1-hd",
+        ("stt", "oxyy"): "whisper-1",
+        ("image", "oxyy"): "dall-e-3",
+        ("video", "oxyy"): "veo-3",
+        ("embedding", "oxyy"): "gemini-embedding-001",
+    }
+    result = str(env.get((capability, provider), defaults.get("model", "unknown")))
+    # Sanitizar valores de placeholder (ex: "official-chat") que podem ter sido salvos por bug anterior
+    if not result or result.startswith("official-") or result.startswith("the provider"):
+        result = _SAFE_DEFAULTS.get((capability, provider), "gpt-4o-mini")
+    return result
+
+
+def _route(capability: str, primary_provider: str, *, primary_model: str | None = None) -> dict[str, Any]:
+    providers = _CAPABILITY_PROVIDERS[capability]
+    if primary_provider not in providers:
+        primary_provider = providers[0]
+    # Descartar modelos de placeholder salvos por bug anterior
+    if primary_model and (primary_model.startswith("official-") or primary_model.startswith("the provider")):
+        primary_model = None
+    primary = {"provider": primary_provider, "model": primary_model or _model_for(capability, primary_provider)}
+    fallback: list[dict[str, Any]] = []
+    for provider in providers:
+        if provider == primary_provider:
+            continue
+        fallback.append({
+            "provider": provider,
+            "model": _model_for(capability, provider),
+            "configured": _configured(provider),
+        })
+    primary_configured = _configured(primary_provider)
+    effective = primary if primary_configured else next((item for item in fallback if item["configured"]), None)
+    if primary_configured:
+        reason = "Rota principal configurada."
+    elif effective:
+        reason = f"{primary_provider} sem chave/configuração; fallback efetivo em {effective['provider']}."
+    else:
+        reason = f"{primary_provider} sem chave/configuração e nenhum fallback disponível."
+    return {
+        "capability": capability,
+        "primary": primary,
+        "primary_configured": primary_configured,
+        "effective": effective,
+        "fallback": fallback,
+        "fallback_used": bool(effective and effective["provider"] != primary_provider),
+        "reason": reason,
+        "configured": bool(effective),
+    }
+
+
+def resolve_ai_routes(defaults: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+    defaults = defaults or {}
+    data = _read()
+    saved = data.get("routes") if isinstance(data.get("routes"), dict) else {}
+    providers = {
+        "chat": get_llm_provider(str(defaults.get("llm_provider", os.getenv("LLM_PROVIDER", "gemini")))),
+        "tts": get_tts_provider(str(defaults.get("tts_provider", os.getenv("TTS_PROVIDER", "fish")))),
+        "stt": get_stt_provider(str(defaults.get("stt_provider", os.getenv("STT_PROVIDER", "groq")))),
+        "image": str(saved.get("image", {}).get("provider", os.getenv("IMAGE_PROVIDER", "oxyy"))).lower(),
+        "video": str(saved.get("video", {}).get("provider", os.getenv("VIDEO_PROVIDER", "oxyy"))).lower(),
+        "embedding": str(saved.get("embedding", {}).get("provider", os.getenv("EMBEDDING_PROVIDER", "oxyy"))).lower(),
+    }
+    routes: dict[str, dict[str, Any]] = {}
+    for capability in _CAPABILITIES:
+        saved_route = saved.get(capability) if isinstance(saved.get(capability), dict) else {}
+        provider = str(saved_route.get("provider", providers[capability])).lower()
+        model = saved_route.get("model")
+        routes[capability] = _route(capability, provider, primary_model=str(model) if model else None)
+    return routes
+
+
+def get_ai_settings(defaults: dict[str, Any] | None = None) -> dict[str, Any]:
+    routes = resolve_ai_routes(defaults)
+    return {"ok": True, "routes": routes, "effective": {key: value.get("effective") for key, value in routes.items()}}
+
+
+def set_ai_routes(routes: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(routes, dict):
+        raise ValueError("routes deve ser um objeto.")
+    data = _read()
+    current = data.get("routes") if isinstance(data.get("routes"), dict) else {}
+    for capability, value in routes.items():
+        if capability not in _CAPABILITIES or not isinstance(value, dict):
+            continue
+        provider = str(value.get("provider", "")).lower()
+        if provider not in _CAPABILITY_PROVIDERS[capability]:
+            raise ValueError(f"Provider inválido para {capability}: {provider}")
+        entry = {"provider": provider}
+        if value.get("model"):
+            entry["model"] = str(value["model"])[:180]
+        current[capability] = entry
+        if capability == "chat":
+            data["llm_provider"] = provider
+            os.environ["LLM_PROVIDER"] = provider
+        elif capability == "tts":
+            data["tts_provider"] = provider
+            os.environ["TTS_PROVIDER"] = provider
+        elif capability == "stt":
+            data["stt_provider"] = provider
+            os.environ["STT_PROVIDER"] = provider
+    data["routes"] = current
+    _write(data)
+    return get_ai_settings()

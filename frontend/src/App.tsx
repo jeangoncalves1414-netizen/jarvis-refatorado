@@ -1,18 +1,26 @@
 import { FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { AppShell } from './components/AppShell'
+import { useQuestLog } from './hooks/useQuestLog'
 import { CameraWorkspace, type CameraWorkspaceHandle } from './components/CameraWorkspace'
 import { type ChatMode } from './components/ChatComposer'
-import { CinemaModal } from './components/CinemaModal'
-import { LiveCallModal } from './components/LiveCallModal'
 import { CalendarSection } from './components/Calendar'
-import { VideoPlayer as IsolatedVideoPlayer } from './components/VideoPlayer'
 import { DashboardHero } from './components/DashboardHero'
+import { FloatingCoreOverlay } from './components/FloatingCoreOverlay'
 import { Toast } from './components/Toast'
+import { MatrixScanlineEffect } from './components/MatrixScanlineEffect'
+// MatrixScanlineEffect is disabled on mobile to save CPU
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { SkeletonLoader } from './components/SkeletonLoader'
 import { useChat } from './hooks/useChat'
+import { useDirectChat, isMobileStandalone } from './hooks/useDirectChat'
 import { useCinema } from './hooks/useCinema'
 import { useMediaAssistant } from './hooks/useMediaAssistant'
 import { useStudy } from './hooks/useStudy'
-import type { BridgeStatus, Climate, Dashboard, Finance, LlmSettings, LogEntry, Memory, Metrics, Proactive, Tray, TtsSettings, WakeWord, Weather } from './types'
+import { playToggle, playSuccess } from './utils/sfx'
+import { broadcastSyncEvent } from './utils/syncChannel'
+import { requestNotificationPermission } from './utils/notifications'
+import { autoSyncOnOpen } from './utils/jarvisCloud'
+import type { AiSettings, BridgeStatus, Climate, Dashboard, Finance, IdentityProfile, LlmSettings, LogEntry, Memory, Metrics, OxyyCatalog, OxyySettings, ProfileMemory, Proactive, SttSettings, Tray, TtsSettings, WakeWord, Weather } from './types'
 
 const AutomationsPage = lazy(() => import('./pages/AutomationsPage').then(module => ({ default: module.AutomationsPage })))
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then(module => ({ default: module.AnalyticsPage })))
@@ -21,21 +29,34 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage').then(module => 
 const MemoriesPage = lazy(() => import('./pages/MemoriesPage').then(module => ({ default: module.MemoriesPage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(module => ({ default: module.SettingsPage })))
 const StudyPage = lazy(() => import('./pages/StudyPage').then(module => ({ default: module.StudyPage })))
+const IdentityPage = lazy(() => import('./pages/IdentityPage').then(module => ({ default: module.IdentityPage })))
+const EvoluteHubPage = lazy(() => import('./pages/EvoluteHubPage').then(module => ({ default: module.EvoluteHubPage })))
+const MissionControlPage = lazy(() => import('./pages/MissionControlPage').then(module => ({ default: module.MissionControlPage })))
+
+// Heavy modals loaded on demand
+const QuestLogPanel = lazy(() => import('./components/QuestLogPanel').then(module => ({ default: module.QuestLogPanel })))
+const ToolForgeModal = lazy(() => import('./components/ToolForgeModal').then(module => ({ default: module.ToolForgeModal })))
+const CinemaModal = lazy(() => import('./components/CinemaModal').then(module => ({ default: module.CinemaModal })))
+const LiveCallModal = lazy(() => import('./components/LiveCallModal').then(module => ({ default: module.LiveCallModal })))
+const IsolatedVideoPlayer = lazy(() => import('./components/VideoPlayer').then(module => ({ default: module.VideoPlayer })))
+const CommandPalette = lazy(() => import('./components/CommandPalette').then(module => ({ default: module.CommandPalette })))
 
 const navItems = [
-  { id: 'Dashboard', icon: '◈' },
-  { id: 'Automações', icon: '⟳' },
   { id: 'Chat', icon: '✦' },
-  { id: 'Calendário', icon: '◷' },
-  { id: 'Análises', icon: '◉' },
+  { id: 'Dashboard', icon: '◈' },
+  { id: 'Central', icon: '◉' },
   { id: 'Estudos', icon: '◎' },
+  { id: 'Evolução', icon: '⚡' },
   { id: 'Memórias', icon: '◇' },
   { id: 'Configurações', icon: '⚙' },
 ]
 
 const ACTIVE_SCREEN_KEY = 'jarvis-active-screen'
+const IS_MOBILE = isMobileStandalone()
 
 function readActiveScreen() {
+  // On mobile standalone (WebView), always start on Dashboard for a clean UX
+  if (IS_MOBILE) return 'Dashboard'
   try {
     const stored = localStorage.getItem(ACTIVE_SCREEN_KEY)
     if (stored) return stored
@@ -46,7 +67,16 @@ function readActiveScreen() {
 }
 
 export default function App() {
+  const isOverlayMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('overlay') === '1'
+  if (isOverlayMode) {
+    return <FloatingCoreOverlay />
+  }
+
+  const questLog = useQuestLog()
+  const [isToolForgeOpen, setIsToolForgeOpen] = useState(false)
   const [active, setActive] = useState(readActiveScreen)
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [weather, setWeather] = useState<Weather | null>(null)
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
@@ -57,7 +87,11 @@ export default function App() {
   const [climate, setClimate] = useState<Climate | null>(null)
   const [bridge, setBridge] = useState<BridgeStatus | null>(null)
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null)
+  const [aiSettings, setAiSettings] = useState<AiSettings | null>(null)
   const [ttsSettings, setTtsSettings] = useState<TtsSettings | null>(null)
+  const [sttSettings, setSttSettings] = useState<SttSettings | null>(null)
+  const [oxyySettings, setOxyySettings] = useState<OxyySettings | null>(null)
+  const [oxyyCatalog, setOxyyCatalog] = useState<OxyyCatalog | null>(null)
   const [wakeWord, setWakeWord] = useState<WakeWord | null>(null)
   const [tray, setTray] = useState<Tray | null>(null)
   const [briefingTime, setBriefingTime] = useState('08:00')
@@ -71,21 +105,150 @@ export default function App() {
   const { addWhiteboardNote, addWhiteboardText, addWhiteboardImage, addWhiteboardImageData, updateWhiteboardElement, deleteWhiteboardElement, duplicateWhiteboardElement, clearWhiteboard, assessmentCorrect, assessmentTotal, assessments, cardBackVisible, createStudySession, dueCards, studyCategories, trashedStudySessions, renameStudySession, deleteStudySession, restoreStudySession, purgeStudySession, createStudyCategory, assignStudyCategory, enemImage, enemQuestions, enemSubject, enemText, enemYear, feynmanAttempts, feynmanExplanation, feynmanTopic, readEnemImage, reviewCard, saveAssessment, saveEnemQuestion, saveFeynman, selectStudySession, sendStudyMessage, setAssessmentCorrect, setAssessmentTotal, setCardBackVisible, setEnemImage, setEnemSubject, setEnemText, setEnemYear, setFeynmanExplanation, setFeynmanTopic, setStudyQuery, setStudySessionId, setWhiteboardNote, studyCardIndex, studyEnemFromBank, studyEnemFromForm, studyMessages, studyProgress, studyQuery, studySessionId, tutorSessions, whiteboard, whiteboardNote } = useStudy(setNotice)
   const [taskTitle, setTaskTitle] = useState('')
   const [memories, setMemories] = useState<Memory[]>([])
-  const [memoryCollection, setMemoryCollection] = useState<'conversations' | 'user_memory'>('conversations')
+  const [memoryCollection, setMemoryCollection] = useState<'conversations' | 'user_memory' | 'profile_memory'>('conversations')
+  const [identityProfiles, setIdentityProfiles] = useState<IdentityProfile[]>([])
+  const [selectedProfileId, setSelectedProfileId] = useState('')
+  const [profileMemories, setProfileMemories] = useState<ProfileMemory[]>([])
   const [playingUrl, setPlayingUrl] = useState('')
   const [cameraWorkspaceOpen, setCameraWorkspaceOpen] = useState(false)
   const [cameraQuestion, setCameraQuestion] = useState('')
   const [chatMode, setChatMode] = useState<ChatMode>('general')
   const [chatAttachment, setChatAttachment] = useState<{ name: string; dataUrl: string } | null>(null)
+  const [apiKeys, setApiKeysState] = useState<Record<string, string>>({})
+
+  const openEvoluteWindow = () => {
+    // Evolution is now a first-class integrated panel inside Jarvis on both PC and mobile
+    setActive('Evolução')
+  }
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') || (e.altKey && e.key.toLowerCase() === 'j')) {
+        e.preventDefault()
+        setIsCommandPaletteOpen(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  // Auto-sync on app open (for mobile and PC)
+  useEffect(() => {
+    if (isMobileStandalone()) {
+      autoSyncOnOpen().catch(error => {
+        console.error('[App] Auto-sync failed:', error)
+      })
+    }
+  }, [])
+
+  // Request native notification permission on first user interaction
+  useEffect(() => {
+    const requestOnFirstInteraction = () => {
+      requestNotificationPermission().catch(() => undefined)
+      document.removeEventListener('click', requestOnFirstInteraction)
+    }
+    document.addEventListener('click', requestOnFirstInteraction, { once: true })
+    return () => document.removeEventListener('click', requestOnFirstInteraction)
+  }, [])
+
+  const handleQuickAddWater = useCallback(async (ml = 250) => {
+    playSuccess()
+    try {
+      const res = await fetch('/api/evolute/water/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount_ml: ml }),
+      })
+      if (res.ok) {
+        setNotice(`+${ml}ml de água registrados!`)
+        broadcastSyncEvent('WATER_UPDATED', { amount_ml: ml })
+      }
+    } catch {
+      setNotice(`+${ml}ml de água registrados.`)
+      broadcastSyncEvent('WATER_UPDATED', { amount_ml: ml })
+    }
+  }, [setNotice])
+
+  useEffect(() => {
+    if (IS_MOBILE) return
+    fetch('/api/settings/keys')
+      .then(res => res.json())
+      .then(data => { if (data.ok && data.keys) setApiKeysState(data.keys) })
+      .catch(() => undefined)
+  }, [])
+
+  const saveApiKeys = async (keys: Record<string, string>) => {
+    try {
+      const res = await fetch('/api/settings/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keys }),
+      })
+      const data = await res.json()
+      if (data.ok && data.keys) {
+        setApiKeysState(data.keys)
+        setNotice('Chaves de API salvas com sucesso!')
+      }
+    } catch {
+      setNotice('Erro ao salvar chaves de API.')
+    }
+  }
   const cameraWorkspaceRef = useRef<CameraWorkspaceHandle>(null)
   const taskInputRef = useRef<HTMLInputElement>(null)
-  const { answer, chatError, createSession, deleteSession, exportSession, loading, liveReasoning, liveSearch, messages, pendingScript, query, runPendingScript, selectSession, sendText, sendVisionQuestion, sessionId, sessions, setAnswer, setChatError, setPendingScript, setQuery, streamingReply } = useChat()
-  const { captureVision, closeLiveCall, liveCallOpen, liveCallRecording, liveCallStatus, recording, setLiveCallOpen, setSpeakEnabled, setVisionResult, speakEnabled, speakText, toggleLiveCallCapture, toggleVoiceInput, visionResult } = useMediaAssistant({ query, sendText, setAnswer, setQuery })
+  const pcChat = useChat()
+  const mobileChat = useDirectChat()
+  const { answer, chatError, copySession, createSession, deleteSession, exportSession, loading, liveReasoning, liveSearch, messages, pendingScript, query, runPendingScript, selectSession, sendText, sendVisionQuestion, sessionId, sessions, setAnswer, setChatError, setPendingScript, setQuery, streamingReply } = IS_MOBILE ? mobileChat : pcChat
+  const { captureVision, closeLiveCall, liveCallOpen, liveCallRecording, liveCallStatus, liveAudioDiagnostics, liveUserTranscript, liveJarvisTranscript, liveOrbState, recording, setLiveCallOpen, setSpeakEnabled, setVisionResult, speakEnabled, speakText, toggleLiveCallCapture, toggleVoiceInput, triggerBargeIn, visionResult } = useMediaAssistant({ query, sendText, setAnswer, setQuery, sessionId })
   const { availableEpisodes, availableSeasons, cinemaLauncherOpen, setCinemaLauncherOpen, videoUrl, setVideoUrl, cinemaQuery, setCinemaQuery, cinemaResults, cinemaMedia, cinemaStatus, setCinemaStatus, cinemaLibrary, refreshCinemaLibrary, searchCinema, probeCinema, saveCinemaUrl, openCinemaPayload, selectEpisode, selectLibraryItem, selectLibrarySource, selectNextEpisode, selectSeason, selectedEpisode, selectedLibraryItem, selectedLibraryId, selectedLibrarySources, selectedSeason, selectedSourceUrl } = useCinema()
 
-  const setTtsProvider = async (tts_provider: 'gemini' | 'edge') => {
+  const setTtsProvider = async (tts_provider: 'fish' | 'gemini' | 'edge' | 'oxyy') => {
     const response = await fetch('/api/settings/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tts_provider }) })
     setTtsSettings(await response.json())
+    await refreshAiRoutes()
+  }
+
+  const refreshOxyy = async () => {
+    const [settingsResponse, catalogResponse] = await Promise.all([
+      fetch('/api/settings/oxyy'),
+      fetch('/api/settings/oxyy/models'),
+    ])
+    if (settingsResponse.ok) setOxyySettings(await settingsResponse.json())
+    if (catalogResponse.ok) setOxyyCatalog(await catalogResponse.json())
+  }
+
+  const saveOxyy = async (models: OxyySettings['models']) => {
+    const response = await fetch('/api/settings/oxyy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ models }),
+    })
+    if (!response.ok) throw new Error('Não foi possível salvar a configuração Oxyy.')
+    setOxyySettings(await response.json())
+    await refreshAiRoutes()
+    setNotice('Configuração Oxyy salva.')
+  }
+
+  const setSttProvider = async (stt_provider: 'groq' | 'oxyy' | 'google') => {
+    const response = await fetch('/api/settings/stt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stt_provider }),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Não foi possível alterar o provedor STT.')
+    setSttSettings(data)
+    refreshAiRoutes()
+    setNotice('Provedor de transcrição atualizado.')
+  }
+
+  const refreshAiRoutes = async () => {
+    const response = await fetch('/api/settings/ai')
+    if (response.ok) {
+      const data = await response.json()
+      setAiSettings(data)
+      const chat = data.routes?.chat
+      if (chat) setLlmSettings(previous => ({ ...previous, llm_provider: chat.primary?.provider, effective_provider: chat.effective?.provider, effective_model: chat.effective?.model, fallback_used: chat.fallback_used, fallback_reason: chat.reason, route: chat }))
+    }
   }
 
   useEffect(() => {
@@ -109,19 +272,35 @@ export default function App() {
     if (exported) setNotice('Conversa exportada em Markdown.')
   }
 
+  const handleCopySession = async () => {
+    if (!sessionId) return
+    const copied = await copySession(sessionId)
+    if (copied) setNotice('Chat copiado para o clipboard!')
+  }
+
   const openNewTask = () => {
     setActive('Dashboard')
     window.setTimeout(() => taskInputRef.current?.focus(), 120)
   }
 
   useEffect(() => {
+    if (IS_MOBILE) return
     fetch('/api/realtime').then(response => response.json()).then(data => { setWeather(data.weather); setFinance(data.finance) }).catch(() => undefined)
     fetch('/api/dashboard').then(response => response.json()).then(setDashboard).catch(() => undefined)
     fetch('/api/climate').then(response => response.json()).then(setClimate).catch(() => undefined)
     fetch('/api/bridge').then(response => response.json()).then(setBridge).catch(() => undefined)
+    fetch('/api/bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pairing_code' }) })
+      .then(response => response.ok ? response.json() : null)
+      .then(data => { if (data?.pairing_code) setBridge(previous => previous ? { ...previous, pairing_code: data.pairing_code } : previous) })
+      .catch(() => undefined)
     fetch('/api/settings/llm').then(response => response.json()).then(setLlmSettings).catch(() => undefined)
+    fetch('/api/settings/ai').then(response => response.json()).then(setAiSettings).catch(() => undefined)
     fetch('/api/settings/tts').then(response => response.json()).then(setTtsSettings).catch(() => undefined)
+    fetch('/api/settings/stt').then(response => response.json()).then(setSttSettings).catch(() => undefined)
+    fetch('/api/settings/oxyy').then(response => response.json()).then(setOxyySettings).catch(() => undefined)
+    fetch('/api/settings/oxyy/models').then(response => response.json()).then(setOxyyCatalog).catch(() => undefined)
     fetch('/api/memories?collection=conversations&limit=20').then(response => response.json()).then(data => setMemories(data.memories || [])).catch(() => undefined)
+    fetch('/api/identity').then(response => response.json()).then(data => setIdentityProfiles(data.profiles || [])).catch(() => undefined)
     fetch('/api/proactive').then(response => response.json()).then(data => {
       setProactive(data)
       setBriefingTime(data.config?.briefing_time || '08:00')
@@ -133,6 +312,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (IS_MOBILE) return
     const refreshBridge = () => fetch('/api/bridge').then(response => response.json()).then(setBridge).catch(() => undefined)
     const interval = window.setInterval(refreshBridge, 5_000)
     return () => window.clearInterval(interval)
@@ -149,6 +329,7 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (IS_MOBILE) return
     refreshAnalytics().catch(() => undefined)
     const refreshId = window.setInterval(() => refreshAnalytics().catch(() => undefined), 15_000)
     return () => window.clearInterval(refreshId)
@@ -156,10 +337,43 @@ export default function App() {
 
   const visibleLogs = logs.filter(log => `${log.component || ''} ${log.message || ''}`.toLocaleLowerCase('pt-BR').includes(logQuery.trim().toLocaleLowerCase('pt-BR')))
 
-  const refreshMemories = async (collection = memoryCollection) => {
+  const refreshMemories = async (collection: 'conversations' | 'user_memory' = memoryCollection === 'profile_memory' ? 'conversations' : memoryCollection) => {
     const response = await fetch(`/api/memories?collection=${collection}&limit=25`)
     const data = await response.json()
     setMemories(data.memories || [])
+  }
+
+  const refreshProfileMemories = async (profileId = selectedProfileId) => {
+    if (!profileId) { setProfileMemories([]); return }
+    const response = await fetch(`/api/profile-memory?profile_id=${encodeURIComponent(profileId)}&limit=100`)
+    const data = await response.json()
+    setProfileMemories(data.memories || [])
+  }
+
+  const addProfileMemory = async (text: string, kind: string, password: string) => {
+    const response = await fetch('/api/profile-memory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add', profile_id: selectedProfileId, text, kind, password }) })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || !data.ok) { setNotice(data.error || 'Não foi possível salvar a memória.'); return false }
+    setNotice('Memória privada salva.')
+    await refreshProfileMemories()
+    return true
+  }
+
+  const deleteProfileMemory = async (memoryId: string, password: string) => {
+    const response = await fetch('/api/profile-memory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', profile_id: selectedProfileId, memory_id: memoryId, password }) })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || !data.ok) { setNotice(data.error || 'Não foi possível excluir a memória.'); return false }
+    await refreshProfileMemories()
+    return true
+  }
+
+  const clearProfileMemories = async (password: string) => {
+    const response = await fetch('/api/profile-memory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'clear', profile_id: selectedProfileId, password }) })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || !data.ok) { setNotice(data.error || 'Não foi possível apagar as memórias.'); return false }
+    setNotice(`${data.removed || 0} memória(s) privada(s) apagada(s).`)
+    await refreshProfileMemories()
+    return true
   }
 
   const clearTechnicalMemories = async () => {
@@ -216,7 +430,19 @@ export default function App() {
   }
 
   const registerBridgeDemo = async () => {
-    const response = await fetch('/api/bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'register', device_id: 'sim-lamp', name: 'Lâmpada de teste', kind: 'light', platform: 'simulator', transport: 'local' }) })
+    const pairingResponse = await fetch('/api/bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pairing_code' }) })
+    const pairing = await pairingResponse.json()
+    if (!pairingResponse.ok || !pairing.pairing_code) { setNotice(pairing.error || 'Abra esta tela no Jarvis local para parear um dispositivo.'); return }
+    const existingToken = localStorage.getItem('jarvis-bridge-desktop-token') || ''
+    let desktopToken = existingToken
+    if (!desktopToken) {
+      const controllerResponse = await fetch('/api/bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'register', device_id: 'jarvis-desktop', name: 'Jarvis Desktop', kind: 'controller', platform: 'desktop', transport: 'local', pairing_code: pairing.pairing_code }) })
+      const controller = await controllerResponse.json()
+      if (!controllerResponse.ok || !controller.ok || !controller.device_token) { setNotice(controller.error || 'Não foi possível preparar o controle local.'); return }
+      desktopToken = controller.device_token
+      localStorage.setItem('jarvis-bridge-desktop-token', desktopToken)
+    }
+    const response = await fetch('/api/bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'register', device_id: 'sim-lamp', name: 'Lâmpada de teste', kind: 'light', platform: 'simulator', transport: 'local', pairing_code: pairing.pairing_code }) })
     const data = await response.json()
     if (!response.ok || !data.ok) { setNotice(data.error || 'Não foi possível adicionar o dispositivo de teste.'); return }
     setBridge(previous => ({ ...previous, ...data, devices: [...(previous?.devices || []).filter(device => device.id !== data.device?.id), data.device] }))
@@ -224,7 +450,8 @@ export default function App() {
   }
 
   const sendBridgeCommand = async (targetId: string, command: 'turn_on' | 'turn_off') => {
-    const response = await fetch('/api/bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'command', target_id: targetId, command, source: 'desktop' }) })
+    const deviceToken = localStorage.getItem('jarvis-bridge-desktop-token') || ''
+    const response = await fetch('/api/bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'command', target_id: targetId, command, source: 'jarvis-desktop', device_token: deviceToken }) })
     const data = await response.json()
     if (!response.ok || !data.ok) { setNotice(data.error || 'Não foi possível enviar o comando.'); return }
     setBridge(previous => ({ ...previous, devices: (previous?.devices || []).map(device => device.id === targetId ? data.device : device) }))
@@ -283,9 +510,11 @@ export default function App() {
     setTray({ boot_enabled: data.boot_enabled })
   }
 
-  const setProvider = async (llm_provider: 'gemini' | 'groq') => {
+  const setProvider = async (llm_provider: 'gemini' | 'groq' | 'oxyy') => {
     const response = await fetch('/api/settings/llm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ llm_provider }) })
-    setLlmSettings(await response.json())
+    const data = await response.json()
+    setLlmSettings(data)
+    await refreshAiRoutes()
   }
 
   const openVideo = (url: string) => {
@@ -332,19 +561,6 @@ export default function App() {
       return
     }
     if (!message) return
-    const asksAboutCamera = /\b(c[aâ]mera|webcam)\b/i.test(message)
-    if (asksAboutCamera && !cameraWorkspaceOpen) {
-      setCameraQuestion(message)
-      setQuery('')
-      setCameraWorkspaceOpen(true)
-      setNotice('Selecione uma câmera no plano e envie sua pergunta por lá.')
-      return
-    }
-    if (asksAboutCamera && cameraWorkspaceOpen) {
-      setQuery('')
-      await askCameraQuestion(message)
-      return
-    }
     setQuery('')
     await sendText(message, chatMode)
   }
@@ -359,15 +575,11 @@ export default function App() {
           ttsSettings={ttsSettings}
           proactive={proactive}
           tray={tray}
-          taskTitle={taskTitle}
-          taskInputRef={taskInputRef}
-          onTaskTitleChange={setTaskTitle}
-          onAddTask={addTask}
-          onToggleTask={toggleTask}
-          onDeleteTask={deleteTask}
+          onOpenEvolute={openEvoluteWindow}
         />
       )
     }
+    if (active === 'Central') return <MissionControlPage />
     if (active === 'Automações') {
       return (
         <AutomationsPage
@@ -404,12 +616,14 @@ export default function App() {
           recording={recording}
           pendingScript={pendingScript}
           onSelectSession={selectSession}
-          onCreateSession={() => createSession().catch(error => {
+          onDeleteSession={id => void Promise.resolve(deleteSession(id)).catch(() => undefined)}
+          onCreateSession={() => Promise.resolve(createSession()).catch((error: any) => {
             const message = error instanceof Error ? error.message : 'Não foi possível criar uma nova conversa.'
             setNotice(message)
             setAnswer(message)
           })}
           onExportSession={() => handleExportSession().catch(() => undefined)}
+          onCopySession={() => handleCopySession().catch(() => undefined)}
           onOpenLiveCall={() => setLiveCallOpen(true)}
           onSpeakText={speakText}
           onClearChatError={() => setChatError('')}
@@ -424,6 +638,7 @@ export default function App() {
           onCinemaRequest={openCinemaPayload}
           onSendText={sendText}
           onRunPendingScript={runPendingScript}
+          onOpenEvolute={openEvoluteWindow}
         />
       )
     }
@@ -511,7 +726,11 @@ export default function App() {
       return (
         <SettingsPage
           ttsSettings={ttsSettings}
+          sttSettings={sttSettings}
+          oxyySettings={oxyySettings}
+          oxyyCatalog={oxyyCatalog}
           llmSettings={llmSettings}
+          aiSettings={aiSettings}
           wakeWord={wakeWord}
           tray={tray}
           proactive={proactive}
@@ -519,8 +738,13 @@ export default function App() {
           briefingTopics={briefingTopics}
           briefingInstructions={briefingInstructions}
           notice={notice}
+          apiKeys={apiKeys}
+          onSaveApiKeys={saveApiKeys}
           onSetTtsProvider={setTtsProvider}
           onSetProvider={setProvider}
+          onSetSttProvider={setSttProvider}
+          onSaveOxyy={saveOxyy}
+          onRefreshOxyy={refreshOxyy}
           onSetWakeWordEnabled={setWakeWordEnabled}
           onSetBootEnabled={setBootEnabled}
           speakEnabled={speakEnabled}
@@ -529,6 +753,7 @@ export default function App() {
           onBriefingTimeChange={setBriefingTime}
           onToggleBriefingTopic={toggleBriefingTopic}
           onBriefingInstructionsChange={setBriefingInstructions}
+          onNavigate={setActive}
         />
       )
     }
@@ -538,15 +763,26 @@ export default function App() {
           memories={memories}
           memoryCollection={memoryCollection}
           notice={notice}
+          identityProfiles={identityProfiles}
+          selectedProfileId={selectedProfileId}
+          profileMemories={profileMemories}
           onRefresh={() => refreshMemories()}
           onClearTechnical={clearTechnicalMemories}
           onSelectCollection={collection => {
             setMemoryCollection(collection)
-            refreshMemories(collection)
+            if (collection === 'profile_memory') refreshProfileMemories()
+            else refreshMemories(collection)
           }}
+          onSelectProfile={profileId => { setSelectedProfileId(profileId); refreshProfileMemories(profileId).catch(() => undefined) }}
+          onRefreshProfile={() => refreshProfileMemories()}
+          onAddProfileMemory={addProfileMemory}
+          onDeleteProfileMemory={deleteProfileMemory}
+          onClearProfileMemory={clearProfileMemories}
         />
       )
     }
+    if (active === 'Identidade') return <IdentityPage />
+    if (active === 'Evolução') return <EvoluteHubPage />
     return (
       <section className="migration-card">
         <p className="eyebrow">MIGRAÇÃO GRADUAL</p>
@@ -557,7 +793,7 @@ export default function App() {
     })()
 
     return (
-      <Suspense fallback={<section className="page-loading"><p className="eyebrow">CARREGANDO</p><strong>{active}</strong></section>}>
+      <Suspense fallback={<SkeletonLoader variant={active === 'Dashboard' ? 'dashboard' : 'card'} />}>
         {page}
       </Suspense>
     )
@@ -565,7 +801,7 @@ export default function App() {
 
   const quickActions = (
     <>
-      <button type="button" className="sidebar-action-btn" onClick={openNewTask} title="Nova tarefa"><span>✚</span> <span>Nova tarefa</span></button>
+      <button type="button" className="sidebar-action-btn" onClick={openEvoluteWindow} title="Abrir Painel de Evolução (Life OS)"><span>⚡</span> <span>Life OS</span></button>
       <button type="button" className="sidebar-action-btn" onClick={() => setCinemaLauncherOpen(true)} title="Abrir cinema"><span>◉</span> <span>Cinema</span></button>
       <button type="button" className="sidebar-action-btn" onClick={captureVision} title="Analisar tela"><span>👁</span> <span>Visão</span></button>
       <button type="button" className={`sidebar-action-btn${recording ? ' sidebar-action-active' : ''}`} onClick={toggleVoiceInput} title={recording ? 'Parar gravação' : 'Falar com Jarvis'}><span>{recording ? '⏹' : '🎙'}</span> <span>{recording ? 'Parar' : 'Voz'}</span></button>
@@ -574,8 +810,25 @@ export default function App() {
     </>
   )
 
+  const detachFloatingOverlay = () => {
+    const pywebview = (window as any).pywebview
+    if (pywebview?.api?.showOrbOverlay) {
+      pywebview.api.showOrbOverlay()
+    } else {
+      window.open('/app/?overlay=1', 'JarvisFloatingCore', 'width=240,height=240,resizable=no,alwaysOnTop=yes')
+    }
+  }
+
   const hero = active === 'Dashboard' ? (
-    <DashboardHero weather={weather} onOpenCinema={() => setCinemaLauncherOpen(true)} />
+    <DashboardHero
+      weather={weather}
+      onOpenCinema={() => setCinemaLauncherOpen(true)}
+      onCaptureVision={captureVision}
+      onToggleVoice={toggleVoiceInput}
+      onOpenLiveCall={() => setLiveCallOpen(true)}
+      onDetachOverlay={detachFloatingOverlay}
+      recording={recording}
+    />
   ) : null
 
   return (
@@ -585,63 +838,126 @@ export default function App() {
         navItems={navItems}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-        onNavigate={setActive}
+        onNavigate={(screen) => {
+          playToggle()
+          setActive(screen)
+        }}
+        onOpenQuestLog={questLog.openQuestLog}
+        onOpenToolForge={() => setIsToolForgeOpen(true)}
+        activeQuestsCount={questLog.quests.filter(q => q.status === 'active').length}
         headerExtra={active === 'Chat' && sessionId ? <button type="button" className="header-delete" onClick={() => deleteSession(sessionId)}>Excluir conversa</button> : null}
         hero={hero}
         quickActions={quickActions}
       >
-        {renderSection()}
+        <ErrorBoundary fallbackTitle="Erro ao carregar esta seção.">
+          {renderSection()}
+        </ErrorBoundary>
       </AppShell>
       <CameraWorkspace ref={cameraWorkspaceRef} open={cameraWorkspaceOpen} initialQuestion={cameraQuestion} onClose={() => { setCameraQuestion(''); setCameraWorkspaceOpen(false) }} onQuestion={async (image, cameraName, prompt) => { setCameraQuestion(''); setCameraWorkspaceOpen(false); setActive('Chat'); await sendVisionQuestion(prompt || `O que você vê na ${cameraName}?`, image, cameraName) }} />
-      <CinemaModal
-        open={cinemaLauncherOpen}
-        onClose={() => setCinemaLauncherOpen(false)}
-        onPlay={openVideo}
-        cinemaQuery={cinemaQuery}
-        setCinemaQuery={setCinemaQuery}
-        videoUrl={videoUrl}
-        setVideoUrl={setVideoUrl}
-        cinemaResults={cinemaResults}
-        cinemaMedia={cinemaMedia}
-        cinemaStatus={cinemaStatus}
-        setCinemaStatus={setCinemaStatus}
-        cinemaLibrary={cinemaLibrary}
-        refreshCinemaLibrary={refreshCinemaLibrary}
-        searchCinema={searchCinema}
-        probeCinema={probeCinema}
-        saveCinemaUrl={saveCinemaUrl}
-        selectedLibraryItem={selectedLibraryItem}
-        selectedLibraryId={selectedLibraryId}
-        selectLibraryItem={selectLibraryItem}
-        availableSeasons={availableSeasons}
-        availableEpisodes={availableEpisodes}
-        selectedSeason={selectedSeason}
-        selectedEpisode={selectedEpisode}
-        selectedSourceUrl={selectedSourceUrl}
-        selectSeason={selectSeason}
-        selectEpisode={selectEpisode}
-        selectLibrarySource={selectLibrarySource}
-        selectNextEpisode={selectNextEpisode}
-        selectedLibrarySources={selectedLibrarySources}
-      />
+      {cinemaLauncherOpen && (
+        <Suspense fallback={null}>
+          <CinemaModal
+            open={cinemaLauncherOpen}
+            onClose={() => setCinemaLauncherOpen(false)}
+            onPlay={openVideo}
+            cinemaQuery={cinemaQuery}
+            setCinemaQuery={setCinemaQuery}
+            videoUrl={videoUrl}
+            setVideoUrl={setVideoUrl}
+            cinemaResults={cinemaResults}
+            cinemaMedia={cinemaMedia}
+            cinemaStatus={cinemaStatus}
+            setCinemaStatus={setCinemaStatus}
+            cinemaLibrary={cinemaLibrary}
+            refreshCinemaLibrary={refreshCinemaLibrary}
+            searchCinema={searchCinema}
+            probeCinema={probeCinema}
+            saveCinemaUrl={saveCinemaUrl}
+            selectedLibraryItem={selectedLibraryItem}
+            selectedLibraryId={selectedLibraryId}
+            selectLibraryItem={selectLibraryItem}
+            availableSeasons={availableSeasons}
+            availableEpisodes={availableEpisodes}
+            selectedSeason={selectedSeason}
+            selectedEpisode={selectedEpisode}
+            selectedSourceUrl={selectedSourceUrl}
+            selectSeason={selectSeason}
+            selectEpisode={selectEpisode}
+            selectLibrarySource={selectLibrarySource}
+            selectNextEpisode={selectNextEpisode}
+            selectedLibrarySources={selectedLibrarySources}
+          />
+        </Suspense>
+      )}
       {visionResult && <div className="tool-modal" role="dialog" aria-modal="true" aria-label="Análise visual"><section className="vision-modal"><button className="modal-close" onClick={() => setVisionResult(null)} aria-label="Fechar">×</button><p className="eyebrow">FERRAMENTA · VISÃO</p><h2>Análise de tela</h2>{visionResult.imageUrl && <img src={visionResult.imageUrl} alt="Captura de tela analisada" />}<p>{visionResult.reply}</p></section></div>}
-      <LiveCallModal open={liveCallOpen} onClose={closeLiveCall} recording={liveCallRecording} status={liveCallStatus} onToggleCapture={toggleLiveCallCapture} />
+      {liveCallOpen && (
+        <Suspense fallback={null}>
+          <LiveCallModal open={liveCallOpen} onClose={closeLiveCall} recording={liveCallRecording} status={liveCallStatus} audioDiagnostics={liveAudioDiagnostics} userTranscript={liveUserTranscript} jarvisTranscript={liveJarvisTranscript} orbState={liveOrbState} onToggleCapture={toggleLiveCallCapture} onBargeIn={triggerBargeIn} />
+        </Suspense>
+      )}
       {pendingScript && <div className="tool-modal" role="dialog" aria-modal="true" aria-label="Confirmar script"><section className="vision-modal"><button className="modal-close" onClick={() => setPendingScript(null)} aria-label="Cancelar">×</button><p className="eyebrow">CONFIRMAÇÃO NECESSÁRIA</p><h2>Executar script?</h2><p>{pendingScript.description}</p><pre>{pendingScript.code}</pre><div className="library-actions"><button type="button" onClick={() => setPendingScript(null)}>Cancelar</button><button type="button" onClick={() => runPendingScript()}>Executar {pendingScript.language}</button></div></section></div>}
-      {playingUrl && <div className="player-modal"><IsolatedVideoPlayer
-        src={playingUrl}
-        onClose={() => setPlayingUrl('')}
-        title={selectedLibraryItem?.title || cinemaQuery || 'Jarvis Cinema'}
-        mediaType={selectedLibraryItem?.type || 'movie'}
-        currentSeason={selectedSeason}
-        currentEpisode={selectedEpisode}
-        episodes={selectedLibraryItem?.episodes || []}
-        onNextEpisode={() => {
-          const next = selectNextEpisode()
-          if (next) setPlayingUrl(next)
-        }}
-      /></div>}
+      {playingUrl && (
+        <div className="player-modal">
+          <Suspense fallback={null}>
+            <IsolatedVideoPlayer
+              src={playingUrl}
+              onClose={() => setPlayingUrl('')}
+              title={selectedLibraryItem?.title || cinemaQuery || 'Jarvis Cinema'}
+              mediaType={selectedLibraryItem?.type || 'movie'}
+              currentSeason={selectedSeason}
+              currentEpisode={selectedEpisode}
+              episodes={selectedLibraryItem?.episodes || []}
+              onNextEpisode={() => {
+                const next = selectNextEpisode()
+                if (next) setPlayingUrl(next)
+              }}
+            />
+          </Suspense>
+        </div>
+      )}
+      {questLog.isOpen && (
+        <Suspense fallback={null}>
+          <QuestLogPanel
+            isOpen={questLog.isOpen}
+            onClose={questLog.closeQuestLog}
+            quests={questLog.quests}
+            onAbortQuest={questLog.abortQuest}
+          />
+        </Suspense>
+      )}
+      {isToolForgeOpen && (
+        <Suspense fallback={null}>
+          <ToolForgeModal
+            isOpen={isToolForgeOpen}
+            onClose={() => setIsToolForgeOpen(false)}
+          />
+        </Suspense>
+      )}
+      {isCommandPaletteOpen && (
+        <Suspense fallback={null}>
+          <CommandPalette
+            isOpen={isCommandPaletteOpen}
+            onClose={() => setIsCommandPaletteOpen(false)}
+            onNavigate={(screen) => {
+              playToggle()
+              setActive(screen)
+            }}
+            onOpenEvolute={openEvoluteWindow}
+            onNewChat={() => createSession()}
+            onAddWater={handleQuickAddWater}
+            onTriggerBriefing={triggerBriefing}
+            onTriggerBackup={() => {
+              playSuccess()
+              setNotice('Iniciando download do backup completo...')
+              window.location.href = '/api/system/backup'
+            }}
+            onOpenCinema={() => setCinemaLauncherOpen(true)}
+            onCaptureVision={captureVision}
+            onOpenCameras={() => { setCameraQuestion(''); setCameraWorkspaceOpen(true) }}
+          />
+        </Suspense>
+      )}
       <Toast message={notice} onDismiss={dismissNotice} />
     </>
   )
-
 }

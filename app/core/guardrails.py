@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -19,29 +20,33 @@ class ToolGuardrails:
         self.no_progress_limit = no_progress_limit
         self._calls: dict[str, int] = {}
         self._results: dict[tuple[str, str], int] = {}
+        self._lock = threading.Lock()
     
     def before_call(self, tool: str, args: Mapping[str, Any]) -> GuardrailDecision:
         """Verifica antes de executar ferramenta."""
         key = self._key(tool, args)
-        if self._calls.get(key, 0) >= self.repeat_limit:
-            return GuardrailDecision(False, f"Repetição bloqueada: {tool}")
-        self._calls[key] = self._calls.get(key, 0) + 1
-        return GuardrailDecision(True)
+        with self._lock:
+            if self._calls.get(key, 0) >= self.repeat_limit:
+                return GuardrailDecision(False, f"Repetição bloqueada: {tool}")
+            self._calls[key] = self._calls.get(key, 0) + 1
+        return GuardrailDecision(True, "")
     
     def after_call(self, tool: str, args: Mapping[str, Any], result: Any) -> GuardrailDecision:
         """Verifica após executar ferramenta."""
         text = self._normalize(result)
         key = (tool, text)
-        self._results[key] = self._results.get(key, 0) + 1
-        
-        if self._results[key] >= self.no_progress_limit and self._is_no_progress(text):
-            return GuardrailDecision(False, f"Sem progresso: {tool}")
-        return GuardrailDecision(True)
+        with self._lock:
+            self._results[key] = self._results.get(key, 0) + 1
+            
+            if self._results[key] >= self.no_progress_limit and self._is_no_progress(text):
+                return GuardrailDecision(False, f"Sem progresso: {tool}")
+        return GuardrailDecision(True, "")
     
     def reset(self) -> None:
         """Reseta contadores."""
-        self._calls.clear()
-        self._results.clear()
+        with self._lock:
+            self._calls.clear()
+            self._results.clear()
     
     def _key(self, tool: str, args: Mapping[str, Any]) -> str:
         try:

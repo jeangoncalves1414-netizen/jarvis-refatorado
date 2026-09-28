@@ -57,7 +57,7 @@ class VisionService:
 
     def capture_pil(self) -> Image.Image:
         """Captura tela como PIL Image."""
-        with mss() as sct:
+        with mss.MSS() as sct:
             monitor = sct.monitors[0]
             screenshot = sct.grab(monitor)
             return Image.frombytes("RGB", screenshot.size, screenshot.rgb)
@@ -99,6 +99,19 @@ class VisionService:
             image = self.capture_pil()
 
         filepath, filename = self.save_capture(image)
+
+        # Automatic QR Code detection on the captured image
+        qr_info = ""
+        try:
+            from app.services.qr_reader import QRReaderService, QR_AVAILABLE
+            if QR_AVAILABLE:
+                qr_svc = QRReaderService()
+                codes = qr_svc._decode_pil(image)
+                if codes:
+                    qr_details = [f"#{i+1}: {c['data']} (Tipo: {c['type']})" for i, c in enumerate(codes)]
+                    qr_info = "\n\n📌 [QR Code(s) Detectado(s) na Imagem]:\n" + "\n".join(qr_details)
+        except Exception:
+            pass
 
         buffer = BytesIO()
         image.save(buffer, format="JPEG", quality=85)
@@ -148,6 +161,9 @@ class VisionService:
                 reply = response.text or "Nenhum detalhe visual extraído."
         except Exception as e:
             reply = f"Erro na análise visual ({active_provider}): {e}"
+
+        if qr_info:
+            reply += qr_info
 
         return {
             "reply": reply,

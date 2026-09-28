@@ -5,6 +5,8 @@ import os
 import threading
 import time
 
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+
 from app.config import load_settings
 from app.agent.orchestrator import AgentOrchestrator
 from app.services.llm import LLMService
@@ -12,6 +14,7 @@ from app.ui.panel import PanelServer
 from app.plugins import PluginManager
 from app.agent.agent_model import AgentManager
 from app.storage.vector import SemanticMemory
+from app.storage.runtime_settings import sync_api_keys_to_env
 try:
     from app.ui.desktop import start_desktop
 except Exception:  # pragma: no cover - optional dependency
@@ -58,6 +61,8 @@ def _free_port(port: int) -> None:
 
 def build_app() -> tuple[AgentOrchestrator, PanelServer]:
     settings = load_settings()
+    # Sync runtime settings to environment after initialization
+    sync_api_keys_to_env()
     llm_service = LLMService(settings=settings)
     from app.storage.memory_store import MemoryStore
     memory_store = MemoryStore()
@@ -68,6 +73,8 @@ def build_app() -> tuple[AgentOrchestrator, PanelServer]:
     
     agent_manager = AgentManager()
     semantic_memory = SemanticMemory()
+    from app.services.profile_memory import ProfileMemoryStore
+    profile_memory = ProfileMemoryStore()
     
     # Cria ToolRegistry com plugin_manager
     from app.agent.tools.registry import ToolRegistry
@@ -88,6 +95,7 @@ def build_app() -> tuple[AgentOrchestrator, PanelServer]:
         memory_store=memory_store,
         agent_manager=agent_manager,
         semantic_memory=semantic_memory,
+        profile_memory=profile_memory,
     )
 
     # Remove entradas técnicas gravadas por versões anteriores; elas não são
@@ -131,6 +139,11 @@ def main() -> None:
     desktop_url = f"{url}/app/"
 
     print(f"Iniciando {settings.app_name}...")
+    try:
+        settings.validate_control_plane()
+    except ValueError as exc:
+        print(f"[Jarvis] Configuração de acesso recusada: {exc}")
+        return
     _free_port(port)
     panel.start()
     print(f"Painel disponível em {url} (rede: http://{host}:{port})")

@@ -15,6 +15,7 @@ from .clipboard import ClipboardTool, NewsTool
 from .open_windows_app import OpenWindowsAppTool
 from .script_runner import ScriptRunnerTool
 from .vision_tool import VisionTool
+from .qr_reader_tool import QRReaderTool
 from .realtime_tool import RealTimeTool
 from .cinema_tool import CinemaTool
 from .calendar_tool import CalendarTool
@@ -29,6 +30,30 @@ from .tutor_tools import (
     TutorSaveFeynmanTool,
     EnemSaveQuestionTool,
 )
+from .screen_peeler import ScreenPeelerTool
+from .phantom_typer import PhantomTyperTool
+from .smart_drop_zone import SmartDropZoneTool
+from .wormhole import WormholeTool
+from .wallpaper_engine import WallpaperEngineTool
+from .clipboard_intelligence import ClipboardIntelligenceTool
+
+from .memory_vault_tool import (
+    VaultSearchTool,
+    VaultDailyNoteTool,
+    VaultSaveNoteTool,
+    VaultUserProfileTool,
+)
+
+# Fase 5 tools
+try:
+    from .desktop_search import DesktopSearchTool
+    from .kasa_control import KasaControlTool
+    from .document_generator import DocumentGeneratorTool
+    from .telegram_bot import TelegramBotTool
+    from .mobile_adb import MobileTelekinesisADB
+    FASE5_TOOLS_AVAILABLE = True
+except ImportError:
+    FASE5_TOOLS_AVAILABLE = False
 
 try:
     from .code_helper import CodeHelperTool
@@ -42,10 +67,20 @@ try:
 except ImportError:
     ADVANCED_TOOLS_AVAILABLE = False
 
+from .lifestyle_tools import HabitTool, TaskTool, FinanceTool
+from .lifeos_tool import LifeOSTool
+from .planning_workspace import PlanningWorkspaceTool
+from .catalog import metadata_for
+
 GENERAL_TOOL_NAMES = {
     "file_manager", "system_control", "jarvis_mode", "web_search", "browser_agent", "timer",
     "whatsapp", "spotify", "clipboard", "news_reader", "open_windows_app", "script_runner",
-    "vision", "realtime", "proactive_agent", "system_tray", "cinema", "calendar",
+    "vision", "qr_reader", "realtime", "proactive_agent", "system_tray", "cinema", "calendar", "image_generator",
+    "screen_peeler", "phantom_typer", "smart_drop_zone",
+    "desktop_search", "kasa_control", "document_generator", "telegram_bot", "mobile_adb",
+    "wormhole", "wallpaper_engine", "clipboard_intelligence",
+    "habit_tool", "task_tool", "finance_tool", "lifeos_tool",
+    "planning_workspace",
 }
 
 TUTOR_TOOL_NAMES = {
@@ -86,6 +121,7 @@ class ToolRegistry:
         self._register(OpenWindowsAppTool())
         self._register(ScriptRunnerTool())
         self._register(VisionTool())
+        self._register(QRReaderTool())
         self._register(RealTimeTool())
         self._register(CinemaTool())
         self._register(CalendarTool())
@@ -102,6 +138,33 @@ class ToolRegistry:
             self._register(TutorSaveFeynmanTool(tutor_store))
         if enem_store:
             self._register(EnemSaveQuestionTool(enem_store))
+
+        # Memory Vault (ai-memory-vault)
+        self._register(VaultSearchTool())
+        self._register(VaultDailyNoteTool())
+        self._register(VaultSaveNoteTool())
+        self._register(VaultUserProfileTool())
+
+        # Fase 4 — Automação de SO & Produtividade
+        self._register(HabitTool())
+        self._register(TaskTool())
+        self._register(FinanceTool())
+        self._register(LifeOSTool())
+        self._register(PlanningWorkspaceTool())
+        self._register(ScreenPeelerTool())
+        self._register(PhantomTyperTool())
+        self._register(SmartDropZoneTool())
+        self._register(WormholeTool())
+        self._register(WallpaperEngineTool())
+        self._register(ClipboardIntelligenceTool())
+
+        # Fase 5 — Expansão de Ferramentas
+        if FASE5_TOOLS_AVAILABLE:
+            self._register(DesktopSearchTool())
+            self._register(KasaControlTool())
+            self._register(DocumentGeneratorTool())
+            self._register(TelegramBotTool())
+            self._register(MobileTelekinesisADB())
         
         # Ferramentas avançadas FASE 5/6
         if ADVANCED_TOOLS_AVAILABLE:
@@ -127,21 +190,47 @@ class ToolRegistry:
     def _register(self, tool: BaseTool) -> None:
         self.tools[tool.name] = tool
 
+    def get_tool_metadata(self, name: str):
+        tool = self.get_tool(name)
+        if tool is None:
+            return None
+        return metadata_for(name, tool.metadata)
+
     def get_tool(self, name: str) -> BaseTool | None:
         return self.tools.get(name)
 
     def list_tools(self) -> list[BaseTool]:
         return list(self.tools.values())
 
-    def get_tool_declarations(self, mode: str = "general") -> list[dict[str, Any]]:
+    def get_tool_declarations(
+        self,
+        mode: str = "general",
+        provider: str | None = None,
+        user_text: str = "",
+    ) -> list[dict[str, Any]]:
         allowed = TUTOR_TOOL_NAMES if mode == "tutor" else GENERAL_TOOL_NAMES
+
+        # Otimização de TPM para provedores com limite estrito de taxa (ex: Groq)
+        if provider == "groq" and mode != "tutor":
+            core_groq = {
+                "web_search", "system_control", "open_windows_app", "timer",
+                "spotify", "whatsapp", "calendar", "file_manager", "notes",
+                "cinema", "script_runner", "image_generator", "vision", "planning_workspace"
+            }
+            user_lower = (user_text or "").lower()
+            dynamic_tools = set(core_groq)
+            for t_name in allowed:
+                if t_name in user_lower or t_name.replace("_", " ") in user_lower:
+                    dynamic_tools.add(t_name)
+            allowed = allowed.intersection(dynamic_tools)
+
         declarations = []
         for tool in self.list_tools():
             if tool.name not in allowed:
                 continue
             declarations.append({
                 "name": tool.name,
-                "description": tool.description,
+                "description": tool.description[:250] if provider == "groq" else tool.description,
                 "parameters": tool.parameters,
             })
         return declarations
@@ -223,3 +312,7 @@ class ToolRegistry:
             return tool.execute(args, context={"user_line": user_line})
         except Exception as e:
             return ToolResult(ok=False, message=f"Erro ao executar '{mapped_name}': {e}")
+
+
+# Instância global do registro de ferramentas
+registry = ToolRegistry()

@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #000000;
+    color: #f5f5f5;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Custom Minimalist Monochrome Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #050505;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #262626;
+  border-radius: 2px;
+}
+
+/* Embedded inside Jarvis mobile/desktop shell */
+html:has(.jarvis-shell-embed),
+html:has(.jarvis-shell-embed) body,
+html:has(.jarvis-shell-embed) #root {
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  margin: 0;
+}
+.jarvis-shell-embed {
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+.jarvis-shell-embed header {
+  position: relative;
+  top: auto;
+  flex-shrink: 0;
+}
+.jarvis-shell-embed main {
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.jarvis-shell-embed header button[title="Buscar no Life OS (Ctrl+K)"] kbd {
+  display: none;
+}
+html:has(.jarvis-shell-embed) .evolute-bottom-nav {
+  position: relative !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+}
+@media (max-width: 768px) {
+  .jarvis-shell-embed header {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .jarvis-shell-embed header input[type="date"] {
+    width: 92px;
+    font-size: 10px;
+  }
+  .jarvis-shell-embed header button[title="Buscar no Life OS (Ctrl+K)"] span.hidden {
+    display: none !important;
+  }
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #404040;
+}
+
+/* Ruled notepad line effect for infinite notes */
+.lined-paper {
+  background-size: 100% 28px;
+  background-image: linear-gradient(to bottom, transparent 27px, #1a1a1a 28px);
+  line-height: 28px;
+}

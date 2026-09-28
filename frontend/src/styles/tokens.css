@@ -1,0 +1,45 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Sora:wght@400;600;700&display=swap');
+
+:root {
+  --jarvis-cyan: #00daf8;
+  --jarvis-cyan-dim: #00a8c0;
+  --jarvis-purple: #9d05ff;
+  --jarvis-surface: #0a0e14;
+  --jarvis-glass: rgba(14, 20, 28, 0.82);
+  --jarvis-glow: 0 0 24px rgba(0, 218, 248, 0.32), 0 0 45px rgba(157, 5, 255, 0.16);
+  --jarvis-accent: var(--jarvis-cyan);
+  --jarvis-accent-soft: rgba(0, 218, 248, 0.14);
+  --jarvis-text: #f8fafc;
+  --jarvis-muted: #94a3b8;
+  color: var(--jarvis-text);
+  background: var(--jarvis-surface);
+  font-family: Geist, Manrope, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0; min-width: 320px;
+  background: radial-gradient(circle at 75% -20%, rgba(0, 218, 248, 0.11) 0, transparent 32rem),
+              radial-gradient(circle at 10% 80%, rgba(157, 5, 255, 0.09) 0, transparent 28rem),
+              radial-gradient(circle at 50% 50%, rgba(0, 218, 248, 0.04) 0, transparent 40rem),
+              var(--jarvis-surface);
+}
+
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: none; outline: none; }
+button:focus, input:focus, select:focus { outline: none; }
+
+input[type="time"], input[type="text"], input[type="number"], select {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(0, 218, 248, 0.22) !important;
+}
+
+option {
+  background-color: #0b0f14 !important;
+  color: #f8fafc !important;
+}
+
+.app-shell { min-height: 100vh; display: flex; position: relative; z-index: 1; }
+.app-bg-pattern { position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: 0.35; }

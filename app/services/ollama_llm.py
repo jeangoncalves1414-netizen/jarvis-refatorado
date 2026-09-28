@@ -27,13 +27,13 @@ class OllamaLLM:
     def _check_connection(self):
         """Verifica se Ollama está rodando."""
         try:
-            response = requests.get(f"{self.base_url}/api/tags", timeout=5)
+            response = requests.get(f"{self.base_url}/api/tags", timeout=1.5)
             if response.status_code == 200:
                 logger.info(f"Ollama conectado em {self.base_url}")
             else:
-                logger.warning(f"Ollama respondeu com status {response.status_code}")
-        except Exception as e:
-            logger.warning(f"Ollama não disponível em {self.base_url}: {e}")
+                logger.info(f"Ollama respondeu com status {response.status_code}")
+        except Exception:
+            logger.info("Ollama não detectado localmente em %s (usando provedor configurado).", self.base_url)
     
     def generate(
         self,

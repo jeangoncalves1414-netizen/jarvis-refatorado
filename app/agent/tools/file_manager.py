@@ -59,5 +59,11 @@ class FileManagerTool(BaseTool):
                 )
             else:
                 return ToolResult(ok=False, message=f"Ação desconhecida: {action}")
+        except ValueError as e:
+            # Check if this is a security-related error
+            if "não permitido" in str(e).lower() or "autorizado" in str(e).lower():
+                return ToolResult(ok=False, message="Erro de segurança: caminho não autorizado.")
+            # Other ValueError handling
+            return ToolResult(ok=False, message=f"Falha ao gerenciar arquivos: {e}")
         except Exception as e:
             return ToolResult(ok=False, message=f"Falha ao gerenciar arquivos: {e}")

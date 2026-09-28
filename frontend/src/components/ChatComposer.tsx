@@ -9,9 +9,19 @@ import {
 } from 'react'
 import { Phone } from 'lucide-react'
 import { PromptSuggestions } from './PromptSuggestions'
+import { isMobileStandalone } from '../hooks/useDirectChat'
 
+export type ChatMode = 'general' | 'planning' | 'research' | 'coder' | 'browser'
 
-export type ChatMode = 'general' | 'planning' | 'research'
+export type PersonaMode = 'general' | 'dev' | 'analyst' | 'tutor' | 'creative'
+
+const PERSONAS: { id: PersonaMode; emoji: string; label: string; description: string }[] = [
+  { id: 'general',  emoji: '🤖', label: 'Jarvis',      description: 'Assistente geral inteligente' },
+  { id: 'dev',      emoji: '💻', label: 'Dev Hacker',  description: 'Especialista em código, debug e arquitetura' },
+  { id: 'analyst',  emoji: '📊', label: 'Analista',    description: 'Dados, relatórios e análises profundas' },
+  { id: 'tutor',    emoji: '🎓', label: 'Tutor',       description: 'Explica com método Feynman e flashcards' },
+  { id: 'creative', emoji: '🎨', label: 'Criativo',    description: 'Copywriting, storytelling e brainstorm' },
+]
 
 type ChatAttachment = {
   name: string
@@ -29,9 +39,11 @@ type ChatComposerProps = {
   value: string
   loading: boolean
   mode: ChatMode
+  persona?: PersonaMode
   attachment: ChatAttachment | null
   onChange: (value: string) => void
   onModeChange: (mode: ChatMode) => void
+  onPersonaChange?: (persona: PersonaMode) => void
   onAttachment: (file: File) => void
   onClearAttachment: () => void
   onSubmit: () => void
@@ -40,6 +52,8 @@ type ChatComposerProps = {
   onCinema: () => void
   onOpenLiveCall: () => void
   recording: boolean
+  racingMode?: boolean
+  onRacingModeChange?: (racing: boolean) => void
 }
 
 const PLACEHOLDERS = [
@@ -81,9 +95,11 @@ export function ChatComposer({
   value,
   loading,
   mode,
+  persona: currentPersona = 'general',
   attachment,
   onChange,
   onModeChange,
+  onPersonaChange,
   onAttachment,
   onClearAttachment,
   onSubmit,
@@ -92,30 +108,43 @@ export function ChatComposer({
   onCinema,
   onOpenLiveCall,
   recording,
+  racingMode = false,
+  onRacingModeChange,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const paletteRef = useRef<HTMLDivElement>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const glowRef = useRef<HTMLDivElement>(null)
+  const personaPickerRef = useRef<HTMLDivElement>(null)
 
   const [placeholderIndex, setPlaceholderIndex] = useState(0)
   const [phKey, setPhKey] = useState('0')
   const [isFocused, setIsFocused] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [activeSuggestion, setActiveSuggestion] = useState(0)
+  const [showPersonaPicker, setShowPersonaPicker] = useState(false)
+
+  const activePersona = PERSONAS.find(p => p.id === currentPersona) || PERSONAS[0]
 
   const canSubmit = Boolean(value.trim() || attachment) && !loading
+  const [isMobileScreen, setIsMobileScreen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false))
+  useEffect(() => {
+    const onResize = () => setIsMobileScreen(window.innerWidth <= 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  const compact = isMobileStandalone() || isMobileScreen
 
   // Cycle animated placeholder
   useEffect(() => {
-    if (isFocused || value || attachment) return
+    if (compact || isFocused || value || attachment) return
     const interval = setInterval(() => {
       setPlaceholderIndex((prev) => (prev + 1) % PLACEHOLDERS.length)
       setPhKey(String(Date.now()))
     }, 4000)
     return () => clearInterval(interval)
-  }, [isFocused, value, attachment])
+  }, [isFocused, value, attachment, compact])
 
   // Auto-resize textarea
   useEffect(() => {
@@ -256,7 +285,7 @@ export function ChatComposer({
       )}
 
       {/* Prompt Suggestions */}
-      {!value && !attachment && (
+      {!compact && !value && !attachment && (
         <PromptSuggestions onSelect={(prompt) => onChange(prompt)} />
       )}
 
@@ -287,9 +316,9 @@ export function ChatComposer({
         )}
 
         {/* Textarea + animated placeholder */}
-        <div className="cc-input-area">
+        <div className={`cc-input-area${compact ? ' cc-input-area-compact' : ''}`}>
           {/* Animated placeholder (visible only when empty + unfocused) */}
-          {!value && !isFocused && !recording && (
+          {!compact && !value && !isFocused && !recording && (
             <div className="cc-placeholder" aria-hidden="true">
               <PlaceholderLetters text={PLACEHOLDERS[placeholderIndex]} key={phKey} />
             </div>
@@ -303,9 +332,30 @@ export function ChatComposer({
             onKeyDown={onKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            placeholder=""
+            placeholder={compact ? 'Mensagem para o Jarvis…' : ''}
             aria-label="Mensagem para o Jarvis"
+            enterKeyHint="send"
+            autoCapitalize="sentences"
+            autoCorrect="on"
           />
+          {compact && (
+            <button
+              type="button"
+              className={`cc-send cc-send-inline${canSubmit ? ' cc-send-active' : ''}${loading ? ' cc-send-loading' : ''}`}
+              disabled={!canSubmit && !loading}
+              title={loading ? 'Processando…' : 'Enviar'}
+              onClick={() => { if (canSubmit) onSubmit() }}
+            >
+              {loading ? (
+                <span className="cc-spinner" />
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="19" x2="12" y2="5"/>
+                  <polyline points="5 12 12 5 19 12"/>
+                </svg>
+              )}
+            </button>
+          )}
         </div>
 
 
@@ -355,27 +405,113 @@ export function ChatComposer({
               {mode === 'planning' && <span className="cc-pill-dot" />}
             </button>
 
+            {!compact && (
+              <>
             {/* Deep Search toggle */}
             <button
               type="button"
               className={`cc-pill${mode === 'research' ? ' cc-pill-search' : ''}`}
               onClick={() => onModeChange(mode === 'research' ? 'general' : 'research')}
-              title="Busca Profunda na Web"
+              title="Pesquisa Profunda na Web (Research Subagent)"
             >
-              <span>🌐</span>
-              <span className="cc-pill-label">Deep Search</span>
+              <span>🔬</span>
+              <span className="cc-pill-label">Research</span>
               {mode === 'research' && <span className="cc-pill-dot cc-pill-dot-blue" />}
             </button>
+
+            {/* Coder Agent Mode */}
+            <button
+              type="button"
+              className={`cc-pill${mode === 'coder' ? ' cc-pill-think' : ''}`}
+              onClick={() => onModeChange(mode === 'coder' ? 'general' : 'coder')}
+              title="Coder Subagent (Validação Sintática AST e Debug)"
+              style={mode === 'coder' ? { borderColor: 'rgba(34,197,94,0.6)', color: '#4ade80', background: 'rgba(34,197,94,0.12)' } : {}}
+            >
+              <span>💻</span>
+              <span className="cc-pill-label">Coder</span>
+              {mode === 'coder' && <span className="cc-pill-dot" style={{ background: '#22c55e' }} />}
+            </button>
+
+            {/* Racing Mode toggle (G0DM0D3 Multi-LLM Racing Engine) */}
+            <button
+              type="button"
+              className={`cc-pill${racingMode ? ' cc-pill-think' : ''}`}
+              onClick={() => onRacingModeChange?.(!racingMode)}
+              title="Modo Racing (Multi-LLM Corrida em Paralelo)"
+              style={racingMode ? { borderColor: 'rgba(234,179,8,0.6)', color: '#eab308', background: 'rgba(234,179,8,0.12)' } : {}}
+            >
+              <span>⚡</span>
+              <span className="cc-pill-label">Racing</span>
+              {racingMode && <span className="cc-pill-dot" style={{ background: '#eab308' }} />}
+            </button>
+              </>
+            )}
+
+            {/* Persona Selector (G0DM0D3-inspired) */}
+            <div ref={personaPickerRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="cc-pill"
+                onClick={() => setShowPersonaPicker(p => !p)}
+                title="Selecionar Persona do Jarvis"
+                style={currentPersona !== 'general' ? { borderColor: 'rgba(168,85,247,0.6)', color: '#c084fc' } : {}}
+              >
+                <span>{activePersona.emoji}</span>
+                <span className="cc-pill-label">{activePersona.label}</span>
+                {currentPersona !== 'general' && <span className="cc-pill-dot" style={{ background: '#a855f7' }} />}
+              </button>
+              {showPersonaPicker && (
+                <div style={{
+                  position: 'absolute',
+                  bottom: 'calc(100% + 8px)',
+                  left: 0,
+                  background: 'rgba(10,12,24,0.97)',
+                  border: '1px solid rgba(168,85,247,0.35)',
+                  borderRadius: 10,
+                  minWidth: 220,
+                  backdropFilter: 'blur(16px)',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                  zIndex: 100,
+                  overflow: 'hidden',
+                }}>
+                  <div style={{ padding: '8px 12px 6px', fontSize: 10, color: '#a855f7', fontWeight: 700, letterSpacing: 1, borderBottom: '1px solid rgba(168,85,247,0.15)' }}>
+                    ⚡ PERSONA DO JARVIS
+                  </div>
+                  {PERSONAS.map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => { onPersonaChange?.(p.id); setShowPersonaPicker(false) }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                        padding: '8px 14px', background: currentPersona === p.id ? 'rgba(168,85,247,0.12)' : 'transparent',
+                        border: 'none', cursor: 'pointer', color: currentPersona === p.id ? '#c084fc' : '#ccc',
+                        fontSize: 13, textAlign: 'left', transition: 'background 0.15s',
+                      }}
+                    >
+                      <span style={{ fontSize: 16 }}>{p.emoji}</span>
+                      <span style={{ display: 'flex', flexDirection: 'column' }}>
+                        <strong style={{ fontSize: 12 }}>{p.label}</strong>
+                        <span style={{ fontSize: 10, opacity: 0.6 }}>{p.description}</span>
+                      </span>
+                      {currentPersona === p.id && <span style={{ marginLeft: 'auto', color: '#a855f7', fontSize: 12 }}>✓</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Right cluster */}
           <div className="cc-toolbar-right">
-            <button type="button" className="cc-icon-btn" title="Analisar Tela" onClick={onScreen}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                <circle cx="12" cy="12" r="3"/>
-              </svg>
-            </button>
+            {!compact && (
+              <button type="button" className="cc-icon-btn" title="Analisar Tela" onClick={onScreen}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            )}
 
             <button
               type="button"
@@ -395,34 +531,37 @@ export function ChatComposer({
               )}
             </button>
 
-            <button type="button" className="cc-icon-btn" title="Jarvis Cinema" onClick={onCinema}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="23 7 16 12 23 17 23 7"/>
-                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
-              </svg>
-            </button>
+            {!compact && (
+              <button type="button" className="cc-icon-btn" title="Jarvis Cinema" onClick={onCinema}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="23 7 16 12 23 17 23 7"/>
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                </svg>
+              </button>
+            )}
 
             <button type="button" className="cc-icon-btn" title="Abrir ligação" onClick={onOpenLiveCall}>
               <Phone size={15} strokeWidth={1.8} />
             </button>
 
-            {/* Send button */}
-            <button
-              type="button"
-              className={`cc-send${canSubmit ? ' cc-send-active' : ''}${loading ? ' cc-send-loading' : ''}`}
-              disabled={!canSubmit && !loading}
-              title={loading ? 'Processando…' : 'Enviar (Enter)'}
-              onClick={() => { if (canSubmit) onSubmit() }}
-            >
-              {loading ? (
-                <span className="cc-spinner" />
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="19" x2="12" y2="5"/>
-                  <polyline points="5 12 12 5 19 12"/>
-                </svg>
-              )}
-            </button>
+            {!compact && (
+              <button
+                type="button"
+                className={`cc-send${canSubmit ? ' cc-send-active' : ''}${loading ? ' cc-send-loading' : ''}`}
+                disabled={!canSubmit && !loading}
+                title={loading ? 'Processando…' : 'Enviar (Enter)'}
+                onClick={() => { if (canSubmit) onSubmit() }}
+              >
+                {loading ? (
+                  <span className="cc-spinner" />
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5"/>
+                    <polyline points="5 12 12 5 19 12"/>
+                  </svg>
+                )}
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -37,6 +37,23 @@ def build_persona_section(base_persona: str, evolution_notes: list[str]) -> str:
     return f"## Personalidade\n{base}\n## Contexto e Memória do Usuário\n{_persona_notes_block(evolution_notes)}\n(Atenção: Use estas memórias silenciosamente para personalizar a resposta. Nunca diga 'De acordo com minhas memórias' ou repita fatos sem necessidade.)"
 
 
+def build_runtime_identity_context(route: dict | None) -> str:
+    """Contexto factual do provedor/modelo efetivamente resolvido."""
+    route = route or {}
+    effective = route.get("effective") or {}
+    provider = str(effective.get("provider") or "desconhecido")
+    model = str(effective.get("model") or "não exposto")
+    status = "fallback" if route.get("fallback_used") else "principal"
+    reason = str(route.get("reason") or "")
+    return (
+        "## Contexto factual do runtime (interno)\n"
+        f"Motor ativo: {provider}; modelo: {model}; rota: {status}.\n"
+        f"Diagnóstico: {reason}\n"
+        "Quando perguntarem quem você é ou qual motor está usando, responda "
+        "somente com estes dados. Nunca adivinhe um modelo ou provedor específico."
+    )
+
+
 def critical_confirm_instructions(enabled: bool) -> str:
     """Bloco injetado nos system prompts conforme o interruptor da confirmação crítica."""
     if enabled:
@@ -100,6 +117,7 @@ Invoque a ferramenta nativa adequada imediatamente APENAS quando solicitado:
 • Executar código Python/PowerShell → script_runner
 • Temporizador / Alarme → timer
 • Copiar texto para a área de transferência → clipboard
+• Painel de planejamento persistente → planning_workspace. Ao propor um plano, pergunte se o Sir quer abri-lo antes de chamar open. Se ele confirmar, chame open. Se disser que não quer mais essa pergunta, chame set_auto_open com enabled=true. Com o painel aberto, registre decisões e próximos passos concretos usando append ou update; não alegue que registrou sem chamar a ferramenta.
 
 PEDIDOS COMPOSTOS (ex: "Crie um texto sobre X e copie"):
 Gere o texto completo e passe-o como parâmetro 'text' para a ferramenta 'clipboard'.
@@ -163,6 +181,7 @@ def build_marker_agent_system_prompt(
     evolution_notes: list[str],
     *,
     critical_confirm_enabled: bool = False,
+    runtime_route: dict | None = None,
 ) -> str:
     parts = [
         AGENT_SYSTEM_CORE,
@@ -170,6 +189,8 @@ def build_marker_agent_system_prompt(
         STYLE_BREVITY_AND_LENGTH,
         build_persona_section(base_persona, evolution_notes),
     ]
+    if runtime_route:
+        parts.append(build_runtime_identity_context(runtime_route))
     return "\n\n".join(parts)
 
 
@@ -181,6 +202,7 @@ def build_function_calling_system_prompt(
     critical_confirm_enabled: bool = False,
     active_mode: str | None = None,
     allowed_tool_names: frozenset[str] | set[str] | None = None,
+    runtime_route: dict | None = None,
 ) -> str:
     parts = [
         AGENT_SYSTEM_PROMPT_FUNCTION_CALLING,
@@ -189,6 +211,8 @@ def build_function_calling_system_prompt(
         build_persona_section(base_persona, evolution_notes),
     ]
     
+    if runtime_route:
+        parts.append(build_runtime_identity_context(runtime_route))
     if active_mode or allowed_tool_names is not None:
         tool_list = ", ".join(sorted(allowed_tool_names or [])) or "nenhuma ferramenta de acao"
         parts.append(

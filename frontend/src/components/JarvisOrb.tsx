@@ -1,83 +1,86 @@
-import { useEffect, useRef } from 'react'
+import { JarvisOrb3D, type AgentState } from './JarvisOrb3D'
+
+export type { AgentState }
 
 type JarvisOrbProps = {
   size?: number
   listening?: boolean
   speaking?: boolean
+  state?: AgentState
   className?: string
+  use3D?: boolean
+  interactive?: boolean
+  onClick?: () => void
 }
 
-export function JarvisOrb({ size = 112, listening = false, speaking = false, className = '' }: JarvisOrbProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const analyserRef = useRef<AnalyserNode | null>(null)
-  const rafRef = useRef<number>(0)
-
-  useEffect(() => {
-    if (!listening) {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      return
-    }
-
-    let stream: MediaStream | null = null
-    let audioCtx: AudioContext | null = null
-
-    const start = async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        audioCtx = new AudioContext()
-        const source = audioCtx.createMediaStreamSource(stream)
-        const analyser = audioCtx.createAnalyser()
-        analyser.fftSize = 256
-        source.connect(analyser)
-        analyserRef.current = analyser
-
-        const canvas = canvasRef.current
-        if (!canvas) return
-        const ctx = canvas.getContext('2d')
-        if (!ctx) return
-        const data = new Uint8Array(analyser.frequencyBinCount)
-
-        const draw = () => {
-          analyser.getByteFrequencyData(data)
-          const avg = data.reduce((a, b) => a + b, 0) / data.length
-          const pulse = 1 + avg / 180
-          const w = canvas.width
-          const h = canvas.height
-          ctx.clearRect(0, 0, w, h)
-          const grad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2 * pulse)
-          grad.addColorStop(0, '#b8f4ff')
-          grad.addColorStop(0.4, '#00daf8')
-          grad.addColorStop(0.7, '#9d05ff')
-          grad.addColorStop(1, 'transparent')
-          ctx.fillStyle = grad
-          ctx.beginPath()
-          ctx.arc(w / 2, h / 2, (w / 2 - 4) * pulse, 0, Math.PI * 2)
-          ctx.fill()
-          rafRef.current = requestAnimationFrame(draw)
-        }
-        draw()
-      } catch {
-        // fallback to CSS animation
-      }
-    }
-
-    start()
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      stream?.getTracks().forEach(t => t.stop())
-      audioCtx?.close()
-      analyserRef.current = null
-    }
-  }, [listening])
+export function JarvisOrb({
+  size = 112,
+  listening = false,
+  speaking = false,
+  state = 'idle',
+  className = '',
+  use3D = true,
+  interactive = false,
+  onClick,
+}: JarvisOrbProps) {
+  if (use3D) {
+    return (
+      <JarvisOrb3D
+        size={size}
+        listening={listening}
+        speaking={speaking}
+        state={state}
+        className={className}
+        interactive={interactive}
+        onClick={onClick}
+      />
+    )
+  }
 
   const stateClass = listening ? 'jarvis-orb-listening' : speaking ? 'jarvis-orb-speaking' : ''
 
   return (
-    <div className={`jarvis-orb-wrap ${stateClass} ${className}`} style={{ width: size, height: size }}>
-      <canvas ref={canvasRef} width={size} height={size} className="jarvis-orb-canvas" aria-hidden="true" />
-      <div className="jarvis-orb-core">J</div>
-      <div className="jarvis-orb-ring" aria-hidden="true" />
-      <div className="jarvis-orb-ring jarvis-orb-ring-2" aria-hidden="true" />
+    <div
+      className={`jarvis-orb-wrap ${stateClass} ${className}`}
+      style={{
+        width: size,
+        height: size,
+        cursor: interactive ? 'pointer' : 'default',
+        background: 'radial-gradient(circle, rgba(245, 158, 11, 0.25) 0%, rgba(16, 185, 129, 0.15) 50%, transparent 75%)',
+        borderRadius: '50%',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        position: 'relative',
+      }}
+      onClick={interactive ? onClick : undefined}
+    >
+      <div
+        className="jarvis-orb-core"
+        style={{
+          color: '#ffffff',
+          textShadow: '0 0 12px #fbbf24, 0 0 24px #f59e0b',
+          fontSize: Math.max(14, size * 0.25),
+          fontWeight: 700,
+        }}
+      >
+        解
+      </div>
+      <div
+        className="jarvis-orb-ring"
+        style={{
+          borderColor: 'rgba(251, 191, 36, 0.75)',
+          boxShadow: '0 0 14px rgba(245, 158, 11, 0.4), inset 0 0 14px rgba(16, 185, 129, 0.2)',
+        }}
+        aria-hidden="true"
+      />
+      <div
+        className="jarvis-orb-ring jarvis-orb-ring-2"
+        style={{
+          borderColor: 'rgba(16, 185, 129, 0.45)',
+        }}
+        aria-hidden="true"
+      />
     </div>
   )
 }

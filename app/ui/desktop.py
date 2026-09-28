@@ -75,7 +75,16 @@ class DesktopAPI:
         try:
             from app.services.voice.tts import TTSService
             voice = getattr(self._settings, "tts_voice", "pt-BR-AntonioNeural")
-            tts = TTSService(voice=voice)
+            tts = TTSService(
+                voice=voice,
+                tts_provider=getattr(self._settings, "tts_provider", "fish") or "fish",
+                gemini_api_keys=getattr(self._settings, "gemini_api_keys", []) or [],
+                gemini_voice=getattr(self._settings, "tts_gemini_voice", "Charon") or "Charon",
+                fish_api_key=getattr(self._settings, "fish_api_key", "") or "",
+                fish_reference_id=getattr(self._settings, "fish_reference_id", "") or "78d40157e19a43ebb725f09fc6125585",
+                fish_model=getattr(self._settings, "fish_tts_model", "s2.1-pro-free") or "s2.1-pro-free",
+                fish_auto_emotions=bool(getattr(self._settings, "fish_auto_emotions", True)),
+            )
             threading.Thread(target=tts.speak, args=(text, True), daemon=True).start()
         except Exception as e:
             print(f"Erro ao falar nativamente: {e}")
@@ -114,6 +123,34 @@ class DesktopAPI:
             self._spotlight_window.hide()
         return True
 
+    def openEvolute(self):
+        if hasattr(self, '_evolute_window') and self._evolute_window:
+            try:
+                self._evolute_window.show()
+                self._evolute_window.restore()
+                self._evolute_is_shown = True
+            except Exception as e:
+                print(f"[DesktopAPI] Erro ao abrir Evolute: {e}")
+        return True
+
+    def hideEvolute(self):
+        if hasattr(self, '_evolute_window') and self._evolute_window:
+            try:
+                self._evolute_window.hide()
+                self._evolute_is_shown = False
+            except Exception as e:
+                print(f"[DesktopAPI] Erro ao ocultar Evolute: {e}")
+        return True
+
+    def toggleEvolute(self):
+        if hasattr(self, '_evolute_window') and self._evolute_window:
+            if getattr(self, '_evolute_is_shown', False):
+                self.hideEvolute()
+            else:
+                self.openEvolute()
+        return True
+
+
 def start_desktop(settings: Any, panel_server: Any = None) -> None:
     """Start an embedded desktop window using pywebview."""
     try:
@@ -150,6 +187,17 @@ def start_desktop(settings: Any, panel_server: Any = None) -> None:
     )
     api._spotlight_window = spotlight_window
 
+    evolute_url = f"http://{host}:{port}/evolute"
+    evolute_window = webview.create_window(
+        "Evolute — Life OS", 
+        evolute_url, 
+        width=1380, 
+        height=850, 
+        hidden=True,
+        js_api=api
+    )
+    api._evolute_window = evolute_window
+
     # Garantia adicional para backends Win32 que ignoram `hidden=True` no
     # primeiro ciclo de renderização.
     def hide_spotlight_on_start() -> None:
@@ -160,6 +208,22 @@ def start_desktop(settings: Any, panel_server: Any = None) -> None:
 
     spotlight_window.events.loaded += hide_spotlight_on_start
     threading.Timer(0.25, hide_spotlight_on_start).start()
+
+    def hide_evolute_on_start() -> None:
+        try:
+            evolute_window.hide()
+        except Exception:
+            pass
+
+    evolute_window.events.loaded += hide_evolute_on_start
+    threading.Timer(0.3, hide_evolute_on_start).start()
+
+    def on_evolute_closing():
+        evolute_window.hide()
+        api._evolute_is_shown = False
+        return False
+
+    evolute_window.events.closing += on_evolute_closing
     
     def on_loaded():
         # Inject JavaScript mapping without overriding voice.js recording engine
@@ -191,6 +255,11 @@ def start_desktop(settings: Any, panel_server: Any = None) -> None:
                     spotlight_window.show()
             keyboard.add_hotkey('alt+space', toggle_spotlight)
             
+            # Alt+E: Toggle Janela Evolute
+            def trigger_evolute():
+                api.toggleEvolute()
+            keyboard.add_hotkey('alt+e', trigger_evolute)
+
             # Alt+V: Captura de tela + abre Spotlight em modo Visão
             def trigger_vision():
                 if spotlight_window:

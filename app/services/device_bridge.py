@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import secrets
+import hashlib
+import hmac
 import threading
 import time
 from pathlib import Path
@@ -84,7 +86,7 @@ class DeviceBridgeService:
             now = self._now()
             devices = []
             for device in state["devices"]:
-                item = dict(device)
+                item = self._public_device(device)
                 # A client that stopped heartbeating is shown as offline.  This
                 # keeps the PC and the future phone UI consistent after sleep.
                 last_seen = float(item.get("last_seen") or 0)
@@ -94,10 +96,14 @@ class DeviceBridgeService:
             return {
                 "ok": True,
                 "protocol": "jarvis-bridge-v1",
-                "pairing_code": state["pairing_code"],
                 "devices": devices,
-                "events": state["events"][-30:],
+                "events": [self._public_event(event) for event in state["events"][-30:]],
             }
+
+    def get_pairing_code(self) -> str:
+        """Return the temporary pairing code only to an authenticated control UI."""
+        with self._lock:
+            return str(self._read()["pairing_code"])
 
     def register_device(
         self,
@@ -113,13 +119,18 @@ class DeviceBridgeService:
             return {"ok": False, "error": "device_id é obrigatório."}
         with self._lock:
             state = self._read()
-            if pairing_code and str(pairing_code).strip().upper() != str(state["pairing_code"]).upper():
-                return {"ok": False, "error": "Código de pareamento inválido."}
             now = self._now()
             current = next((item for item in state["devices"] if item.get("id") == device_id), None)
             if current is None:
+                if not pairing_code or not hmac.compare_digest(str(pairing_code).strip().upper(), str(state["pairing_code"]).upper()):
+                    return {"ok": False, "error": "Código de pareamento obrigatório ou inválido."}
                 current = {"id": device_id}
                 state["devices"].append(current)
+                device_token = secrets.token_urlsafe(32)
+                current["token_verifier"] = self._token_verifier(device_token)
+                current["permissions"] = self._default_permissions(kind)
+            else:
+                return {"ok": False, "error": "Dispositivo já pareado; use sua credencial de dispositivo."}
             current.update({
                 "name": str(name or current.get("name") or "Dispositivo"),
                 "kind": str(kind or current.get("kind") or "client"),
@@ -130,21 +141,23 @@ class DeviceBridgeService:
             })
             self._append_event(state, "device.connected", device_id, {"name": current["name"]})
             self._write(state)
-            return {"ok": True, "device": dict(current), "pairing_code": state["pairing_code"]}
+            return {"ok": True, "device": self._public_device(current), "device_token": device_token}
 
-    def heartbeat(self, device_id: Any) -> dict[str, Any]:
+    def heartbeat(self, device_id: Any, device_token: Any = None) -> dict[str, Any]:
         device_id = str(device_id or "").strip()
         with self._lock:
             state = self._read()
             current = next((item for item in state["devices"] if item.get("id") == device_id), None)
             if current is None:
                 return {"ok": False, "error": "Dispositivo não pareado."}
+            if not self._valid_token(current, device_token):
+                return {"ok": False, "error": "Credencial do dispositivo inválida."}
             current["connected"] = True
             current["last_seen"] = self._now()
             self._write(state)
-            return {"ok": True, "device": dict(current)}
+            return {"ok": True, "device": self._public_device(current)}
 
-    def command(self, target_id: Any, command: Any, payload: Any = None, source: Any = "desktop") -> dict[str, Any]:
+    def command(self, target_id: Any, command: Any, payload: Any = None, source: Any = "desktop", device_token: Any = None) -> dict[str, Any]:
         target_id = str(target_id or "").strip()
         command = str(command or "").strip()
         if not target_id or not command:
@@ -153,8 +166,13 @@ class DeviceBridgeService:
         with self._lock:
             state = self._read()
             device = next((item for item in state["devices"] if item.get("id") == target_id), None)
-            if device is None:
+            source_device = next((item for item in state["devices"] if item.get("id") == str(source)), None)
+            if device is None or source_device is None:
                 return {"ok": False, "error": "Dispositivo não encontrado."}
+            if not self._valid_token(source_device, device_token):
+                return {"ok": False, "error": "Credencial do dispositivo inválida."}
+            if "command" not in source_device.get("permissions", []) or "receive_command" not in device.get("permissions", []):
+                return {"ok": False, "error": "Permissão command não concedida."}
             # Normalized state is useful for the simulator and harmless for a
             # future adapter, which can consume the same event downstream.
             if command in {"turn_on", "turn_off"}:
@@ -166,12 +184,15 @@ class DeviceBridgeService:
             event = self._append_event(state, f"device.{command}", target_id, {"source": source, **payload})
             event["status"] = "executed"
             self._write(state)
-            return {"ok": True, "accepted": True, "executed": True, "device": dict(device), "event": event}
+            return {"ok": True, "accepted": True, "executed": True, "device": self._public_device(device), "event": self._public_event(event)}
 
-    def remove_device(self, device_id: Any) -> bool:
+    def remove_device(self, device_id: Any, device_token: Any = None) -> bool:
         device_id = str(device_id or "").strip()
         with self._lock:
             state = self._read()
+            current = next((item for item in state["devices"] if item.get("id") == device_id), None)
+            if current is None or not self._valid_token(current, device_token):
+                return False
             before = len(state["devices"])
             state["devices"] = [item for item in state["devices"] if item.get("id") != device_id]
             changed = len(state["devices"]) != before
@@ -186,3 +207,26 @@ class DeviceBridgeService:
         state["events"].append(event)
         del state["events"][:-100]
         return event
+
+    @staticmethod
+    def _token_verifier(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def _valid_token(self, device: dict[str, Any], token: Any) -> bool:
+        value = str(token or "")
+        verifier = str(device.get("token_verifier") or "")
+        return bool(value and verifier and hmac.compare_digest(self._token_verifier(value), verifier))
+
+    @staticmethod
+    def _default_permissions(kind: Any) -> list[str]:
+        if str(kind).lower() in {"desktop", "controller", "client"}:
+            return ["status", "notify", "command", "receive_command"]
+        return ["status", "notify", "receive_command"]
+
+    @staticmethod
+    def _public_device(device: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in device.items() if key not in {"token_verifier", "pairing_code", "device_token"}}
+
+    @staticmethod
+    def _public_event(event: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in event.items() if key not in {"token", "secret", "pairing_code", "device_token"}}

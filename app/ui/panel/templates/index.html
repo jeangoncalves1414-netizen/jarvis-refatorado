@@ -2,8 +2,9 @@
 
 <html class="dark" lang="en"><head>
 <meta charset="utf-8"/>
-<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Jarvis - Chat</title>
+<meta http-equiv="refresh" content="0; url=/">
+<script>if (window.location.pathname !== '/') window.location.replace('/');</script>
+<title>Jarvis - Redirecionando...</title>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <script>
 tailwind.config = {
@@ -111,13 +112,11 @@ tailwind.config = {
 <!-- SideNavBar -->
 <nav class="fixed left-0 top-0 h-full flex flex-col py-8 z-40 bg-surface-container-lowest dark:bg-surface-container-lowest w-64 border-r border-white/10 shadow-2xl shadow-black">
 <div class="px-6 mb-8 flex items-center gap-4">
-<div class="hud-orb-wrapper shrink-0">
-<div class="hud-ring-outer"></div>
-<div class="hud-ring-inner"></div>
-<div id="orb-container" class="w-12 h-12 rounded-full border border-primary-fixed-dim/40 overflow-hidden bg-black flex items-center justify-center relative shadow-[0_0_20px_rgba(0,218,248,0.35)] hover:scale-105 transition-transform duration-300 cursor-pointer"></div>
+<div class="shrink-0 flex items-center justify-center" style="width:56px;height:56px;border-radius:50%;overflow:hidden;">
+<div id="orb-container" style="width:56px;height:56px;"></div>
 </div>
 
-<div>
+<div class="flex flex-col justify-center">
 <h1 class="text-headline-lg font-headline-lg text-primary-fixed-dim text-lg leading-tight">Jarvis Core</h1>
 <span class="text-label-sm font-label-sm text-secondary-fixed-dim flex items-center gap-1 mt-1"><span class="w-2 h-2 rounded-full bg-primary-fixed-dim animate-pulse"></span> Automation Active</span>
 </div>
@@ -138,7 +137,6 @@ tailwind.config = {
 <a class="nav-button text-on-surface-variant flex items-center gap-3 px-4 py-3 hover:bg-white/5 hover:text-secondary-fixed-dim transition-all hover:translate-x-1 duration-200" href="#" data-screen="automations">
 <span class="material-symbols-outlined">bolt</span>
 <span class="text-label-md font-label-md">Automations</span>
-</a>
 <!-- Chat -->
 <a class="nav-button text-on-surface-variant flex items-center gap-3 px-4 py-3 hover:bg-white/5 hover:text-secondary-fixed-dim transition-all hover:translate-x-1 duration-200" href="#" data-screen="chat">
 <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">chat_bubble</span>
@@ -223,9 +221,9 @@ tailwind.config = {
 </div>
 </div>
 <div class="grid grid-cols-1 md:grid-cols-12 gap-stack-gap h-full">
-<section class="md:col-span-8 glass-surface void-border rounded-xl p-card-padding-internal ambient-shadow flex flex-col relative overflow-hidden group min-h-[320px] md:min-h-[340px]">
+<section class="md:col-span-8 glass-surface void-border rounded-xl p-card-padding-internal ambient-shadow flex flex-col relative overflow-hidden group min-h-[320px] md:min-h-[340px] border-beam-glow">
 <div class="absolute inset-0 bg-gradient-to-br from-primary-container/5 to-transparent pointer-events-none opacity-50 group-hover:opacity-100 transition-opacity duration-500"></div>
-<div class="flex justify-between items-start mb-8 relative z-10">
+<div class="flex justify-between items-center mb-8 relative z-10">
 <div class="flex items-center gap-3">
 <span class="material-symbols-outlined text-primary-fixed-dim text-3xl" style="font-variation-settings: 'FILL' 1;">lightbulb</span>
 <h3 class="text-headline-md font-headline-md">Studio Lighting</h3>
@@ -309,28 +307,28 @@ tailwind.config = {
 <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
 <button class="access-toggle locked interactive-control p-6 rounded-lg border border-primary-fixed-dim/30 bg-primary-fixed-dim/5 hover:bg-primary-fixed-dim/10 flex flex-col items-center justify-center gap-3 transition-all neon-glow-primary text-center" data-access-state="locked" data-access-label="Front Door">
 <span class="material-symbols-outlined text-primary-fixed-dim text-3xl" style="font-variation-settings: 'FILL' 1;">lock</span>
-<div>
+<div class="flex flex-col items-center">
 <div class="text-body-sm font-body-sm text-white font-semibold">Front Door</div>
 <div class="status-label text-label-sm font-label-sm text-primary-fixed-dim">Locked</div>
 </div>
 </button>
 <button class="access-toggle unlocked interactive-control p-6 rounded-lg border void-border bg-surface-container hover:bg-surface-container-high flex flex-col items-center justify-center gap-3 transition-all text-center" data-access-state="unlocked" data-access-label="Back Patio">
 <span class="material-symbols-outlined text-on-surface-variant text-3xl">lock_open</span>
-<div>
+<div class="flex flex-col items-center">
 <div class="text-body-sm font-body-sm text-white font-semibold">Back Patio</div>
 <div class="status-label text-label-sm font-label-sm text-error">Unlocked</div>
 </div>
 </button>
 <button class="access-toggle locked interactive-control p-6 rounded-lg border border-primary-fixed-dim/30 bg-primary-fixed-dim/5 hover:bg-primary-fixed-dim/10 flex flex-col items-center justify-center gap-3 transition-all neon-glow-primary text-center" data-access-state="locked" data-access-label="Garage Side">
 <span class="material-symbols-outlined text-primary-fixed-dim text-3xl" style="font-variation-settings: 'FILL' 1;">lock</span>
-<div>
+<div class="flex flex-col items-center">
 <div class="text-body-sm font-body-sm text-white font-semibold">Garage Side</div>
 <div class="status-label text-label-sm font-label-sm text-primary-fixed-dim">Locked</div>
 </div>
 </button>
 <button class="access-toggle locked interactive-control p-6 rounded-lg border void-border bg-surface-container hover:bg-surface-container-high flex flex-col items-center justify-center gap-3 transition-all text-center" data-access-state="locked" data-access-label="Gate">
 <span class="material-symbols-outlined text-on-surface-variant text-3xl">meeting_room</span>
-<div>
+<div class="flex flex-col items-center">
 <div class="text-body-sm font-body-sm text-white font-semibold">Gate</div>
 <div class="status-label text-label-sm font-label-sm text-on-surface-variant">Closed</div>
 </div>
@@ -380,7 +378,7 @@ tailwind.config = {
 <!-- Sci-Fi HUD Top Widgets Bar -->
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-2">
   <!-- Weather Widget -->
-  <div class="hud-widget-card p-4 flex items-center gap-3">
+  <div class="hud-widget-card p-4 flex items-center gap-3 border-beam">
     <div class="w-10 h-10 rounded-lg bg-primary-fixed-dim/10 border border-primary-fixed-dim/30 flex items-center justify-center shrink-0">
       <span id="hud-weather-icon" class="material-symbols-outlined text-primary-fixed-dim text-2xl">wb_sunny</span>
     </div>
@@ -395,7 +393,7 @@ tailwind.config = {
   </div>
 
   <!-- Finance Ticker Widget -->
-  <div class="hud-widget-card p-4 flex items-center gap-3">
+  <div class="hud-widget-card p-4 flex items-center gap-3 border-beam">
     <div class="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shrink-0">
       <span class="material-symbols-outlined text-emerald-400 text-2xl">payments</span>
     </div>
@@ -412,7 +410,7 @@ tailwind.config = {
   </div>
 
   <!-- Proactive & Reminders Widget -->
-  <div class="hud-widget-card p-4 flex items-center gap-3">
+  <div class="hud-widget-card p-4 flex items-center gap-3 border-beam">
     <div class="w-10 h-10 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center shrink-0">
       <span class="material-symbols-outlined text-purple-400 text-2xl">alarm</span>
     </div>
@@ -427,7 +425,7 @@ tailwind.config = {
   </div>
 
   <!-- TTS Voice Telemetry Widget -->
-  <div class="hud-widget-card p-4 flex items-center gap-3">
+  <div class="hud-widget-card p-4 flex items-center gap-3 border-beam">
     <div class="w-10 h-10 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shrink-0">
       <span class="material-symbols-outlined text-amber-400 text-2xl">graphic_eq</span>
     </div>
@@ -446,7 +444,7 @@ tailwind.config = {
 
 <div class="grid grid-cols-1 md:grid-cols-12 gap-8 mt-4">
 
-<div class="md:col-span-8 bg-surface-container border border-white/10 rounded-xl p-card-padding-internal shadow-[0_20px_40px_rgba(0,0,0,0.8)] relative overflow-hidden group">
+<div class="md:col-span-8 bg-surface-container border border-white/10 rounded-xl p-card-padding-internal shadow-[0_20px_40px_rgba(0,0,0,0.8)] relative overflow-hidden group spotlight-card">
 <div class="absolute inset-0 matrix-bg opacity-50 z-0"></div>
 <div class="relative z-10 flex flex-col h-full min-h-[360px]">
 <div class="flex items-center justify-between mb-6">
@@ -491,7 +489,7 @@ tailwind.config = {
 </div>
 </div>
 </div>
-<div class="md:col-span-4 bg-surface-container border border-white/10 rounded-xl p-card-padding-internal shadow-[0_20px_40px_rgba(0,0,0,0.8)] flex flex-col justify-between">
+<div class="md:col-span-4 bg-surface-container border border-white/10 rounded-xl p-card-padding-internal shadow-[0_20px_40px_rgba(0,0,0,0.8)] flex flex-col justify-between spotlight-card">
 <div>
 <div class="flex items-center justify-between mb-4">
 <h3 class="text-headline-md font-headline-md font-semibold text-white">Security</h3>
@@ -1254,6 +1252,7 @@ Virtual Studio 04
 <select id="setting-llm-provider" class="bg-surface-container-highest border border-white/10 rounded-lg px-3 py-2 text-on-surface text-sm min-w-[140px]">
 <option value="gemini">Gemini</option>
 <option value="groq">Groq (Llama)</option>
+<option value="oxyy">Oxyy (multi-modelo)</option>
 </select>
 </li>
 </ul>
@@ -1438,7 +1437,7 @@ Virtual Studio 04
 <span class="bg-surface-container-high px-2 py-1 rounded text-label-sm font-label-sm text-primary-fixed-dim border border-white/10">Active Session</span>
 </div>
 <div class="flex items-center gap-2">
-<button id="header-live-call-button" class="px-3 py-2 rounded-lg text-label-md font-label-md text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all flex items-center gap-2 shadow-[0_0_12px_rgba(16,185,129,0.25)] cursor-pointer" title="Iniciar Modo Ligação Hands-Free">
+<button id="header-live-call-button" class="px-3 py-2 rounded-lg text-label-md font-label-md text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all flex items-center gap-2 shadow-[0_0_12px_rgba(10,185,129,0.25)] cursor-pointer" title="Iniciar Modo Ligação Hands-Free">
 <span class="material-symbols-outlined text-lg">call</span>
 <span>Modo Ligação</span>
 </button>
@@ -1495,6 +1494,7 @@ Virtual Studio 04
     <div style="text-align:center;">
       <p style="font-family:Sora,sans-serif; font-size:22px; font-weight:600; color:#e5e2e1; margin:0;">Jarvis</p>
       <p id="live-call-status" style="font-size:14px; color:rgba(0,218,248,0.8); margin:6px 0 0 0; letter-spacing:0.05em;">Ouvindo...</p>
+      <p id="live-call-transcript" style="font-size:13px; color:rgba(229,226,225,0.6); margin:8px 0 0 0; max-width:400px; min-height:20px; line-height:1.4; transition:opacity 0.2s ease; opacity:0;"></p>
     </div>
   </div>
   <div id="live-call-waveform" style="display:flex; align-items:center; gap:4px; height:40px;">
@@ -1622,10 +1622,17 @@ Virtual Studio 04
     closeModal();
 
     try {
+      const approval = await fetch('/api/script/authorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language: payload.language, code: payload.code, confirmed: true }),
+      });
+      const approved = await approval.json();
+      if (!approval.ok || !approved.ok || !approved.receipt) throw new Error(approved.error || 'Não foi possível autorizar o script.');
       const res = await fetch('/api/script/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, receipt: approved.receipt }),
       });
       const data = await res.json();
 
@@ -1793,9 +1800,9 @@ Virtual Studio 04
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
           <label class="flex items-center gap-3 p-3 rounded-lg border border-primary-fixed-dim/40 bg-primary-fixed-dim/5 cursor-pointer hover:bg-primary-fixed-dim/10 transition-colors">
-            <input type="radio" name="tts_provider" value="gemini" checked class="text-primary-fixed-dim focus:ring-0">
+            <input type="radio" name="tts_provider" value="fish" checked class="text-primary-fixed-dim focus:ring-0">
             <div>
-              <p class="text-xs font-bold text-white">Gemini 2.5 Flash TTS</p>
+              <p class="text-xs font-bold text-white">Fish Audio S2.1 Pro</p>
               <p class="text-[11px] text-on-surface-variant">Voz Charon (Natural, Grave, Autorité)</p>
             </div>
           </label>
@@ -1806,6 +1813,62 @@ Virtual Studio 04
               <p class="text-[11px] text-on-surface-variant">Voz Antonio (Neural PT-BR, SSML)</p>
             </div>
           </label>
+          <label class="flex items-center gap-3 p-3 rounded-lg border border-white/10 bg-surface cursor-pointer hover:bg-white/5 transition-colors">
+            <input type="radio" name="tts_provider" value="oxyy" class="text-primary-fixed-dim focus:ring-0">
+            <div>
+              <p class="text-xs font-bold text-white">Oxyy Audio</p>
+              <p class="text-[11px] text-on-surface-variant">Selecione o modelo TTS no catálogo abaixo</p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Section 1.5: Oxyy model catalog -->
+      <div class="flex flex-col gap-4 p-4 rounded-xl bg-surface-container-low border border-cyan-400/20">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <span class="text-sm font-semibold text-cyan-300 uppercase tracking-wider flex items-center gap-2">
+              <span class="material-symbols-outlined text-base">hub</span> Oxyy · modelos por capacidade
+            </span>
+            <p class="text-[11px] text-on-surface-variant mt-1">Chat, voz, transcrição, imagem, vídeo e embeddings. O catálogo é atualizado pela API sem expor suas chaves.</p>
+          </div>
+          <button id="settings-oxyy-refresh" type="button" class="shrink-0 px-2.5 py-1.5 rounded-lg border border-cyan-400/30 text-cyan-300 text-xs hover:bg-cyan-400/10 transition-colors">
+            <span class="material-symbols-outlined align-middle text-sm">refresh</span> Atualizar
+          </button>
+        </div>
+        <div id="settings-oxyy-status" class="text-[11px] text-on-surface-variant">Carregando catálogo...</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="text-xs text-on-surface-variant">Chat
+            <select id="settings-oxyy-chat" data-oxyy-model="chat" class="settings-oxyy-select mt-1 w-full bg-surface border border-white/10 rounded-lg px-3 py-2 text-sm text-white"></select>
+          </label>
+          <label class="text-xs text-on-surface-variant">TTS / voz
+            <select id="settings-oxyy-tts" data-oxyy-model="tts" class="settings-oxyy-select mt-1 w-full bg-surface border border-white/10 rounded-lg px-3 py-2 text-sm text-white"></select>
+          </label>
+          <label class="text-xs text-on-surface-variant">Voz do TTS
+            <input id="settings-oxyy-tts-voice" value="alloy" class="mt-1 w-full bg-surface border border-white/10 rounded-lg px-3 py-2 text-sm text-white" placeholder="alloy, echo...">
+          </label>
+          <label class="text-xs text-on-surface-variant">STT / transcrição
+            <select id="settings-oxyy-stt" data-oxyy-model="stt" class="settings-oxyy-select mt-1 w-full bg-surface border border-white/10 rounded-lg px-3 py-2 text-sm text-white"></select>
+          </label>
+          <label class="text-xs text-on-surface-variant">Geração de imagem
+            <select id="settings-oxyy-image" data-oxyy-model="image" class="settings-oxyy-select mt-1 w-full bg-surface border border-white/10 rounded-lg px-3 py-2 text-sm text-white"></select>
+          </label>
+          <label class="text-xs text-on-surface-variant">Geração de vídeo
+            <select id="settings-oxyy-video" data-oxyy-model="video" class="settings-oxyy-select mt-1 w-full bg-surface border border-white/10 rounded-lg px-3 py-2 text-sm text-white"></select>
+          </label>
+          <label class="text-xs text-on-surface-variant sm:col-span-2">Embeddings / memória semântica
+            <select id="settings-oxyy-embedding" data-oxyy-model="embedding" class="settings-oxyy-select mt-1 w-full bg-surface border border-white/10 rounded-lg px-3 py-2 text-sm text-white"></select>
+          </label>
+        </div>
+        <div class="flex items-center gap-3">
+          <label class="text-xs text-on-surface-variant">STT principal
+            <select id="settings-stt-provider" class="ml-2 bg-surface border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white">
+              <option value="groq">Groq Whisper</option>
+              <option value="oxyy">Oxyy</option>
+              <option value="google">Google (fallback)</option>
+            </select>
+          </label>
+          <span id="settings-oxyy-keys" class="text-[11px] text-on-surface-variant"></span>
         </div>
       </div>
 
@@ -1880,6 +1943,57 @@ Virtual Studio 04
   const settingsSaveBtn = document.getElementById('settings-save-btn');
   const settingsBtn = document.getElementById('settings-button');
 
+  const oxyySelects = Array.from(document.querySelectorAll('.settings-oxyy-select'));
+  const oxyyModelLabels = { chat: 'Chat', tts: 'TTS', stt: 'STT', image: 'Imagem', video: 'Vídeo', embedding: 'Embeddings' };
+
+  function fillOxyySelect(select, models, selected) {
+    if (!select) return;
+    const rows = Array.isArray(models) ? models : [];
+    select.innerHTML = '';
+    if (!rows.length && selected) rows.push({ id: selected, name: selected, provider: 'configurado' });
+    rows.forEach(model => {
+      const option = document.createElement('option');
+      option.value = model.id;
+      option.textContent = `${model.name || model.id} · ${model.provider || 'Oxyy'}`;
+      select.appendChild(option);
+    });
+    if (selected && !rows.some(model => model.id === selected)) {
+      const option = document.createElement('option');
+      option.value = selected;
+      option.textContent = `${selected} · selecionado`;
+      select.appendChild(option);
+    }
+    if (selected) select.value = selected;
+  }
+
+  async function loadOxyySettings() {
+    const status = document.getElementById('settings-oxyy-status');
+    try {
+      const [configRes, modelsRes, ttsRes, sttRes] = await Promise.all([
+        fetch('/api/settings/oxyy').then(r => r.json()),
+        fetch('/api/settings/oxyy/models').then(r => r.json()),
+        fetch('/api/settings/tts').then(r => r.json()),
+        fetch('/api/settings/stt').then(r => r.json()),
+      ]);
+      const selected = configRes.models || {};
+      const groups = modelsRes.models || {};
+      oxyySelects.forEach(select => fillOxyySelect(select, groups[select.dataset.oxyyModel] || [], selected[select.dataset.oxyyModel]));
+      const voice = document.getElementById('settings-oxyy-tts-voice');
+      if (voice) voice.value = selected.tts_voice || 'alloy';
+      const ttsProvider = ttsRes.tts_provider || 'fish';
+      const ttsRadio = document.querySelector(`input[name="tts_provider"][value="${ttsProvider}"]`);
+      if (ttsRadio) ttsRadio.checked = true;
+      const sttProvider = document.getElementById('settings-stt-provider');
+      if (sttProvider) sttProvider.value = sttRes.stt_provider || 'groq';
+      const keys = document.getElementById('settings-oxyy-keys');
+      if (keys) keys.textContent = configRes.key_count ? `${configRes.key_count} chave(s) configurada(s)` : 'Nenhuma chave Oxyy configurada';
+      if (status) status.textContent = modelsRes.remote ? `Catálogo atualizado · ${modelsRes.all?.length || 0} modelos disponíveis` : (modelsRes.error || 'Usando catálogo de referência');
+    } catch (error) {
+      if (status) status.textContent = 'Não foi possível carregar o catálogo agora.';
+      console.warn('Falha ao carregar modelos Oxyy', error);
+    }
+  }
+
   async function openSettingsModal() {
     if (!settingsOverlay) return;
     settingsOverlay.classList.remove('hidden');
@@ -1889,6 +2003,7 @@ Virtual Studio 04
         fetch('/api/proactive').then(r => r.json()),
         fetch('/api/tray').then(r => r.json()),
       ]);
+      await loadOxyySettings();
 
       if (proactiveRes.status === 'fulfilled' && proactiveRes.value) {
         const cfg = proactiveRes.value.config || {};
@@ -1928,6 +2043,11 @@ Virtual Studio 04
       if (document.getElementById('topic-holidays').checked) topics.push('holidays');
 
       const bootEnabled = document.getElementById('settings-boot-toggle').checked;
+      const selectedModels = {};
+      oxyySelects.forEach(select => { selectedModels[select.dataset.oxyyModel] = select.value; });
+      selectedModels.tts_voice = document.getElementById('settings-oxyy-tts-voice')?.value.trim() || 'alloy';
+      const ttsProvider = document.querySelector('input[name="tts_provider"]:checked')?.value || 'fish';
+      const sttProvider = document.getElementById('settings-stt-provider')?.value || 'groq';
 
       await Promise.all([
         fetch('/api/proactive', {
@@ -1947,6 +2067,18 @@ Virtual Studio 04
           body: JSON.stringify({
             action: bootEnabled ? 'enable_boot' : 'disable_boot',
           }),
+        }),
+        fetch('/api/settings/oxyy', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ models: selectedModels }),
+        }),
+        fetch('/api/settings/tts', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tts_provider: ttsProvider }),
+        }),
+        fetch('/api/settings/stt', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stt_provider: sttProvider }),
         }),
       ]);
 
@@ -1973,6 +2105,7 @@ Virtual Studio 04
 
   settingsCloseBtn?.addEventListener('click', closeSettingsModal);
   settingsSaveBtn?.addEventListener('click', saveSettingsModal);
+  document.getElementById('settings-oxyy-refresh')?.addEventListener('click', loadOxyySettings);
   settingsOverlay?.addEventListener('click', function(e) { if (e.target === settingsOverlay) closeSettingsModal(); });
 
   window.JarvisSettingsModal = { open: openSettingsModal, close: closeSettingsModal };
@@ -1993,7 +2126,6 @@ Virtual Studio 04
 <script src="/static/js/study/enem.js"></script>
 <script src="/static/js/study-canvas.js"></script>
 <script src="/static/js/live_call.js"></script>
+<script src="/static/js/qr_scanner.js"></script>
 </body>
 </html>
-
-

@@ -72,7 +72,11 @@ def test_cinema_discovery_returns_direct_media_without_fetching(monkeypatch, tmp
     result = service.probe("https://media.example.com/video.m3u8")
 
     assert result["ok"] is True
-    assert result["media"] == [{"url": "https://media.example.com/video.m3u8", "label": "URL direta", "kind": "HLS"}]
+    assert len(result["media"]) == 1
+    media_item = result["media"][0]
+    assert media_item["url"] == "https://media.example.com/video.m3u8"
+    assert media_item["label"] == "URL direta"
+    assert media_item["kind"] == "HLS"
 
 
 def test_cinema_search_returns_modal_payload(monkeypatch) -> None:

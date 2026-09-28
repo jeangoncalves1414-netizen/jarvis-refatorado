@@ -231,6 +231,11 @@ class TrayService:
         if not self._icon:
             return
         try:
+            # Truncar mensagem se exceder limite do Windows (256 caracteres)
+            max_msg_length = 256
+            if len(message) > max_msg_length:
+                print(f"[TrayService] Aviso: mensagem truncada de {len(message)} para {max_msg_length} caracteres")
+                message = message[:max_msg_length - 3] + "..."
             self._icon.notify(message, title)
         except Exception as exc:
             print(f"[TrayService] Falha ao notificar: {exc}")

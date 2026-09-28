@@ -11,4 +11,18 @@ export default defineConfig({
       '/api': process.env.JARVIS_API_URL || 'http://127.0.0.1:8000',
     },
   },
+  build: {
+    chunkSizeWarningLimit: 800,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-icons': ['lucide-react'],
+          'vendor-motion': ['framer-motion'],
+          'vendor-hls': ['hls.js'],
+          'vendor-mermaid': ['mermaid'],
+        },
+      },
+    },
+  },
 })

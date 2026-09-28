@@ -11,7 +11,7 @@ try:
     WHISPER_AVAILABLE = True
 except ImportError:
     WHISPER_AVAILABLE = False
-    logger.warning("Whisper não disponível. STT local será desabilitado.")
+    logger.info("Whisper não disponível localmente. STT em nuvem/navegador será utilizado.")
 
 
 class WhisperSTT:

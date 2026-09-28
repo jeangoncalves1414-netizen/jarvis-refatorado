@@ -40,11 +40,11 @@ app/
 │   └── vector.py           # Banco vetorial local para RAG (Memória Semântica)
 │
 └── ui/                     # Camada de Apresentação e Interfaces Gráficas
-    ├── panel/              # Painel Web Flask (HTML/CSS/JS)
+    ├── panel/              # Painel Web local (React + HTTP)
     │   ├── api/            # Endpoints REST (ENEM, Settings, Dashboard)
     │   ├── static/         # CSS, Orb.js e panel.js (Frontend)
     │   ├── templates/      # Páginas HTML (index.html, camera-modal.html)
-    │   └── server.py       # Servidor HTTP Flask local
+    │   └── server.py       # Servidor ThreadingHTTPServer local
     └── tray_icon.py        # Ícone de bandeja do sistema (Windows Tray)
 ```
 
@@ -57,7 +57,7 @@ Abaixo está o fluxo detalhado de como o Jarvis processa uma mensagem (seja ela 
 ```mermaid
 sequenceDiagram
     participant UI as Painel Web (Frontend JS)
-    participant Server as Flask Server (server.py)
+    participant Server as Servidor HTTP local (server.py)
     participant Orc as Orquestrador (orchestrator.py)
     participant LLM as Modelo Gemini (GenAI Client)
     participant Registry as Registro de Ferramentas (registry.py)
@@ -85,6 +85,11 @@ sequenceDiagram
 ## 🛠️ Design das Ferramentas (BaseTool Protocol)
 
 Toda ferramenta implementada no Jarvis herda de `BaseTool` em `app/agent/tools/base.py`. Isso garante que futuras ferramentas possam ser adicionadas sem alterar a lógica de execução.
+
+O registro em `app/agent/tools/catalog.py` também declara as capacidades e o
+risco dos recursos nativos. O Action Kernel usa esse catálogo para transformar
+ações de risco alto ou crítico em uma proposta confirmável e auditável; uma
+ferramenta nova não deve contornar essa fronteira.
 
 ### Exemplo de implementação limpa (Template para futuras ferramentas):
 ```python

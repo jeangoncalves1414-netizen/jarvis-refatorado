@@ -148,11 +148,18 @@ class TestJarvisSmoke(unittest.TestCase):
 
         weather = RealTimeService.get_weather("Sertãozinho")
         self.assertTrue(weather.get("ok", False))
-        self.assertIn("Sertaozinho", weather.get("city", ""))
+        city_name = weather.get("city", "")
+        self.assertTrue(
+            "Sertaozinho" in city_name or "Sertãozinho" in city_name or "Sertaozinho" in city_name.encode('ascii', errors='replace').decode(),
+            msg=f"City name '{city_name}' doesn't match Sertãozinho"
+        )
 
         tool_res = tool.execute({"action": "get_weather", "city": "Sertãozinho"})
         self.assertTrue(tool_res.ok)
-        self.assertIn("Sertaozinho", tool_res.message)
+        self.assertTrue(
+            "Sertaozinho" in tool_res.message or "Sertãozinho" in tool_res.message,
+            msg=f"Message '{tool_res.message}' doesn't contain city name"
+        )
 
         holidays = RealTimeService.get_holidays(2026)
         self.assertTrue(holidays.get("ok", False))

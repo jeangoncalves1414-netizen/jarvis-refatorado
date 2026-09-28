@@ -25,38 +25,12 @@
       height: 100vh;
       gap: 10px;
     }
-    .orb {
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
+    .orb-canvas-wrap {
+      width: 36px;
+      height: 36px;
       flex-shrink: 0;
-      background: #4ade80;
-      box-shadow: 0 0 10px #4ade80;
-      animation: pulse 2.5s infinite;
-      cursor: default;
-      transition: background 0.3s, box-shadow 0.3s;
-    }
-    .orb.thinking {
-      background: #60a5fa;
-      box-shadow: 0 0 14px #60a5fa;
-      animation: spin 1s linear infinite;
-    }
-    .orb.vision {
-      background: #f472b6;
-      box-shadow: 0 0 14px #f472b6;
-      animation: pulse-vision 1.5s infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { box-shadow: 0 0 8px #4ade80; }
-      50% { box-shadow: 0 0 18px #4ade80; }
-    }
-    @keyframes pulse-vision {
-      0%, 100% { box-shadow: 0 0 8px #f472b6; }
-      50% { box-shadow: 0 0 20px #f472b6; }
-    }
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
+      border-radius: 50%;
+      overflow: hidden;
     }
 
     .vision-badge {
@@ -119,7 +93,7 @@
 </head>
 <body>
   <div class="spotlight-container pywebview-drag-region">
-    <div id="orb" class="orb"></div>
+    <div id="orb" class="orb-canvas-wrap"></div>
     <span id="visionBadge" class="vision-badge">
       📸 Tela capturada
       <span class="detach-btn" id="detachBtn" title="Remover imagem">✕</span>
@@ -128,12 +102,21 @@
     <div class="close-btn" id="closeBtn" title="Fechar (Esc)">✕</div>
   </div>
 
+  <script src="/static/js/orb.js"></script>
   <script>
     const input = document.getElementById('cmd');
-    const orb = document.getElementById('orb');
     const visionBadge = document.getElementById('visionBadge');
     const detachBtn = document.getElementById('detachBtn');
     const closeBtn = document.getElementById('closeBtn');
+
+    // Inicializa Brahma Reactor Core Orb
+    let _spotlightOrb = null;
+    try {
+      _spotlightOrb = new BrahmaOrbRenderer('orb', { width: 36, height: 36 });
+    } catch (e) {
+      console.warn('BrahmaOrbRenderer init:', e);
+    }
+    function setOrbState(s) { if (_spotlightOrb) _spotlightOrb.setState(s); }
 
     let capturedImageBase64 = null;
     let visionMode = false;
@@ -157,7 +140,7 @@
         try {
           const j = JSON.parse(event.data);
           if (j.type === 'status' && j.status === 'thinking') {
-            orb.className = visionMode ? 'orb vision' : 'orb thinking';
+            setOrbState(visionMode ? 'listening' : 'thinking');
           } else if (j.type === 'complete' || j.type === 'error') {
             setTimeout(() => hideAndReset(), 400);
           }
@@ -175,7 +158,7 @@
     function hideAndReset() {
       resetVision();
       input.value = '';
-      orb.className = 'orb';
+      setOrbState('idle');
       if (window.pywebview && window.pywebview.api) {
         window.pywebview.api.hideSpotlight();
       }
@@ -185,7 +168,7 @@
       capturedImageBase64 = null;
       visionMode = false;
       visionBadge.classList.remove('active');
-      orb.className = 'orb';
+      setOrbState('idle');
       input.placeholder = 'Comando para Jarvis...';
     }
 
@@ -202,11 +185,9 @@
     // ─── Alt+V → Modo Visão ───────────────────────────────────────
     window.triggerVisionMode = async function() {
       if (!window.pywebview || !window.pywebview.api) return;
-      orb.className = 'orb vision';
+      setOrbState('listening');
       input.placeholder = 'Pergunte sobre a tela...';
-      visionBadge.querySelector('span:first-child') 
       visionBadge.classList.add('active');
-      // Mostrar "Capturando..." enquanto processa
       const textNode = visionBadge.childNodes[0];
       if (textNode) textNode.textContent = '📸 Capturando... ';
 
@@ -218,12 +199,12 @@
           if (textNode) textNode.textContent = '📸 Tela capturada ';
         } else {
           if (textNode) textNode.textContent = '⚠️ Erro na captura ';
-          orb.className = 'orb';
+          setOrbState('error');
           setTimeout(resetVision, 2000);
         }
       } catch(e) {
         if (textNode) textNode.textContent = '⚠️ Sem visão ';
-        orb.className = 'orb';
+        setOrbState('error');
         setTimeout(resetVision, 2000);
       }
       input.focus();
@@ -232,7 +213,7 @@
     // ─── Enter / Escape ───────────────────────────────────────────
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && input.value.trim() !== '') {
-        orb.className = visionMode ? 'orb vision' : 'orb thinking';
+        setOrbState(visionMode ? 'listening' : 'thinking');
 
         const payload = {
           message: input.value,

@@ -10,6 +10,7 @@ from html.parser import HTMLParser
 from typing import Any
 
 from .base import BaseTool, ToolResult
+from ..tool_router import tool, TaskCategory
 
 
 class _DuckDuckGoParser(HTMLParser):
@@ -163,6 +164,7 @@ class WebSearchTool(BaseTool):
             "required": ["action", "query"],
         }
 
+    @tool(description="Pesquisa na web sem chave paga. Suporta busca rápida, pesquisa profunda e abertura de URLs.", category=TaskCategory.WEB_SEARCH, priority=1)
     def execute(self, args: dict[str, Any], context: dict[str, Any] | None = None) -> ToolResult:
         action = str(args.get("action", "search"))
         query = str(args.get("query", "")).strip()

@@ -10,6 +10,7 @@ from app.agent.tools.registry import ToolRegistry
 from app.agent.modes.tutor import build_tutor_system
 from app.agent.tool_markers import parse_tool_markers, ToolStep
 from app.agent.prompts import build_marker_agent_system_prompt, build_function_calling_system_prompt, AGENT_SYSTEM_CORE
+from app.storage.runtime_settings import resolve_ai_routes
 from app.agent.runtime_modes import AgentMode
 from app.agent.mode_resolver import ModeResolver
 from app.agent.tool_guardrails import ToolCallGuardrailController
@@ -100,6 +101,7 @@ class AgentOrchestrator:
         enem_store: Any | None = None,
         agent_manager: Any | None = None,
         semantic_memory: Any | None = None,
+        profile_memory: Any | None = None,
     ) -> None:
         self.settings = settings
         self.llm_service = llm_service
@@ -110,6 +112,37 @@ class AgentOrchestrator:
         self.enem_store = enem_store or EnemStore()
         self.agent_manager = agent_manager or AgentManager()
         self.semantic_memory = semantic_memory or SemanticMemory()
+        self.profile_memory = profile_memory
+
+        base_folder = getattr(settings, "base_folder", None)
+        self.registry = ToolRegistry(
+            base_folder=base_folder,
+            tutor_store=self.tutor_store,
+            enem_store=self.enem_store,
+        )
+
+        # Motores God Mode Avançados
+        from app.agent.react_loop import ReActLoopEngine
+        from app.agent.swarm import AgentSwarmManager
+        from app.services.skill_distiller import SkillDistillerEngine
+        from app.services.reflexion import ReflexionEngine
+
+        self.react_loop = ReActLoopEngine(llm_service=self.llm_service, registry=self.registry)
+        self.swarm = AgentSwarmManager(llm_service=self.llm_service)
+        self.skill_distiller = SkillDistillerEngine(llm_service=self.llm_service)
+        self.reflexion = ReflexionEngine(llm_service=self.llm_service)
+
+        # Code Quality Pipeline (Snapshot + Review)
+        try:
+            from app.services.code_snapshots import CodeSnapshotManager
+            from app.services.code_reviewer import CodeReviewPipeline
+            self.snapshot_manager = CodeSnapshotManager()
+            self.code_reviewer = CodeReviewPipeline(max_iterations=2)
+        except Exception:
+            self.snapshot_manager = None
+            self.code_reviewer = None
+
+        self.last_plan: AgentPlan | None = None
         
         # Sistemas de segurança FASE 1
         self.rate_limiter = RateLimiter(max_per_minute=10)
@@ -192,13 +225,7 @@ class AgentOrchestrator:
             except RuntimeError:
                 pass
         
-        base_folder = getattr(settings, "base_folder", None)
-        self.registry = ToolRegistry(
-            base_folder=base_folder,
-            tutor_store=self.tutor_store,
-            enem_store=self.enem_store,
-        )
-        self.last_plan: AgentPlan | None = None
+
         
         # Iniciar rotina de memória episódica
         if self.scheduler:
@@ -246,6 +273,26 @@ class AgentOrchestrator:
                 print(f"Erro ao gerar resumo diário: {e}")
 
     def _remember_preferences(self, text: str, normalized: str) -> None:
+        # Detecta preferências explícitas em linguagem natural e salva no memory_store (síncrono)
+        _preference_triggers = ("prefiro", "prefer", "me lembre", "lembra que", "quero que voce", "quero que você")
+        _style_keywords = {
+            "curto": "short", "curta": "short", "curtos": "short", "curtas": "short",
+            "breve": "short", "breves": "short", "resumido": "short", "resumida": "short",
+            "detalhado": "detailed", "detalhada": "detailed", "detalhados": "detailed", "detalhadas": "detailed",
+            "longo": "long", "longa": "long", "longos": "long", "longas": "long",
+            "completo": "detailed", "completa": "detailed",
+            "formal": "formal", "informal": "informal", "direto": "direct", "direta": "direct",
+        }
+        if self.memory_store and any(trigger in normalized for trigger in _preference_triggers):
+            for kw, style in _style_keywords.items():
+                if kw in normalized:
+                    self.memory_store.add_preference("preferred_response_style", style)
+                    break
+            else:
+                # Salva a preferência genérica sem categorizar o estilo
+                self.memory_store.add_preference("general_preference", text.strip()[:120])
+
+        # Também salva na memória semântica vetorial (assíncrono, quando disponível)
         if not self.semantic_memory or not self.llm_service:
             return
 
@@ -266,6 +313,7 @@ class AgentOrchestrator:
                 
         import threading
         threading.Thread(target=_extract, daemon=True).start()
+
 
     def _extract_function_calls(self, response: Any) -> list[Any]:
         calls = []
@@ -306,6 +354,7 @@ class AgentOrchestrator:
         on_chunk: callable | None = None,
         on_reasoning: callable | None = None,
         on_search: callable | None = None,
+        profile_id: str | None = None,
     ) -> AgentPlan:
         # Reset guardrails for new turn
         self.tool_guardrails.reset_turn()
@@ -350,21 +399,48 @@ class AgentOrchestrator:
                 prefs = self.memory_store.get_preferences()
                 if prefs:
                     evolution_notes.extend([f"Pref: {p['value']}" if isinstance(p, dict) else f"Pref: {p}" for p in prefs])
+
+            # Memórias privadas só entram no contexto quando uma identidade
+            # foi confirmada. Elas nunca são misturadas com user_memory global.
+            if self.profile_memory and profile_id:
+                try:
+                    private = self.profile_memory.context(profile_id, text, limit=8)
+                    for item in private:
+                        kind = item.get("kind", "note")
+                        evolution_notes.append(f"[Memória privada · {kind}] {item.get('text', '')}")
+                except Exception:
+                    pass
+
+            # Memory Vault: AI Priming contextual + perfil do usuário (ai-memory-vault)
+            try:
+                from app.services.memory_vault import memory_vault
+                priming_notes = memory_vault.get_priming_context(text)
+                if priming_notes:
+                    evolution_notes.append(f"[Priming Contextual]\n{priming_notes}")
+                user_profile = memory_vault.get_user_profile()
+                if user_profile:
+                    # Inclui apenas as primeiras 600 chars do perfil para não inflar o contexto
+                    evolution_notes.append(f"[Perfil do Usuário]\n{user_profile[:600]}")
+            except Exception:
+                pass
             
             # Para Gemini e Groq (function calling nativo) usa prompt sem marcadores de texto
             active_provider = self.llm_service.get_active_provider() if self.llm_service else "gemini"
-            if active_provider in {"gemini", "groq"}:
+            runtime_chat_route = resolve_ai_routes().get("chat")
+            if active_provider in {"gemini", "groq", "oxyy"}:
                 system = build_function_calling_system_prompt(
                     base_persona="",
                     evolution_notes=evolution_notes,
                     preferences_summary="",
                     critical_confirm_enabled=False,
+                    runtime_route=runtime_chat_route,
                 )
             else:
                 system = build_marker_agent_system_prompt(
                     base_persona="",
                     evolution_notes=evolution_notes,
                     critical_confirm_enabled=False,
+                    runtime_route=runtime_chat_route,
                 )
 
             if mode == "planning":
@@ -385,8 +461,11 @@ inferências e forneça URLs ou nomes das fontes usadas. Não invente fontes nem
 ter pesquisado se não pesquisou.
 """
         
+        # Usar function calling nativo para Gemini e Groq
+        active_provider = self.llm_service.get_active_provider() if self.llm_service else "gemini"
+
         # Preparar ferramentas para function calling nativo
-        tools_decl = self.registry.get_tool_declarations()
+        tools_decl = self.registry.get_tool_declarations(mode=mode, provider=active_provider, user_text=text)
         tool_context = {
             "session_id": session_id,
             "vision": self.vision_service,
@@ -399,20 +478,35 @@ ter pesquisado se não pesquisou.
         if text and (not full_messages or full_messages[-1].get("content") != text):
             full_messages.append({"role": "user", "content": text})
 
-        # Usar function calling nativo para Gemini e Groq
-        active_provider = self.llm_service.get_active_provider() if self.llm_service else "gemini"
-        
-        if active_provider in {"gemini", "groq"}:
+        if active_provider in {"gemini", "groq", "oxyy"}:
             executed_actions: list[str] = []
             executed_tool_results: dict[str, dict] = {}
+            native_tool_results: dict[str, Any] = {}
+
+            def native_legacy_execute(name: str, args: dict, _user_line: str) -> str:
+                tool_result = self.registry.execute_tool(name, args or {}, context=tool_context)
+                native_tool_results[name] = tool_result
+                return getattr(tool_result, "message", "")
+
+            native_executor = ActionExecutor(
+                allowed_tool_names=frozenset(self.registry.tools.keys()),
+                guardrails=self.tool_guardrails,
+                legacy_execute=native_legacy_execute,
+                metadata_for=self.registry.get_tool_metadata,
+                source=f"function:{session_id or 'default'}",
+            )
 
             # Function calling nativo
             def on_function_call(name: str, args: dict) -> str:
-                # Execute the tool directly so we capture the full ToolResult (message + data)
+                # All native function calls use the same proposal/audit boundary
+                # as marker-based calls. The model never receives an ability to
+                # elevate risk or fabricate approval state.
                 try:
-                    tr = self.registry.execute_tool(name, args or {}, context=tool_context)
-                except Exception as e:
+                    message = native_executor.execute(name, args or {}, text)
+                    tr = native_tool_results.pop(name, None)
+                except Exception:
                     tr = None
+                    message = "Não foi possível preparar a ação solicitada."
                 # Record pattern and action
                 self.pattern_learner.record_action(name, args)
                 executed_actions.append(name)
@@ -440,7 +534,7 @@ ter pesquisado se não pesquisou.
                 except Exception:
                     pass
 
-                return ''
+                return message
             
             result = self.llm_service.chat_with_functions_stream(
                 system_instruction=system,
@@ -454,6 +548,12 @@ ter pesquisado se não pesquisou.
             raw = result or "Sem resposta."
             from app.agent.tool_markers import parse_tool_markers
             summary, _ = parse_tool_markers(raw)
+            # Aplicar filtros STM para remover preâmbulos robóticos e hesitações
+            try:
+                from app.services.stm_filters import stm_filter
+                summary = stm_filter.process(summary)
+            except Exception:
+                pass
             search_marker = _build_search_marker(executed_tool_results)
             if search_marker:
                 summary = f"{summary.rstrip()}\n\n{search_marker}" if summary.strip() else search_marker
@@ -501,7 +601,9 @@ ter pesquisado se não pesquisou.
                 executor = ActionExecutor(
                     allowed_tool_names=frozenset(self.registry.tools.keys()),
                     guardrails=self.tool_guardrails,
-                    legacy_execute=legacy_execute
+                    legacy_execute=legacy_execute,
+                    metadata_for=self.registry.get_tool_metadata,
+                    source=f"marker:{session_id or 'default'}",
                 )
                 
                 for step in tool_steps:
@@ -558,13 +660,65 @@ ter pesquisado se não pesquisou.
         on_chunk: Any = None,
         on_reasoning: Any = None,
         on_search: Any = None,
+        profile_id: str | None = None,
+        racing_mode: bool = False,
     ) -> AgentPlan:
         try:
             from app.core.logger import logger
             logger.record_request()
-            logger.info("Orchestrator", f"Requisição recebida: {text[:60]}", {"mode": mode, "session_id": session_id})
+            logger.info("Orchestrator", f"Requisição recebida: {text[:60]}", {"mode": mode, "session_id": session_id, "racing": racing_mode})
         except Exception:
             pass
+
+        # Se o modo ReAct estiver ativado
+        if mode == "react":
+            try:
+                trajectory = self.react_loop.run_loop(text, max_steps=8)
+                plan = AgentPlan(
+                    intent="react_loop",
+                    summary=trajectory.final_output,
+                    actions=[f"react_step_{s.step_number}" for s in trajectory.steps],
+                    context={"success": trajectory.success, "steps_count": len(trajectory.steps), "elapsed_sec": trajectory.total_elapsed_sec}
+                )
+                self.last_plan = plan
+                return plan
+            except Exception as exc:
+                print(f"[Orchestrator] Falha no modo ReAct: {exc}")
+
+        # Se o modo Swarm estiver ativado
+        if mode == "swarm":
+            try:
+                swarm_res = self.swarm.route_and_execute(text)
+                plan = AgentPlan(
+                    intent="swarm_execution",
+                    summary=swarm_res.get("summary", swarm_res.get("synthesis", swarm_res.get("code", str(swarm_res)))),
+                    actions=[f"agent_{swarm_res.get('agent', 'swarm')}"],
+                    context=swarm_res
+                )
+                self.last_plan = plan
+                return plan
+            except Exception as exc:
+                print(f"[Orchestrator] Falha no modo Swarm: {exc}")
+
+        # Se o modo Racing estiver ativado e for uma pergunta geral
+        if racing_mode and mode not in {"tutor", "planning", "research"} and self.llm_service:
+            try:
+                from app.services.llm_racing import MultiLLMRacingService
+                racing_svc = MultiLLMRacingService(llm_service=self.llm_service)
+                race_res = racing_svc.race_prompt(text)
+                if race_res.get("ok"):
+                    summary = race_res.get("response", "")
+                    badge = race_res.get("badge", "")
+                    plan = AgentPlan(
+                        intent="racing",
+                        summary=summary,
+                        actions=["multi_llm_race"],
+                        context={"racing": True, "badge": badge, "winner": race_res.get("winner_provider"), "elapsed_ms": race_res.get("elapsed_ms")}
+                    )
+                    self.last_plan = plan
+                    return plan
+            except Exception as exc:
+                print(f"[Orchestrator] Falha no modo Racing: {exc}")
 
         normalized = (text or "").strip().lower()
         self._remember_preferences(text, normalized)
@@ -636,13 +790,24 @@ ter pesquisado se não pesquisou.
                 return plan
             try:
                 plan = self._run_llm_with_tools(
-                    text, mode, session_id, history, enem_question=enem_question, on_chunk=on_chunk, on_reasoning=on_reasoning, on_search=on_search
+                    text, mode, session_id, history, enem_question=enem_question, on_chunk=on_chunk, on_reasoning=on_reasoning, on_search=on_search, profile_id=profile_id
                 )
                 if session_id and plan.intent != "error" and not is_technical_error_memory(plan.summary):
                     updated = list(history)
                     updated.append({"role": "user", "content": text})
                     updated.append({"role": "assistant", "content": plan.summary})
                     save_session_history(session_id, updated[-40:])
+                if profile_id and self.profile_memory and plan.intent != "error" and not is_technical_error_memory(plan.summary):
+                    try:
+                        self.profile_memory.add(
+                            profile_id,
+                            f"Usuário: {text}\nJarvis: {plan.summary}",
+                            kind="conversation",
+                            importance=0.25,
+                            source="chat",
+                        )
+                    except Exception:
+                        pass
                 self.last_plan = plan
                 return plan
             except Exception as e:
@@ -686,6 +851,7 @@ ter pesquisado se não pesquisou.
         history: list[dict] | None = None,
         enem_context: dict[str, Any] | None = None,
         enem_question_id: str | None = None,
+        profile_id: str | None = None,
     ):
         normalized = (text or "").strip().lower()
         self._remember_preferences(text, normalized)
@@ -729,13 +895,24 @@ ter pesquisado se não pesquisou.
         def run_llm():
             try:
                 plan = self._run_llm_with_tools(
-                    text, mode, session_id, history, enem_question=enem_question, on_chunk=on_chunk, on_reasoning=on_reasoning
+                    text, mode, session_id, history, enem_question=enem_question, on_chunk=on_chunk, on_reasoning=on_reasoning, profile_id=profile_id
                 )
                 if session_id and plan.intent != "error" and not is_technical_error_memory(plan.summary):
                     updated = list(history)
                     updated.append({"role": "user", "content": text})
                     updated.append({"role": "assistant", "content": plan.summary})
                     save_session_history(session_id, updated[-40:])
+                if profile_id and self.profile_memory and plan.intent != "error" and not is_technical_error_memory(plan.summary):
+                    try:
+                        self.profile_memory.add(
+                            profile_id,
+                            f"Usuário: {text}\nJarvis: {plan.summary}",
+                            kind="conversation",
+                            importance=0.25,
+                            source="chat",
+                        )
+                    except Exception:
+                        pass
                 self.last_plan = plan
                 q.put({"type": "done", "plan": plan})
             except Exception as e:

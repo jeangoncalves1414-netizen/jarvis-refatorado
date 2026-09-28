@@ -24,8 +24,10 @@ class PreferenceStore:
 
     def _write(self, data: Dict[str, List[str]]) -> None:
         try:
-            with open(self.file_path, "w", encoding="utf-8") as f:
+            tmp = f"{self.file_path}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, self.file_path)
         except Exception as e:
             print(f"[PreferenceStore] Erro ao salvar preferências: {e}")
 

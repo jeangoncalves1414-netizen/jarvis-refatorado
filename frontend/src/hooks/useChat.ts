@@ -12,6 +12,21 @@ function isTechnicalError(message: unknown) {
   return technicalErrorMarkers.some(marker => normalized.includes(marker))
 }
 
+function getActiveProfileId() {
+  try {
+    const profileId = localStorage.getItem('jarvis-active-profile') || ''
+    const activatedAt = Number(localStorage.getItem('jarvis-active-profile-at') || 0)
+    if (!profileId || !activatedAt || Date.now() - activatedAt > 15 * 60 * 1000) {
+      localStorage.removeItem('jarvis-active-profile')
+      localStorage.removeItem('jarvis-active-profile-at')
+      return ''
+    }
+    return profileId
+  } catch {
+    return ''
+  }
+}
+
 function getScriptRequest(summary: unknown): ScriptRequest | null {
   if (typeof summary !== 'string') return null
   const marker = '__SCRIPT_CONFIRM__'
@@ -48,7 +63,7 @@ export function useChat() {
   const finalizePendingRef = useRef(false)
   const finalReasoningRef = useRef('')
   const finalReplyRef = useRef('')
-  const waitForReplyRef = useRef<(() => void) | null>(null)
+  const waitForReplyRef = useRef<((reply: string) => void) | null>(null)
   const sessionMutationRef = useRef(0)
 
   const stopTyping = () => {
@@ -138,7 +153,7 @@ export function useChat() {
 
   const selectSession = async (id: string) => {
     stopTyping()
-    if (waitForReplyRef.current) { waitForReplyRef.current(); waitForReplyRef.current = null }
+    if (waitForReplyRef.current) { waitForReplyRef.current(''); waitForReplyRef.current = null }
     finalizePendingRef.current = false
     typingBufferRef.current = ''
     reasoningBufferRef.current = ''
@@ -165,7 +180,7 @@ export function useChat() {
   const createSession = async (title = 'Nova conversa') => {
     sessionMutationRef.current += 1
     stopTyping()
-    if (waitForReplyRef.current) { waitForReplyRef.current(); waitForReplyRef.current = null }
+    if (waitForReplyRef.current) { waitForReplyRef.current(''); waitForReplyRef.current = null }
     finalizePendingRef.current = false
     typingBufferRef.current = ''
     reasoningBufferRef.current = ''
@@ -201,7 +216,7 @@ export function useChat() {
     setSessions(previous => previous.filter(item => item.id !== id))
     if (sessionId === id) {
       stopTyping()
-      if (waitForReplyRef.current) { waitForReplyRef.current(); waitForReplyRef.current = null }
+      if (waitForReplyRef.current) { waitForReplyRef.current(''); waitForReplyRef.current = null }
       finalizePendingRef.current = false
       typingBufferRef.current = ''
       reasoningBufferRef.current = ''
@@ -244,17 +259,43 @@ export function useChat() {
     }
   }
 
-  const postChat = async (message: string, mode: string, activeSessionId: string) => {
+  const copySession = async (id: string) => {
+    if (!id) return false
+    const response = await fetch(`/api/sessions/${id}/history`)
+    const data = await response.json().catch(() => ({}))
+    const history = (data.history || []) as ChatMessage[]
+    if (!history.length) {
+      setAnswer('Este chat está vazio, não há nada para copiar.')
+      return false
+    }
+    let markdown = `# Chat Export\n\nData: ${new Date().toLocaleString('pt-BR')}\n\n---\n\n`
+    history.forEach(msg => {
+      const role = msg.role === 'user' ? '👤 Você' : '🤖 Jarvis'
+      markdown += `## ${role}\n\n${msg.content}\n\n---\n\n`
+    })
+    try {
+      await navigator.clipboard.writeText(markdown)
+      setAnswer('Chat copiado para o clipboard!')
+      return true
+    } catch (error) {
+      setAnswer('Erro ao copiar para o clipboard.')
+      return false
+    }
+  }
+
+  const postChat = async (message: string, mode: string, activeSessionId: string, racingMode?: boolean): Promise<string> => {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, mode, session_id: activeSessionId }),
+      body: JSON.stringify({ message, mode, session_id: activeSessionId, profile_id: getActiveProfileId() || undefined, racing: Boolean(racingMode) }),
     })
     const data = await response.json().catch(() => ({}))
     if (!response.ok || data.ok === false) {
       throw new Error(data.error || 'Não foi possível obter resposta do Jarvis.')
     }
-    commitRestReply(data.reply || data.summary || '')
+    const reply = data.reply || data.summary || ''
+    commitRestReply(reply)
+    return reply
   }
 
   const commitRestReply = (reply: string) => {
@@ -292,13 +333,13 @@ export function useChat() {
     stopTyping()
     setLoading(false)
     if (waitForReplyRef.current) {
-      waitForReplyRef.current()
+      waitForReplyRef.current('')
       waitForReplyRef.current = null
     }
   }
 
-  const sendText = async (message: string, mode = 'general') => {
-    if (!message || loading) return
+  const sendText = async (message: string, mode = 'general', racingMode = false): Promise<string> => {
+    if (!message || loading) return ''
     setLoading(true)
     setLiveSearch(null)
     setChatError('')
@@ -312,7 +353,7 @@ export function useChat() {
       setMessages(baseHistory)
       pendingHistoryRef.current = baseHistory
       const socket = chatSocketRef.current
-      if (socket?.readyState === WebSocket.OPEN) {
+      if (socket?.readyState === WebSocket.OPEN && !racingMode) {
         stopTyping()
         typingBufferRef.current = ''
         reasoningBufferRef.current = ''
@@ -322,15 +363,17 @@ export function useChat() {
         liveReasoningRef.current = ''
         waitingForSocket = true
 
-        socket.send(JSON.stringify({ type: 'message', message, mode, session_id: activeSessionId }))
-        await new Promise<void>(resolve => {
+        socket.send(JSON.stringify({ type: 'message', message, mode, session_id: activeSessionId, profile_id: getActiveProfileId() || undefined, racing: Boolean(racingMode) }))
+        const reply = await new Promise<string>(resolve => {
           waitForReplyRef.current = resolve
         })
+        return reply
       } else {
-        await postChat(message, mode, activeSessionId)
+        return await postChat(message, mode, activeSessionId, racingMode)
       }
     } catch (error) {
       failReply(error)
+      return ''
     }
   }
 
@@ -339,7 +382,8 @@ export function useChat() {
     setLoading(true)
     setLiveSearch(null)
     setChatError('')
-    setAnswer('Pensando…')
+    setAnswer('👁️ Analisando sua tela com Gemini Vision...')
+    setStreamingReply('Analisando captura visual...')
     const userMessage: ChatMessage = { role: 'user', content: prompt }
     let activeSessionId = sessionId
     try {
@@ -356,8 +400,8 @@ export function useChat() {
         setStreamingReply('Pensando…')
         setLiveReasoning('')
         liveReasoningRef.current = ''
-        socket.send(JSON.stringify({ type: 'message', message: prompt, mode: 'vision', session_id: activeSessionId }))
-        await new Promise<void>(resolve => {
+        socket.send(JSON.stringify({ type: 'message', message: prompt, mode: 'vision', session_id: activeSessionId, profile_id: getActiveProfileId() || undefined }))
+        await new Promise<string>(resolve => {
           waitForReplyRef.current = resolve
         })
       } else {
@@ -368,7 +412,14 @@ export function useChat() {
     }
   }
 
+
   useEffect(() => {
+    if (typeof window !== 'undefined' && (
+      window.location.hostname === 'appassets.androidplatform.net' ||
+      window.location.protocol === 'file:'
+    )) {
+      return
+    }
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const basePort = Number(window.location.port || (window.location.protocol === 'https:' ? 443 : 80))
     const wsUrl = `${protocol}://${window.location.hostname}:${basePort + 1}/ws/chat`
@@ -429,7 +480,7 @@ export function useChat() {
           finalizePendingRef.current = true
           pumpTyping()
           if (waitForReplyRef.current) {
-            waitForReplyRef.current()
+            waitForReplyRef.current(summary || message || '')
             waitForReplyRef.current = null
           }
         } else if (type === 'error') {
@@ -485,10 +536,19 @@ export function useChat() {
     setLoading(true)
     setChatError('')
     try {
+      const approval = await fetch('/api/script/authorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language: script.language, code: script.code, confirmed: true }),
+      })
+      const approved = await approval.json().catch(() => ({}))
+      if (!approval.ok || !approved.ok || !approved.receipt) {
+        throw new Error(approved.error || 'Não foi possível autorizar o script.')
+      }
       const response = await fetch('/api/script/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ language: script.language, code: script.code }),
+        body: JSON.stringify({ language: script.language, code: script.code, receipt: approved.receipt }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok || data.ok === false) throw new Error(data.error || 'Não foi possível executar o script.')
@@ -525,6 +585,7 @@ export function useChat() {
   return {
     answer,
     chatError,
+    copySession,
     createSession,
     deleteSession,
     exportSession,

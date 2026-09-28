@@ -19,3 +19,16 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 *.tsbuildinfo
+mobile/local.properties
+mobile/app/build/
+mobile_app/.gradle/
+mobile_app/.kotlin/
+mobile_app/build/
+mobile_app/app/build/
+mobile_app/local.properties
+*.apk
+backups/
+temp_prefs.xml
+chat_export_raw.txt
+historico_chat.json
+lan_env.env

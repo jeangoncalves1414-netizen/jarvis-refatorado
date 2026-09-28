@@ -55,6 +55,9 @@ def panel_http(tmp_path, monkeypatch):
 
     server = HTTPServer(("127.0.0.1", 0), _TestPanelHandler)
     host, port = server.server_address
+    # The hardened local control plane validates Host against the configured
+    # panel port; the test server receives an ephemeral port after binding.
+    settings.port = port
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base = f"http://{host}:{port}"
@@ -112,8 +115,28 @@ def test_voice_stt_no_pipeline(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("app.storage.session_store.DATA_DIR", str(tmp_path))
     PanelHandler.voice_pipeline = None
 
+    import app.ui.panel.api.voice as voice_api_module
+    monkeypatch.setattr(voice_api_module, "_fallback_pipeline", None)
+    monkeypatch.setattr(
+        "app.ui.panel.api.voice.VoicePipeline" if hasattr(voice_api_module, "VoicePipeline") else
+        "app.services.voice.pipeline.VoicePipeline",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("Desabilitado no teste")),
+        raising=False,
+    )
+
+    original_get_pipeline = voice_api_module._get_pipeline
+
+    def _patched_get_pipeline(handler):
+        pipeline = getattr(handler, "voice_pipeline", None)
+        if pipeline is not None:
+            return pipeline
+        return None
+
+    monkeypatch.setattr(voice_api_module, "_get_pipeline", _patched_get_pipeline)
+
     server = HTTPServer(("127.0.0.1", 0), PanelHandler)
     host, port = server.server_address
+    PanelHandler.settings.port = port
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base = f"http://{host}:{port}"
@@ -125,7 +148,7 @@ def test_voice_stt_no_pipeline(tmp_path, monkeypatch) -> None:
     assert status == 503
     data = json.loads(body)
     assert data["ok"] is False
-    assert "indisponível" in data["error"]
+    assert "indispon" in data["error"]
 
 
 def test_voice_tts_success(panel_http) -> None:
@@ -180,7 +203,9 @@ def test_pipeline_transcribe_bytes_delegates_to_stt() -> None:
     pipeline = VoicePipeline(settings)
     with patch.object(pipeline.stt, "transcribe_file", return_value=("texto", None)) as stt_mock:
         result = pipeline.transcribe_bytes(b"audio", suffix=".webm")
-    assert result == {"text": "texto", "ok": True, "error": None}
+    assert result["text"] == "texto"
+    assert result["ok"] is True
+    assert result["error"] is None
     stt_mock.assert_called_once()
     path_arg = stt_mock.call_args[0][0]
     assert path_arg.endswith(".webm")

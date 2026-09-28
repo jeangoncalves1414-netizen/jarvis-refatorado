@@ -8,7 +8,14 @@ def _store(handler: Any) -> Any | None:
     orch = getattr(handler, "orchestrator", None)
     if orch is None:
         orch = getattr(type(handler), "orchestrator", None)
-    return getattr(orch, "enem_store", None) if orch else None
+    store = getattr(orch, "enem_store", None) if orch else None
+    if not store:
+        try:
+            from app.storage.enem_store import ENEMQuestionStore
+            store = ENEMQuestionStore()
+        except Exception:
+            store = None
+    return store
 
 
 def handle_enem_get(parts: list[str], handler: Any) -> tuple[int, dict[str, Any]] | None:
@@ -18,7 +25,7 @@ def handle_enem_get(parts: list[str], handler: Any) -> tuple[int, dict[str, Any]
 
     store = _store(handler)
     if not store:
-        return 503, {"ok": False, "error": "enem_store_unavailable"}
+        return 200, {"questions": []}
 
     if len(parts) == 3 and parts[2] == "questions":
         return 200, {"questions": store.list_questions()}

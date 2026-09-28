@@ -23,8 +23,10 @@ def _read() -> dict[str, Any]:
 
 
 def _write(data: dict[str, Any]) -> None:
-    with open(TASKS_FILE, "w", encoding="utf-8") as f:
+    tmp = f"{TASKS_FILE}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, TASKS_FILE)
 
 
 def _now_iso() -> str:

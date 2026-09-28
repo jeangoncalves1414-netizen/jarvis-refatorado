@@ -106,6 +106,19 @@ class BrowserAgentTool(BaseTool):
                 "start_url": {
                     "type": "string",
                     "description": "URL inicial opcional (default: https://google.com)"
+                },
+                "fast_action": {
+                    "type": "string",
+                    "enum": ["auto", "dump_dom", "click_text", "type_input"],
+                    "description": "Modo de execução: 'auto' (Visão autônoma), 'dump_dom' (Ler elementos HTML em 0.02s), 'click_text' (Clicar direto em texto), 'type_input' (Digitar em seletor)."
+                },
+                "target_text": {
+                    "type": "string",
+                    "description": "Texto do botão ou link para ação rápida click_text."
+                },
+                "target_selector": {
+                    "type": "string",
+                    "description": "Seletor CSS para ação rápida type_input (ex: 'input[name=q]')."
                 }
             },
             "required": ["goal"]

@@ -1,0 +1,6 @@
+{
+  "name": "Life OS",
+  "description": "Sistema minimalista monocromático de evolução pessoal completo: estudos, treino, hábitos conectados, leitura, mente, anti-vício e IA estóica.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,639 @@
+﻿import {
+  DEFAULT_OXXY_MODELS,
+  DEFAULT_MOBILE_KEYS,
+  getMobileApiKeys,
+  getMobileOxyyModels,
+  getMobileProvider,
+  isMobileStandalone,
+  setMobileApiKeys,
+  setMobileOxyyModels,
+  setMobileProvider,
+  type DirectChatProvider,
+} from '../hooks/useDirectChat'
+import {
+  DEFAULT_SUPABASE_KEY,
+  DEFAULT_SUPABASE_URL,
+  getEvoluteSettings,
+  isEvoluteCloudConnected,
+  refreshAccessToken,
+  isTokenExpired,
+  type EvoluteSettings,
+} from './evoluteCloud'
+import { JARVIS_MEMORIES_KEY, JARVIS_PROFILE_KEY, JARVIS_VAULT_KEY } from './jarvisVaultKeys'
+
+export { JARVIS_MEMORIES_KEY, JARVIS_PROFILE_KEY, JARVIS_VAULT_KEY }
+
+const CLOUD_REVISION_KEY = 'lifeos_cloud_revision'
+const LOCAL_LAST_SYNC_KEY = 'jarvis_local_last_sync'
+const LOCAL_FIELD_TIMESTAMPS_KEY = 'jarvis_field_timestamps'
+
+// Timestamps por campo para sincronização inteligente
+export type FieldTimestamps = {
+  keys?: number
+  provider?: number
+  oxyyModels?: number
+  providerModels?: number
+  memories?: number
+  profile?: number
+  habits?: number
+  training?: number
+  dashboard?: number
+  proactive?: number
+  climate?: number
+  finance?: number
+}
+
+export type JarvisVault = {
+  keys: typeof DEFAULT_MOBILE_KEYS
+  provider: DirectChatProvider
+  oxyyModels: typeof DEFAULT_OXXY_MODELS
+  providerModels: Record<string, string> // groq_model, gemini_model, etc.
+  memories: string[]
+  profile: string
+  habits?: any[]  // Hábitos do usuário
+  training?: any[]  // Treinos/exercícios
+  dashboard?: any  // Dados do dashboard
+  proactive?: any  // Configurações proativas
+  climate?: any  // Dados de clima
+  finance?: any  // Dados financeiros
+  updatedAt: number
+  source: 'pc' | 'mobile'
+  fieldTimestamps?: FieldTimestamps  // Timestamps por campo para merge inteligente
+}
+
+function emptyVault(): JarvisVault {
+  return {
+    keys: { ...DEFAULT_MOBILE_KEYS },
+    provider: 'oxyy',
+    oxyyModels: { ...DEFAULT_OXXY_MODELS },
+    providerModels: {},
+    memories: [],
+    profile: '',
+    updatedAt: 0,
+    source: isMobileStandalone() ? 'mobile' : 'pc',
+    fieldTimestamps: {},
+  }
+}
+
+export function keysHaveValue(keys?: Record<string, string> | null): boolean {
+  return Object.values(keys || {}).some(value => String(value || '').trim().length > 0)
+}
+
+// Gerenciamento de timestamps locais
+function getLocalFieldTimestamps(): FieldTimestamps {
+  try {
+    const raw = localStorage.getItem(LOCAL_FIELD_TIMESTAMPS_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function setLocalFieldTimestamp(field: keyof FieldTimestamps, timestamp: number = Date.now()): void {
+  const current = getLocalFieldTimestamps()
+  current[field] = timestamp
+  localStorage.setItem(LOCAL_FIELD_TIMESTAMPS_KEY, JSON.stringify(current))
+}
+
+function getLocalLastSync(): number {
+  try {
+    return Number(localStorage.getItem(LOCAL_LAST_SYNC_KEY) || '0')
+  } catch {
+    return 0
+  }
+}
+
+function setLocalLastSync(timestamp: number = Date.now()): void {
+  localStorage.setItem(LOCAL_LAST_SYNC_KEY, String(timestamp))
+}
+
+export function mergeKeys(
+  incoming: Record<string, string> | undefined,
+  existing: Record<string, string> | undefined,
+): typeof DEFAULT_MOBILE_KEYS {
+  const result = { ...DEFAULT_MOBILE_KEYS }
+  ;(Object.keys(DEFAULT_MOBILE_KEYS) as Array<keyof typeof DEFAULT_MOBILE_KEYS>).forEach(key => {
+    const next = String(incoming?.[key] || '').trim()
+    const prev = String(existing?.[key] || '').trim()
+    // Only use incoming if it's non-empty, otherwise preserve existing
+    result[key] = next.length > 0 ? next : prev
+  })
+  return result
+}
+
+function headers(settings: EvoluteSettings): HeadersInit {
+  const key = String(settings.supabasePublishableKey || DEFAULT_SUPABASE_KEY).trim()
+  const token = String(settings.supabaseAccessToken || '').trim()
+  return {
+    'Content-Type': 'application/json',
+    apikey: key,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
+}
+
+function baseUrl(settings: EvoluteSettings): string {
+  return String(settings.supabaseUrl || DEFAULT_SUPABASE_URL).trim().replace(/\/$/, '')
+}
+
+async function pullSnapshot(settings = getEvoluteSettings()): Promise<{ data: Record<string, unknown>; revision: number } | null> {
+  if (!isEvoluteCloudConnected(settings)) return null
+  console.log('[JarvisCloud] Pulling snapshot from cloud...')
+  const response = await fetch(`${baseUrl(settings)}/rest/v1/evolute_snapshots?select=data,revision`, {
+    headers: headers(settings),
+  })
+  if (!response.ok) throw new Error('Não foi possível ler a nuvem. Entre na mesma conta do PC.')
+  const rows = await response.json()
+  console.log('[JarvisCloud] Snapshot rows from cloud:', rows)
+  const row = Array.isArray(rows) ? rows[0] : null
+  if (!row || typeof row.data !== 'object') {
+    console.log('[JarvisCloud] No valid snapshot found in cloud')
+    return null
+  }
+  console.log('[JarvisCloud] Snapshot found, revision:', row.revision)
+  console.log('[JarvisCloud] Snapshot data keys:', Object.keys(row.data || {}))
+  return { data: row.data as Record<string, unknown>, revision: Number(row.revision || 0) }
+}
+
+async function pushSnapshot(data: Record<string, unknown>, baseRevision: number, settings = getEvoluteSettings()) {
+  console.log('[JarvisCloud] Pushing snapshot to cloud...')
+  console.log('[JarvisCloud] Data keys being pushed:', Object.keys(data))
+  console.log('[JarvisCloud] Base revision:', baseRevision)
+  const response = await fetch(`${baseUrl(settings)}/rest/v1/rpc/sync_evolute_snapshot`, {
+    method: 'POST',
+    headers: headers(settings),
+    body: JSON.stringify({ p_data: data, p_base_revision: baseRevision }),
+  })
+  if (!response.ok) throw new Error('Não foi possível salvar na nuvem.')
+  const rows = await response.json()
+  console.log('[JarvisCloud] Push response:', rows)
+  const row = Array.isArray(rows) ? rows[0] : rows
+  return { revision: Number(row?.revision || baseRevision), conflict: Boolean(row?.conflict) }
+}
+
+export function readVaultFromSnapshot(data: Record<string, unknown> | null | undefined): JarvisVault | null {
+  const raw = data?.[JARVIS_VAULT_KEY]
+  if (!raw || typeof raw !== 'object') return null
+  const vault = raw as Partial<JarvisVault>
+  return {
+    ...emptyVault(),
+    ...vault,
+    keys: mergeKeys(vault.keys, {}),
+    oxyyModels: { ...DEFAULT_OXXY_MODELS, ...(vault.oxyyModels || {}) },
+    memories: Array.isArray(vault.memories) ? vault.memories.filter(item => typeof item === 'string' && item.trim()) : [],
+    profile: typeof vault.profile === 'string' ? vault.profile : '',
+  }
+}
+
+export async function collectJarvisVaultFromThisDevice(): Promise<JarvisVault> {
+  const vault = emptyVault()
+  const now = Date.now()
+  vault.updatedAt = now
+  vault.fieldTimestamps = {}
+
+  if (isMobileStandalone()) {
+    console.log('[JarvisCloud] Collecting vault from mobile device...')
+    vault.keys = getMobileApiKeys()
+    vault.fieldTimestamps.keys = now
+    vault.provider = getMobileProvider()
+    vault.fieldTimestamps.provider = now
+    vault.oxyyModels = getMobileOxyyModels()
+    vault.fieldTimestamps.oxyyModels = now
+    try { vault.memories = JSON.parse(localStorage.getItem(JARVIS_MEMORIES_KEY) || '[]') } catch { vault.memories = [] }
+    vault.fieldTimestamps.memories = now
+    vault.profile = localStorage.getItem(JARVIS_PROFILE_KEY) || ''
+    vault.fieldTimestamps.profile = now
+
+    // Coletar hábitos do localStorage
+    console.log('[JarvisCloud] Checking localStorage for habits...')
+    console.log('[JarvisCloud] All localStorage keys:', Object.keys(localStorage))
+    // Tenta lifeos_habits primeiro (chave correta do celular), depois jarvis-habits
+    const habitsRaw = localStorage.getItem('lifeos_habits') || localStorage.getItem('jarvis-habits')
+    console.log('[JarvisCloud] Raw habits from localStorage:', habitsRaw)
+    console.log('[JarvisCloud] Using key:', habitsRaw ? (localStorage.getItem('lifeos_habits') ? 'lifeos_habits' : 'jarvis-habits') : 'none')
+    try { vault.habits = JSON.parse(habitsRaw || '[]') as any[] } catch { vault.habits = [] }
+    console.log('[JarvisCloud] Parsed habits:', vault.habits)
+    console.log('[JarvisCloud] Habits count:', vault.habits?.length || 0)
+    vault.fieldTimestamps.habits = now
+
+    // Coletar treino do localStorage
+    // Tenta lifeos_workouts primeiro (chave correta do celular), depois jarvis-training
+    const trainingRaw = localStorage.getItem('lifeos_workouts') || localStorage.getItem('jarvis-training')
+    console.log('[JarvisCloud] Raw training from localStorage:', trainingRaw)
+    console.log('[JarvisCloud] Using training key:', trainingRaw ? (localStorage.getItem('lifeos_workouts') ? 'lifeos_workouts' : 'jarvis-training') : 'none')
+    try { vault.training = JSON.parse(trainingRaw || '[]') } catch { vault.training = [] }
+    console.log('[JarvisCloud] Training count:', vault.training?.length || 0)
+    vault.fieldTimestamps.training = now
+
+    // Coletar dashboard do localStorage
+    try { vault.dashboard = JSON.parse(localStorage.getItem('jarvis-dashboard') || '{}') } catch { vault.dashboard = {} }
+    vault.fieldTimestamps.dashboard = now
+
+    // Coletar proactive do localStorage
+    try { vault.proactive = JSON.parse(localStorage.getItem('jarvis-proactive') || '{}') } catch { vault.proactive = {} }
+    vault.fieldTimestamps.proactive = now
+
+    // Coletar climate do localStorage
+    try { vault.climate = JSON.parse(localStorage.getItem('jarvis-climate') || '{}') } catch { vault.climate = {} }
+    vault.fieldTimestamps.climate = now
+
+    // Coletar finance do localStorage
+    // Tenta jarvis-finance primeiro, depois lifeos_finance
+    const financeRaw = localStorage.getItem('jarvis-finance') || localStorage.getItem('lifeos_finance')
+    try { vault.finance = JSON.parse(financeRaw || '{}') } catch { vault.finance = {} }
+    vault.fieldTimestamps.finance = now
+
+    vault.source = 'mobile'
+    return vault
+  }
+
+  vault.source = 'pc'
+  vault.keys = getMobileApiKeys()
+  vault.fieldTimestamps.keys = now
+  try {
+    const response = await fetch('/api/settings/keys')
+    const payload = await response.json()
+    if (payload?.keys) vault.keys = mergeKeys(payload.keys, vault.keys)
+  } catch { /* PC API ausente */ }
+  try {
+    const payload = await (await fetch('/api/settings/llm')).json()
+    console.log('[JarvisCloud] LLM settings from PC:', payload)
+    if (payload?.llm_provider) {
+      vault.provider = payload.llm_provider
+      vault.fieldTimestamps.provider = now
+      console.log('[JarvisCloud] PC provider:', payload.llm_provider)
+    }
+    if (payload?.groq_model) {
+      vault.providerModels.groq = payload.groq_model
+      vault.fieldTimestamps.providerModels = now
+      console.log('[JarvisCloud] PC groq_model:', payload.groq_model)
+    }
+    if (payload?.gemini_model) {
+      vault.providerModels.gemini = payload.gemini_model
+      console.log('[JarvisCloud] PC gemini_model:', payload.gemini_model)
+    }
+    if (payload?.oxyy_model) {
+      vault.providerModels.oxyy = payload.oxyy_model
+      console.log('[JarvisCloud] PC oxyy_model:', payload.oxyy_model)
+    }
+    console.log('[JarvisCloud] Final providerModels to sync:', vault.providerModels)
+  } catch (e) {
+    console.error('[JarvisCloud] Error fetching LLM settings:', e)
+  }
+  try {
+    const payload = await (await fetch('/api/settings/oxyy')).json()
+    if (payload?.models) {
+      vault.oxyyModels = { ...DEFAULT_OXXY_MODELS, ...payload.models }
+      vault.fieldTimestamps.oxyyModels = now
+    }
+  } catch { /* ignore */ }
+  try {
+    const payload = await (await fetch('/api/vault/profile')).json()
+    if (payload?.content) {
+      vault.profile = String(payload.content)
+      vault.fieldTimestamps.profile = now
+    }
+  } catch { /* ignore */ }
+  try {
+    const payload = await (await fetch('/api/memories?collection=user_memory&limit=80')).json()
+    vault.memories = (payload?.memories || [])
+      .map((item: { text?: string }) => String(item?.text || '').trim())
+      .filter(Boolean)
+    vault.fieldTimestamps.memories = now
+  } catch { /* ignore */ }
+
+  // Coletar dados adicionais do PC via APIs existentes
+  try {
+    // Hábitos - API existe
+    const habitsRes = await fetch('/api/habits').catch(() => null)
+    if (habitsRes?.ok) {
+      const payload = await habitsRes.json()
+      vault.habits = (payload?.habits || []) as any[]
+      vault.fieldTimestamps.habits = now
+      console.log('[JarvisCloud] PC habits collected:', vault.habits?.length || 0)
+    }
+
+    // Finanças - API existe
+    const financeRes = await fetch('/api/finance').catch(() => null)
+    if (financeRes?.ok) {
+      const payload = await financeRes.json()
+      vault.finance = payload || {}
+      vault.fieldTimestamps.finance = now
+      console.log('[JarvisCloud] PC finance collected')
+    }
+
+    // Training, dashboard, proactive, climate - APIs não existem no PC
+    // Esses dados são coletados do mobile via localStorage
+    // No PC, deixamos vazios para o mobile não perder seus dados
+    console.log('[JarvisCloud] PC: training/dashboard/proactive/climate APIs not available, skipping')
+  } catch (e) {
+    console.error('[JarvisCloud] Error fetching additional PC data:', e)
+  }
+
+  return vault
+}
+
+export function applyJarvisVaultLocally(vault: JarvisVault) {
+  console.log('[JarvisCloud] Applying vault locally:', vault)
+  const now = Date.now()
+
+  setMobileApiKeys(vault.keys)
+  setLocalFieldTimestamp('keys', now)
+
+  setMobileProvider(vault.provider || 'oxyy')
+  setLocalFieldTimestamp('provider', now)
+
+  setMobileOxyyModels(vault.oxyyModels || DEFAULT_OXXY_MODELS)
+  setLocalFieldTimestamp('oxyyModels', now)
+
+  // Apply provider models (groq_model, gemini_model, etc.)
+  if (vault.providerModels) {
+    console.log('[JarvisCloud] Applying provider models:', vault.providerModels)
+    if (vault.providerModels.groq) {
+      localStorage.setItem('jarvis-mobile-groq-model', vault.providerModels.groq)
+      console.log('[JarvisCloud] Set groq model:', vault.providerModels.groq)
+    }
+    if (vault.providerModels.gemini) {
+      localStorage.setItem('jarvis-mobile-gemini-model', vault.providerModels.gemini)
+      console.log('[JarvisCloud] Set gemini model:', vault.providerModels.gemini)
+    }
+    if (vault.providerModels.oxyy) {
+      localStorage.setItem('jarvis-mobile-oxyy-model', vault.providerModels.oxyy)
+      console.log('[JarvisCloud] Set oxyy model:', vault.providerModels.oxyy)
+    }
+    setLocalFieldTimestamp('providerModels', now)
+  }
+
+  localStorage.setItem(JARVIS_MEMORIES_KEY, JSON.stringify(vault.memories || []))
+  setLocalFieldTimestamp('memories', now)
+
+  localStorage.setItem(JARVIS_PROFILE_KEY, vault.profile || '')
+  setLocalFieldTimestamp('profile', now)
+
+  // Aplicar hábitos
+  if (vault.habits) {
+    console.log('[JarvisCloud] Applying habits to localStorage:', vault.habits)
+    console.log('[JarvisCloud] Habits count:', vault.habits.length)
+    // Salva em ambas as chaves para compatibilidade
+    localStorage.setItem('jarvis-habits', JSON.stringify(vault.habits))
+    localStorage.setItem('lifeos_habits', JSON.stringify(vault.habits))
+    setLocalFieldTimestamp('habits', now)
+    console.log('[JarvisCloud] Habits saved to localStorage (both keys)')
+  } else {
+    console.log('[JarvisCloud] No habits in vault to apply')
+  }
+
+  // Aplicar treino
+  if (vault.training) {
+    localStorage.setItem('jarvis-training', JSON.stringify(vault.training))
+    localStorage.setItem('lifeos_workouts', JSON.stringify(vault.training))
+    setLocalFieldTimestamp('training', now)
+  }
+
+  // Aplicar dashboard
+  if (vault.dashboard) {
+    localStorage.setItem('jarvis-dashboard', JSON.stringify(vault.dashboard))
+    setLocalFieldTimestamp('dashboard', now)
+  }
+
+  // Aplicar proactive
+  if (vault.proactive) {
+    localStorage.setItem('jarvis-proactive', JSON.stringify(vault.proactive))
+    setLocalFieldTimestamp('proactive', now)
+  }
+
+  // Aplicar climate
+  if (vault.climate) {
+    localStorage.setItem('jarvis-climate', JSON.stringify(vault.climate))
+    setLocalFieldTimestamp('climate', now)
+  }
+
+  // Aplicar finance
+  if (vault.finance) {
+    localStorage.setItem('jarvis-finance', JSON.stringify(vault.finance))
+    localStorage.setItem('lifeos_finance', JSON.stringify(vault.finance))
+    setLocalFieldTimestamp('finance', now)
+  }
+
+  setLocalLastSync(now)
+}
+
+export async function pullJarvisVault(): Promise<JarvisVault | null> {
+  const snapshot = await pullSnapshot()
+  return readVaultFromSnapshot(snapshot?.data)
+}
+
+export async function pushJarvisVault(incoming = collectJarvisVaultFromThisDevice()): Promise<JarvisVault> {
+  const local = await incoming
+  const snapshot = await pullSnapshot()
+  const cloudVault = readVaultFromSnapshot(snapshot?.data)
+  
+  // Se não há snapshot na nuvem, criar um novo com dados locais
+  if (!snapshot || !cloudVault) {
+    console.log('[JarvisCloud] No snapshot in cloud, creating new one with local data')
+    const data = { [JARVIS_VAULT_KEY]: local }
+    const result = await pushSnapshot(data, 0)
+    if (result.conflict) {
+      throw new Error('Conflito ao criar snapshot na nuvem. Tente novamente.')
+    }
+    localStorage.setItem(CLOUD_REVISION_KEY, String(result.revision))
+    applyJarvisVaultLocally(local)
+    return local
+  }
+  
+  if (!keysHaveValue(local.keys) && keysHaveValue(cloudVault?.keys)) {
+    throw new Error('Este aparelho não tem chaves. A nuvem já tem as do PC — nada foi apagado. Use “Baixar da nuvem” no celular.')
+  }
+  // Merge inteligente baseado em timestamps (last-write-wins por campo)
+  const localTimestamps = getLocalFieldTimestamps()
+  const cloudTimestamps = cloudVault?.fieldTimestamps || {}
+  const now = Date.now()
+
+  // Função auxiliar para merge inteligente: prefere não-vazio sobre timestamp
+  const mergeField = <T>(local: T, cloud: T | undefined, localTs: number, cloudTs: number): T => {
+    const localHasData = Array.isArray(local) ? local.length > 0 : local !== null && local !== undefined && local !== ''
+    const cloudHasData = Array.isArray(cloud) ? cloud.length > 0 : cloud !== null && cloud !== undefined && cloud !== ''
+    
+    // Se local tem dados e cloud não, usa local
+    if (localHasData && !cloudHasData) return local
+    // Se cloud tem dados e local não, usa cloud
+    if (!localHasData && cloudHasData) return cloud as T
+    // Se ambos têm dados, usa timestamp (last-write-wins)
+    if (localHasData && cloudHasData) {
+      return (localTs || 0) >= (cloudTs || 0) ? local : cloud as T
+    }
+    // Se nenhum tem dados, usa local (padrão)
+    return local
+  }
+
+  const merged: JarvisVault = {
+    ...emptyVault(),
+    ...cloudVault,
+    ...local,
+    keys: (localTimestamps.keys || 0) >= (cloudTimestamps.keys || 0) ? local.keys : mergeKeys(local.keys, cloudVault?.keys),
+    provider: (localTimestamps.provider || 0) >= (cloudTimestamps.provider || 0) ? local.provider : (cloudVault?.provider || 'oxyy'),
+    oxyyModels: (localTimestamps.oxyyModels || 0) >= (cloudTimestamps.oxyyModels || 0) ? local.oxyyModels : { ...DEFAULT_OXXY_MODELS, ...(cloudVault?.oxyyModels || {}) },
+    providerModels: (localTimestamps.providerModels || 0) >= (cloudTimestamps.providerModels || 0) ? local.providerModels : (cloudVault?.providerModels || {}),
+    memories: mergeField(local.memories, cloudVault?.memories, localTimestamps.memories || 0, cloudTimestamps.memories || 0),
+    profile: mergeField(local.profile, cloudVault?.profile, localTimestamps.profile || 0, cloudTimestamps.profile || 0),
+    habits: mergeField(local.habits, cloudVault?.habits, localTimestamps.habits || 0, cloudTimestamps.habits || 0),
+    training: mergeField(local.training, cloudVault?.training, localTimestamps.training || 0, cloudTimestamps.training || 0),
+    dashboard: mergeField(local.dashboard, cloudVault?.dashboard, localTimestamps.dashboard || 0, cloudTimestamps.dashboard || 0),
+    proactive: mergeField(local.proactive, cloudVault?.proactive, localTimestamps.proactive || 0, cloudTimestamps.proactive || 0),
+    climate: mergeField(local.climate, cloudVault?.climate, localTimestamps.climate || 0, cloudTimestamps.climate || 0),
+    finance: mergeField(local.finance, cloudVault?.finance, localTimestamps.finance || 0, cloudTimestamps.finance || 0),
+    updatedAt: now,
+    fieldTimestamps: {
+      keys: Math.max(localTimestamps.keys || 0, cloudTimestamps.keys || 0, now),
+      provider: Math.max(localTimestamps.provider || 0, cloudTimestamps.provider || 0, now),
+      oxyyModels: Math.max(localTimestamps.oxyyModels || 0, cloudTimestamps.oxyyModels || 0, now),
+      providerModels: Math.max(localTimestamps.providerModels || 0, cloudTimestamps.providerModels || 0, now),
+      memories: Math.max(localTimestamps.memories || 0, cloudTimestamps.memories || 0, now),
+      profile: Math.max(localTimestamps.profile || 0, cloudTimestamps.profile || 0, now),
+      habits: Math.max(localTimestamps.habits || 0, cloudTimestamps.habits || 0, now),
+      training: Math.max(localTimestamps.training || 0, cloudTimestamps.training || 0, now),
+      dashboard: Math.max(localTimestamps.dashboard || 0, cloudTimestamps.dashboard || 0, now),
+      proactive: Math.max(localTimestamps.proactive || 0, cloudTimestamps.proactive || 0, now),
+      climate: Math.max(localTimestamps.climate || 0, cloudTimestamps.climate || 0, now),
+      finance: Math.max(localTimestamps.finance || 0, cloudTimestamps.finance || 0, now),
+    },
+  }
+  const data = { ...(snapshot?.data || {}), [JARVIS_VAULT_KEY]: merged }
+  const baseRevision = snapshot?.revision || Number(localStorage.getItem(CLOUD_REVISION_KEY) || '0')
+  const result = await pushSnapshot(data, baseRevision)
+  if (result.conflict) {
+    throw new Error('A nuvem mudou em outro aparelho. Toque em Baixar da nuvem e envie de novo a partir do PC.')
+  }
+  localStorage.setItem(CLOUD_REVISION_KEY, String(result.revision))
+  applyJarvisVaultLocally(merged)
+  return merged
+}
+
+export async function downloadJarvisVault(): Promise<JarvisVault> {
+  console.log('[JarvisCloud] Starting download from cloud...')
+  const vault = await pullJarvisVault()
+  console.log('[JarvisCloud] Vault pulled from cloud:', vault)
+  console.log('[JarvisCloud] Vault habits:', vault?.habits)
+  console.log('[JarvisCloud] Vault habits count:', vault?.habits?.length || 0)
+  console.log('[JarvisCloud] Vault training:', vault?.training)
+  console.log('[JarvisCloud] Vault dashboard:', vault?.dashboard)
+  console.log('[JarvisCloud] Vault proactive:', vault?.proactive)
+  console.log('[JarvisCloud] Vault climate:', vault?.climate)
+  console.log('[JarvisCloud] Vault finance:', vault?.finance)
+  if (!vault || !keysHaveValue(vault.keys)) {
+    throw new Error('Ainda não há chaves na nuvem. No PC: Configurações → entrar na nuvem → Enviar Jarvis para a nuvem.')
+  }
+  console.log('[JarvisCloud] Applying vault locally...')
+  applyJarvisVaultLocally(vault)
+  console.log('[JarvisCloud] Vault applied. Verifying localStorage...')
+  console.log('[JarvisCloud] groq model in localStorage:', localStorage.getItem('jarvis-mobile-groq-model'))
+  console.log('[JarvisCloud] gemini model in localStorage:', localStorage.getItem('jarvis-mobile-gemini-model'))
+  console.log('[JarvisCloud] oxyy model in localStorage:', localStorage.getItem('jarvis-mobile-oxyy-model'))
+  console.log('[JarvisCloud] provider in localStorage:', localStorage.getItem('jarvis-mobile-provider'))
+  console.log('[JarvisCloud] habits in localStorage:', localStorage.getItem('jarvis-habits'))
+  console.log('[JarvisCloud] training in localStorage:', localStorage.getItem('jarvis-training'))
+  console.log('[JarvisCloud] dashboard in localStorage:', localStorage.getItem('jarvis-dashboard'))
+  console.log('[JarvisCloud] proactive in localStorage:', localStorage.getItem('jarvis-proactive'))
+  console.log('[JarvisCloud] climate in localStorage:', localStorage.getItem('jarvis-climate'))
+  console.log('[JarvisCloud] finance in localStorage:', localStorage.getItem('jarvis-finance'))
+  
+  // Verificar se os hábitos foram salvos corretamente
+  const savedHabits = localStorage.getItem('jarvis-habits')
+  if (savedHabits) {
+    try {
+      const parsed = JSON.parse(savedHabits)
+      console.log('[JarvisCloud] Parsed habits from localStorage:', parsed)
+      console.log('[JarvisCloud] Parsed habits count:', parsed.length)
+    } catch (e) {
+      console.error('[JarvisCloud] Error parsing habits from localStorage:', e)
+    }
+  }
+  
+  return vault
+}
+
+// Sincronização inteligente ao abrir o app
+export async function autoSyncOnOpen(): Promise<{ synced: boolean; message: string }> {
+  console.log('[JarvisCloud] Auto-sync on app open...')
+
+  // Verifica se há sessão válida
+  const settings = getEvoluteSettings()
+  if (!settings.supabaseAccessToken) {
+    console.log('[JarvisCloud] No valid session, skipping auto-sync')
+    return { synced: false, message: 'Nenhuma sessão encontrada. Faça login para sincronizar.' }
+  }
+
+  try {
+    if (isTokenExpired(settings)) {
+      await refreshAccessToken(settings)
+    }
+  } catch (error) {
+    console.error('[JarvisCloud] Token refresh failed:', error)
+    return { synced: false, message: 'Sessão expirada. Faça login novamente.' }
+  }
+
+  const lastSync = getLocalLastSync()
+  const snapshot = await pullSnapshot()
+
+  if (!snapshot) {
+    console.log('[JarvisCloud] No cloud data found')
+    return { synced: false, message: 'Nenhum dado na nuvem.' }
+  }
+
+  const cloudVault = readVaultFromSnapshot(snapshot.data)
+  if (!cloudVault) {
+    console.log('[JarvisCloud] No valid vault in cloud')
+    return { synced: false, message: 'Nenhum dado válido na nuvem.' }
+  }
+
+  // Se a nuvem foi atualizada após a última sincronização local
+  if (cloudVault.updatedAt > lastSync) {
+    console.log('[JarvisCloud] Cloud has newer data, syncing...')
+    try {
+      await downloadJarvisVault()
+      return { synced: true, message: 'Dados sincronizados da nuvem.' }
+    } catch (error) {
+      console.error('[JarvisCloud] Auto-sync failed:', error)
+      return { synced: false, message: error instanceof Error ? error.message : 'Falha na sincronização automática.' }
+    }
+  }
+
+  // Se há mudanças locais não sincronizadas
+  const localTimestamps = getLocalFieldTimestamps()
+  const hasLocalChanges = Object.values(localTimestamps).some(ts => ts > lastSync)
+
+  if (hasLocalChanges) {
+    console.log('[JarvisCloud] Local changes detected, pushing to cloud...')
+    try {
+      await pushJarvisVault()
+      return { synced: true, message: 'Mudanças locais enviadas para a nuvem.' }
+    } catch (error) {
+      console.error('[JarvisCloud] Auto-push failed:', error)
+      return { synced: false, message: error instanceof Error ? error.message : 'Falha ao enviar mudanças.' }
+    }
+  }
+
+  console.log('[JarvisCloud] No changes detected, already in sync')
+  return { synced: false, message: 'Já sincronizado.' }
+}
+
+export async function syncJarvisAfterLogin(role: 'pc' | 'mobile'): Promise<string> {
+  try {
+    if (role === 'mobile') {
+      const vault = await downloadJarvisVault()
+      const count = Object.values(vault.keys).filter(value => value.trim()).length
+      return `Chaves e memórias baixadas (${count} provedor(es), ${vault.memories.length} memórias). Rotação por vírgula igual ao PC.`
+    }
+    const collected = await collectJarvisVaultFromThisDevice()
+    if (!keysHaveValue(collected.keys)) {
+      return 'Conta conectada. Este PC ainda não tem chaves para enviar.'
+    }
+    const vault = await pushJarvisVault(Promise.resolve(collected))
+    return `Jarvis do PC enviado à nuvem (${Object.values(vault.keys).filter(value => value.trim()).length} provedor(es)). No celular, entre com a mesma conta.`
+  } catch (error) {
+    console.error('[JarvisCloud] Erro na sincronização:', error)
+    if (error instanceof Error) {
+      throw error
+    }
+    throw new Error('Erro desconhecido na sincronização.')
+  }
+}

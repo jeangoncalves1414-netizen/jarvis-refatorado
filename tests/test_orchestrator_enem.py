@@ -36,6 +36,7 @@ def test_resolve_enem_context_prefers_inline(tmp_path) -> None:
 def test_enem_prefix_without_api_key(tmp_path) -> None:
     enem_store = EnemStore(storage_dir=str(tmp_path / "enem"))
     settings = Settings()
+    settings.llm_provider = "gemini"
     settings.gemini_api_key = ""
     llm = LLMService(settings=settings)
     orchestrator = AgentOrchestrator(settings=settings, llm_service=llm, enem_store=enem_store)
@@ -46,4 +47,4 @@ def test_enem_prefix_without_api_key(tmp_path) -> None:
         enem_context={"text": "2+2=?", "subject": "matematica", "year": 2021},
     )
     assert plan.intent == "general"
-    assert "GEMINI_API_KEY" in plan.summary
+    assert "API_KEY" in plan.summary

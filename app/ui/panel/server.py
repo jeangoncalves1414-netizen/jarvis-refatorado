@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from itertools import chain
 import json
 import mimetypes
 import os
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -17,12 +18,19 @@ from app.ui.panel.api.dashboard import (
 from app.ui.panel.api.enem import handle_enem_get, handle_enem_post
 from app.ui.panel.api.settings import handle_settings_get, handle_settings_post
 from app.ui.panel.api.tutor import handle_tutor_get, handle_tutor_post
-from app.ui.panel.api.voice import handle_voice_post
+from app.ui.panel.api.voice import handle_voice_post, handle_voice_stream, handle_voice_realtime_stream
+from app.ui.panel.api.planning import handle_planning_get, handle_planning_post
+from app.ui.panel.api.actions import handle_actions_get, handle_actions_post
+from app.ui.panel.api.mission_control import handle_mission_control_get
+from app.ui.panel.api.goals import handle_goals_get, handle_goals_post
 from app.storage.vector.semantic_memory import is_technical_error_memory
+from app.core.control_plane import ControlPlanePolicy, RequestPrincipal
+from app.core.execution_receipts import receipts
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _STATIC_DIR   = Path(__file__).parent / "static"
 _REACT_DIST_DIR = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+_EVOLUTE_DIST_DIR = Path(__file__).resolve().parents[3] / "evolute" / "dist"
 
 _orchestrator: Any = None
 _wake_word_enabled: bool = True
@@ -47,45 +55,119 @@ def _calendar_conversation_prefix() -> str:
 
 class PanelHandler(BaseHTTPRequestHandler):
     settings: Any = None
+    voice_pipeline: Any = None
+    _pipeline_lock = threading.Lock()
+    protocol_version = "HTTP/1.1"
+    timeout = 30
+
+    def _policy(self) -> ControlPlanePolicy:
+        return ControlPlanePolicy(self.settings)
+
+    def _authorize_api(self, path: str, method: str) -> RequestPrincipal | None:
+        try:
+            ok, status, error, principal = self._policy().authorize(self, path, method)
+        except ValueError as exc:
+            self._send_json(503, {"ok": False, "error": str(exc)})
+            return None
+        if not ok:
+            self._send_json(status, {"ok": False, "error": error})
+            return None
+        return principal
+
+    def _send_cors(self) -> None:
+        origin = self.headers.get("Origin", "").rstrip("/")
+        if not origin:
+            return
+        try:
+            if origin in self._policy().allowed_origins():
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Vary", "Origin")
+        except ValueError:
+            return
+
+    def log_error(self, fmt: str, *args: Any) -> None:
+        # Suprimir logs de erro causados por timeouts normais de sockets HTTP/1.1 ociosos (keep-alive)
+        try:
+            msg = (fmt % args) if args else fmt
+            if "timed out" in msg.lower():
+                return
+        except Exception:
+            pass
+        super().log_error(fmt, *args)
+
+    def handle(self) -> None:
+        # Silencia erros de conexão abortada (ex: barge-in cancela o fetch no navegador)
+        try:
+            super().handle()
+        except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError, OSError):
+            pass  # cliente desconectou antes do servidor terminar — comportamento normal
 
     def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A002
-        # Suprimir 426 (WS upgrade) e 404 de favicon — apenas erros reais
-        if args and str(args[1]) in ("200", "304", "204", "426", "404"):
-            return
-        super().log_message(fmt, *args)
+        try:
+            # Suprimir 200, 304, 204, 426 (WS upgrade) e 404
+            if len(args) >= 2 and str(args[1]) in ("200", "304", "204", "426", "404"):
+                return
+            msg = (fmt % args) if args else fmt
+            if "timed out" in msg.lower():
+                return
+            super().log_message(fmt, *args)
+        except Exception:
+            pass
+
 
     # ── helpers ─────────────────────────────────────────────────────────────
 
     def _send_json(self, status: int, data: dict) -> None:
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self._send_cors()
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            pass
 
     def _send_html(self, html: str) -> None:
-        body = html.encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            body = html.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            # Disable caching for HTML to prevent stale index.html references
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            pass
 
     def _send_file(self, path: Path) -> None:
-        mime, _ = mimetypes.guess_type(str(path))
-        mime = mime or "application/octet-stream"
-        data = path.read_bytes()
-        self.send_response(200)
-        self.send_header("Content-Type", mime)
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            mime, _ = mimetypes.guess_type(str(path))
+            mime = mime or "application/octet-stream"
+            data = path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", mime)
+            self.send_header("Content-Length", str(len(data)))
+            # Disable caching for all static files to prevent stale JavaScript
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            pass
 
     def _send_404(self) -> None:
-        self.send_response(404)
-        self.end_headers()
+        try:
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            pass
 
     # ── WebSocket upgrade detection ─────────────────────────────────────────
 
@@ -108,11 +190,12 @@ class PanelHandler(BaseHTTPRequestHandler):
             # This branch is a safety fallback that just returns 426.
             self.send_response(426, "Upgrade Required")
             self.send_header("Upgrade", "websocket")
+            self.send_header("Content-Length", "0")
             self.end_headers()
             return
 
         # ── HTML pages ───────────────────────────────────────────────────────
-        if path in ("/", "/index.html"):
+        if path in ("/", "/index.html", "/app", "/app/"):
             f = _REACT_DIST_DIR / "index.html"
             self._send_html(
                 f.read_text(encoding="utf-8")
@@ -121,28 +204,72 @@ class PanelHandler(BaseHTTPRequestHandler):
             )
             return
 
-        if path in ("/legacy", "/legacy/"):
-            f = _TEMPLATE_DIR / "index.html"
-            self._send_html(f.read_text(encoding="utf-8") if f.exists() else "<h1>index.html não encontrado</h1>")
+        # Arquivos de raiz da PWA precisam ser acessíveis para que o navegador
+        # consiga atualizar o Service Worker e não retenha uma interface antiga.
+        if path in ("/sw.js", "/manifest.webmanifest", "/icon.svg"):
+            asset = _REACT_DIST_DIR / path.lstrip("/")
+            if asset.is_file():
+                self._send_file(asset)
+            else:
+                self._send_404()
             return
 
-        if path in ("/app", "/app/"):
+        if path == "/evolute":
+            self.send_response(301)
+            self.send_header("Location", "/evolute/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
+        if path == "/evolute/":
+            f = _EVOLUTE_DIST_DIR / "index.html"
+            if f.exists():
+                self._send_html(f.read_text(encoding="utf-8"))
+            else:
+                self._send_html("<h1>Interface do Evolute não encontrada em evolute/dist.</h1>")
+            return
+
+        if path in ("/legacy", "/legacy/"):
             self.send_response(301)
             self.send_header("Location", "/")
+            self.send_header("Content-Length", "0")
             self.end_headers()
+            return
+
+        if path.startswith("/evolute/assets/"):
+            try:
+                rel = path.removeprefix("/evolute/assets/")
+                asset = (_EVOLUTE_DIST_DIR / "assets" / rel).resolve()
+                asset.relative_to((_EVOLUTE_DIST_DIR / "assets").resolve())
+                if asset.is_file():
+                    self._send_file(asset)
+                    return
+            except Exception:
+                pass
+            self._send_404()
             return
 
         if path.startswith("/assets/"):
             try:
                 asset = (_REACT_DIST_DIR / path.removeprefix("/")).resolve()
                 asset.relative_to(_REACT_DIST_DIR.resolve())
+                if asset.is_file():
+                    self._send_file(asset)
+                    return
             except ValueError:
-                self._send_404()
-                return
-            if asset.is_file():
-                self._send_file(asset)
-            else:
-                self._send_404()
+                pass
+
+            # Fallback para assets do Evolute
+            try:
+                asset = (_EVOLUTE_DIST_DIR / path.removeprefix("/")).resolve()
+                asset.relative_to(_EVOLUTE_DIST_DIR.resolve())
+                if asset.is_file():
+                    self._send_file(asset)
+                    return
+            except Exception:
+                pass
+
+            self._send_404()
             return
 
         # Compatibilidade com builds antigos servidos em /app/assets/
@@ -182,8 +309,13 @@ class PanelHandler(BaseHTTPRequestHandler):
 
         # ── Static assets ────────────────────────────────────────────────────
         if path.startswith("/static/"):
-            rel = path[len("/static/"):]
-            static_path = _STATIC_DIR / rel
+            try:
+                rel = path[len("/static/"):]
+                static_path = (_STATIC_DIR / rel).resolve()
+                static_path.relative_to(_STATIC_DIR.resolve())
+            except Exception:
+                self._send_404()
+                return
             if static_path.is_file():
                 self._send_file(static_path)
             else:
@@ -192,7 +324,62 @@ class PanelHandler(BaseHTTPRequestHandler):
 
         # ── API GET ──────────────────────────────────────────────────────────
         if path.startswith("/api/"):
+            if self._authorize_api(path, "GET") is None:
+                return
             parts = [p for p in path.split("/") if p]
+
+            if path in ("/api/sync", "/api/evolute/sync"):
+                from app.ui.panel.api.evolute import handle_evolute_sync_get
+                status, data = handle_evolute_sync_get()
+                self._send_json(status, data)
+                return
+
+            if path == "/api/evolute/status":
+                from app.ui.panel.api.evolute import handle_evolute_status_get
+                status, data = handle_evolute_status_get()
+                self._send_json(status, data)
+                return
+
+            if path == "/api/evolute/summary":
+                try:
+                    from app.services.lifeos import LifeOSService
+                    summary_data = LifeOSService.get_daily_summary()
+                    self._send_json(200, summary_data)
+                except Exception as exc:
+                    self._send_json(500, {"ok": False, "error": str(exc)})
+                return
+
+            if path == "/api/system/backup":
+                import zipfile
+                import io
+                import datetime
+                try:
+                    data_dir = Path(__file__).resolve().parents[3] / "data"
+                    snapshots_dir = data_dir / "snapshots"
+                    snapshots_dir.mkdir(parents=True, exist_ok=True)
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    zip_buffer = io.BytesIO()
+                    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                        for f in data_dir.glob("*.json"):
+                            zf.write(f, arcname=f"data/{f.name}")
+                        for f in data_dir.glob("*.jsonl"):
+                            zf.write(f, arcname=f"data/{f.name}")
+                        evolute_db = Path(os.path.expanduser("~")) / "Documents" / "Evolute" / "data" / "lifeos_db.json"
+                        if evolute_db.exists():
+                            zf.write(evolute_db, arcname="evolute/lifeos_db.json")
+                    zip_data = zip_buffer.getvalue()
+                    snapshot_file = snapshots_dir / f"jarvis_backup_{timestamp}.zip"
+                    snapshot_file.write_bytes(zip_data)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/zip")
+                    self.send_header("Content-Disposition", f'attachment; filename="jarvis_backup_{timestamp}.zip"')
+                    self.send_header("Content-Length", str(len(zip_data)))
+                    self.end_headers()
+                    self.wfile.write(zip_data)
+                except Exception as exc:
+                    self._send_json(500, {"ok": False, "error": str(exc)})
+                return
+
 
             # /api/sessions (list)
             if len(parts) == 2 and parts[1] == "sessions":
@@ -328,6 +515,32 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_json(500, {"ok": False, "error": str(exc)})
                 return
 
+            # /api/identity -> perfis locais e estado da verificação
+            if len(parts) == 2 and parts[1] == "identity":
+                try:
+                    from app.services.identity import IdentityService
+                    self._send_json(200, IdentityService.status())
+                except Exception as exc:
+                    self._send_json(500, {"ok": False, "error": str(exc)})
+                return
+
+            if len(parts) == 2 and parts[1] == "profile-memory":
+                try:
+                    import urllib.parse
+                    from app.services.identity import IdentityService
+                    from app.services.profile_memory import ProfileMemoryStore
+                    query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                    profile_id = (query.get("profile_id") or [""])[0]
+                    if not IdentityService.profile_exists(profile_id):
+                        self._send_json(400, {"ok": False, "error": "Perfil não encontrado."})
+                        return
+                    store = ProfileMemoryStore()
+                    memories = store.list(profile_id, query=(query.get("q") or [""])[0], limit=int((query.get("limit") or [50])[0]))
+                    self._send_json(200, {"ok": True, "profile_id": profile_id, "count": store.count(profile_id), "memories": memories})
+                except Exception as exc:
+                    self._send_json(500, {"ok": False, "error": str(exc)})
+                return
+
             # /api/proactive -> status do briefing e lembretes
             if len(parts) == 2 and parts[1] == "proactive":
                 try:
@@ -338,6 +551,36 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_json(200, {"config": config, "reminders": reminders})
                 except Exception as exc:
                     self._send_json(200, {"config": {}, "reminders": [], "error": str(exc)})
+                return
+
+            # /api/tool-forge -> lista ferramentas forjadas
+            if len(parts) >= 2 and parts[1] == "tool-forge":
+                try:
+                    from app.services.tool_forge import tool_forge
+                    self._send_json(200, {"tools": tool_forge.list_custom_tools()})
+                except Exception as exc:
+                    self._send_json(500, {"error": str(exc)})
+                return
+
+
+            # /api/vault (Memory Vault Markdown)
+            if len(parts) >= 2 and parts[1] == "vault":
+                try:
+                    import urllib.parse
+                    from app.services.memory_vault import memory_vault
+                    sub = parts[2] if len(parts) >= 3 else ""
+                    if sub == "daily":
+                        self._send_json(200, {"ok": True, "content": memory_vault.get_or_create_daily_note(), "path": str(memory_vault.get_today_note_path())})
+                    elif sub == "profile":
+                        self._send_json(200, {"ok": True, "content": memory_vault.get_user_profile()})
+                    elif sub == "search":
+                        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                        q = (query.get("q") or [""])[0]
+                        self._send_json(200, {"ok": True, "results": memory_vault.search_vault(q)})
+                    else:
+                        self._send_json(200, {"ok": True, "daily": memory_vault.get_or_create_daily_note(), "profile": memory_vault.get_user_profile()})
+                except Exception as exc:
+                    self._send_json(500, {"ok": False, "error": str(exc)})
                 return
 
             # /api/calendar -> eventos do calendário (filtro opcional ?start=&end=)
@@ -421,6 +664,10 @@ class PanelHandler(BaseHTTPRequestHandler):
                 handle_tutor_get,
                 handle_enem_get,
                 handle_settings_get,
+                handle_planning_get,
+                handle_actions_get,
+                handle_mission_control_get,
+                handle_goals_get,
             ):
                 result = handler_fn(parts, self)
                 if result:
@@ -444,16 +691,29 @@ class PanelHandler(BaseHTTPRequestHandler):
     # ── OPTIONS (CORS) ───────────────────────────────────────────────────────
 
     def do_OPTIONS(self) -> None:
+        path = self.path.split("?")[0]
+        if not path.startswith("/api/"):
+            self._send_json(404, {"ok": False, "error": "Endpoint não encontrado."})
+            return
+        origin = self.headers.get("Origin", "").rstrip("/")
+        if not self._policy().is_trusted_host(self.headers.get("Host", "")):
+            self._send_json(403, {"ok": False, "error": "Host não confiável."})
+            return
+        if origin and origin not in self._policy().allowed_origins():
+            self._send_json(403, {"ok": False, "error": "Origem não confiável."})
+            return
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self._send_cors()
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
 
     def do_DELETE(self) -> None:
         import urllib.parse
         parsed_path = urllib.parse.urlparse(self.path)
         path = parsed_path.path
+        if path.startswith("/api/") and self._authorize_api(path, "DELETE") is None:
+            return
         if path.startswith("/api/study/categories/"):
             try:
                 from app.storage.session_store import delete_category
@@ -500,6 +760,10 @@ class PanelHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._send_json(500, {"ok": False, "error": str(exc)})
             return
+        if path.startswith("/api/"):
+            from app.ui.panel.api.routes.system_routes import handle_system_routes
+            if handle_system_routes(path, b"", self._send_json):
+                return
         self._send_404()
 
     # ── POST ─────────────────────────────────────────────────────────────────
@@ -511,6 +775,100 @@ class PanelHandler(BaseHTTPRequestHandler):
 
         if not path.startswith("/api/"):
             self._send_404()
+            return
+        principal = self._authorize_api(path, self.command)
+        if principal is None:
+            return
+
+        if path in ("/api/sync", "/api/evolute/sync"):
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+                from app.ui.panel.api.evolute import handle_evolute_sync_post
+                status, data = handle_evolute_sync_post(payload)
+                self._send_json(status, data)
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+            return
+
+        if path in ("/api/ai/chat", "/api/evolute/ai/chat"):
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+                from app.ui.panel.api.evolute import handle_evolute_ai_chat
+                status, data = handle_evolute_ai_chat(payload, _orchestrator)
+                self._send_json(status, data)
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+            return
+
+        if path == "/api/evolute/water/add":
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+                amount_ml = int(payload.get("amount_ml") or 250)
+                from app.services.lifeos import LifeOSService
+                res = LifeOSService.add_water(amount_ml)
+                self._send_json(200, res)
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/evolute/habit/toggle":
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+                habit_ref = str(payload.get("habit_name_or_id") or "")
+                completed = payload.get("completed", True)
+                from app.services.lifeos import LifeOSService
+                res = LifeOSService.toggle_habit(habit_ref, completed=completed)
+                self._send_json(200, res)
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/evolute/habit/priority":
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+                habit_ref = str(payload.get("habit_name_or_id") or "")
+                from app.services.lifeos import LifeOSService
+                res = LifeOSService.toggle_habit_priority(habit_ref)
+                self._send_json(200, res)
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/voice/tts/stream":
+            stream = handle_voice_stream(path, body, self)
+            if stream is None:
+                self._send_json(503, {"ok": False, "error": "Streaming Fish indisponível."})
+                return
+            try:
+                first = next(stream)
+            except StopIteration:
+                self._send_json(502, {"ok": False, "error": "Fish não retornou áudio."})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.send_header("Cache-Control", "no-store")
+            self._send_cors()
+            self.end_headers()
+            try:
+                for chunk in chain((first,), stream):
+                    if chunk:
+                        self.wfile.write(f"{len(chunk):X}\r\n".encode("ascii"))
+                        self.wfile.write(chunk)
+                        self.wfile.write(b"\r\n")
+                        self.wfile.flush()
+            except Exception:
+                pass
+            self.wfile.write(b"0\r\n\r\n")
+            return
+
+        if path == "/api/voice/realtime/stream":
+            result = handle_voice_realtime_stream(path, body, self)
+            if result is None:
+                self._send_json(400, {"ok": False, "error": "Requisição inválida."})
+                return
+            status, data = result
+            self._send_json(status, data)
             return
 
         if path == "/api/automation":
@@ -526,6 +884,40 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": "JSON inválido."})
             return
 
+        if path == "/api/qr/read":
+            try:
+                from app.services.qr_reader import QRReaderService
+                payload = json.loads(body.decode("utf-8") or "{}")
+                source = str(payload.get("source", "screen")).lower()
+                svc = QRReaderService()
+                if source == "screen":
+                    mon = int(payload.get("monitor", 0))
+                    res = svc.read_from_screen(monitor=mon)
+                elif source == "camera":
+                    cam_idx = int(payload.get("camera_index", 0))
+                    timeout = float(payload.get("timeout", 5.0))
+                    res = svc.read_from_camera(camera_index=cam_idx, timeout_s=timeout)
+                elif source == "image_b64" or "image" in payload:
+                    img_data = payload.get("image") or payload.get("image_b64") or ""
+                    res = svc.read_from_base64(img_data, source_label="web_camera")
+                else:
+                    self._send_json(400, {"ok": False, "error": f"Fonte inválida: {source}"})
+                    return
+                self._send_json(200 if res.ok else 400, res.to_dict())
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        # Delegate to modular domain sub-routers
+        from app.ui.panel.api.routes.code_routes import handle_code_routes
+        from app.ui.panel.api.routes.system_routes import handle_system_routes
+
+        if handle_code_routes(path, body, self._send_json):
+            return
+
+        if handle_system_routes(path, body, self._send_json):
+            return
+
         # Contrato da ponte: o celular e o desktop usam as mesmas operações,
         # independentemente do adaptador físico (Tuya, BLE, Matter etc.).
         if path == "/api/bridge":
@@ -534,19 +926,78 @@ class PanelHandler(BaseHTTPRequestHandler):
                 payload = json.loads(body.decode("utf-8") or "{}")
                 action = str(payload.get("action") or "").strip()
                 service = DeviceBridgeService()
-                if action in {"pair", "register"}:
+                if action == "pairing_code":
+                    if principal.mode != "loopback":
+                        self._send_json(403, {"ok": False, "error": "O código de pareamento só é exibido no controle local."})
+                        return
+                    result = {"ok": True, "pairing_code": service.get_pairing_code()}
+                elif action in {"pair", "register"}:
                     result = service.register_device(
                         payload.get("device_id"), payload.get("name"), payload.get("kind", "client"),
                         payload.get("platform", "unknown"), payload.get("transport", "lan"), payload.get("pairing_code"),
                     )
                 elif action == "heartbeat":
-                    result = service.heartbeat(payload.get("device_id"))
+                    result = service.heartbeat(payload.get("device_id"), payload.get("device_token"))
                 elif action == "command":
-                    result = service.command(payload.get("target_id"), payload.get("command"), payload.get("payload"), payload.get("source", "desktop"))
+                    result = service.command(payload.get("target_id"), payload.get("command"), payload.get("payload"), payload.get("source", "desktop"), payload.get("device_token"))
                 elif action == "remove":
-                    result = {"ok": service.remove_device(payload.get("device_id"))}
+                    result = {"ok": service.remove_device(payload.get("device_id"), payload.get("device_token"))}
                 else:
                     result = {"ok": False, "error": "Ação de ponte inválida."}
+                self._send_json(200 if result.get("ok") else 400, result)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                self._send_json(400, {"ok": False, "error": "JSON inválido."})
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        # Cadastro/verificação biométrica local. O payload é JSON com data URL;
+        # as amostras são reduzidas a vetores no backend e não ficam no navegador.
+        if path == "/api/identity":
+            try:
+                from app.services.identity import IdentityService
+                payload = json.loads(body.decode("utf-8") or "{}")
+                action = str(payload.get("action") or "").strip()
+                if action == "enroll_admin":
+                    result = IdentityService.enroll_admin(payload.get("name", ""), payload.get("password", ""))
+                elif action == "enroll_profile":
+                    result = IdentityService.enroll_profile(payload.get("name", ""), payload.get("role", "user"), payload.get("admin_password", ""))
+                elif action == "add_sample":
+                    result = IdentityService.add_sample(payload.get("profile_id", ""), payload.get("password", ""), payload.get("kind", ""), payload.get("sample", ""), payload.get("content_type", ""))
+                elif action == "verify":
+                    result = IdentityService.verify(payload.get("kind", ""), payload.get("sample", ""), payload.get("content_type", ""))
+                else:
+                    result = {"ok": False, "error": "Ação de identidade inválida."}
+                self._send_json(200 if result.get("ok") else 400, result)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                self._send_json(400, {"ok": False, "error": "JSON inválido."})
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/profile-memory":
+            try:
+                from app.services.identity import IdentityService
+                from app.services.profile_memory import ProfileMemoryStore
+                payload = json.loads(body.decode("utf-8") or "{}")
+                profile_id = str(payload.get("profile_id") or "")
+                action = str(payload.get("action") or "").strip()
+                if not IdentityService.profile_exists(profile_id):
+                    self._send_json(400, {"ok": False, "error": "Perfil não encontrado."})
+                    return
+                if action in {"add", "delete", "clear"} and not IdentityService.authenticate(profile_id, payload.get("password", "")):
+                    self._send_json(403, {"ok": False, "error": "Senha do perfil inválida."})
+                    return
+                store = ProfileMemoryStore()
+                if action == "add":
+                    memory = store.add(profile_id, payload.get("text", ""), kind=payload.get("kind", "note"), importance=payload.get("importance", 0.5), source="panel")
+                    result = {"ok": bool(memory), "memory": memory}
+                elif action == "delete":
+                    result = {"ok": store.delete(profile_id, str(payload.get("memory_id") or ""))}
+                elif action == "clear":
+                    result = {"ok": True, "removed": store.clear(profile_id)}
+                else:
+                    result = {"ok": False, "error": "Ação de memória inválida."}
                 self._send_json(200 if result.get("ok") else 400, result)
             except (UnicodeDecodeError, json.JSONDecodeError):
                 self._send_json(400, {"ok": False, "error": "JSON inválido."})
@@ -654,7 +1105,293 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": str(exc)})
             return
 
+        # /api/vault POST → Memory Vault (daily log, profile fact, save note)
+        if path.startswith("/api/vault"):
+            try:
+                from app.services.memory_vault import memory_vault
+                payload = json.loads(body.decode("utf-8") or "{}")
+                sub = path.removeprefix("/api/vault").lstrip("/")
+                if sub == "daily/log":
+                    entry = payload.get("entry", "").strip()
+                    category = payload.get("category", "Atividade")
+                    ok = memory_vault.append_daily_log(entry, category)
+                    self._send_json(200, {"ok": ok})
+                elif sub == "profile/fact":
+                    fact = payload.get("fact", "").strip()
+                    ok = memory_vault.update_user_profile_fact(fact)
+                    self._send_json(200, {"ok": ok})
+                elif sub == "notes":
+                    title = payload.get("title", "nota")
+                    content = payload.get("content", "")
+                    folder = payload.get("folder", "04-Projects")
+                    path_saved = memory_vault.save_note(title, content, folder)
+                    self._send_json(200, {"ok": True, "path": path_saved})
+                else:
+                    self._send_json(400, {"ok": False, "error": f"Sub-rota '{sub}' não reconhecida."})
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        # /api/swarm → Swarm Manager routing
+        if path == "/api/swarm":
+            try:
+                from app.agent.swarm import agent_swarm
+                payload = json.loads(body.decode("utf-8") or "{}")
+                task = payload.get("task", "")
+                t_type = payload.get("type", "auto")
+                res = agent_swarm.route_and_execute(task, task_type=t_type)
+                self._send_json(200, res)
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        # /api/react → ReAct Loop execution
+        if path == "/api/react":
+            try:
+                from app.agent.react_loop import ReActLoopEngine
+                payload = json.loads(body.decode("utf-8") or "{}")
+                goal = payload.get("goal", "")
+                max_steps = int(payload.get("max_steps", 8))
+                engine = ReActLoopEngine(llm_service=_orchestrator.llm_service if _orchestrator else None)
+                trajectory = engine.run_loop(goal, max_steps=max_steps)
+                self._send_json(200, {
+                    "ok": trajectory.success,
+                    "goal": trajectory.goal,
+                    "final_output": trajectory.final_output,
+                    "steps_count": len(trajectory.steps),
+                    "total_elapsed_sec": trajectory.total_elapsed_sec
+                })
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        # /api/ambient/alerts → Ambient Monitor status & alerts
+        if path == "/api/ambient/alerts":
+            try:
+                from app.services.ambient_monitor import ambient_monitor
+                # Verifica a área de transferência ao consultar
+                ambient_monitor.inspect_clipboard_for_errors()
+                alerts = ambient_monitor.get_alerts()
+                self._send_json(200, {"ok": True, "count": len(alerts), "alerts": alerts})
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        # /api/reflexion → Evaluator-Optimizer Engine
+        if path == "/api/reflexion":
+            try:
+                from app.services.reflexion import reflexion_engine
+                payload = json.loads(body.decode("utf-8") or "{}")
+                prompt = payload.get("prompt", "")
+                candidate = payload.get("response", "")
+                res = reflexion_engine.process_with_reflexion(prompt, candidate)
+                self._send_json(200, res)
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        # /api/skills/distill → Skill Distiller
+        if path == "/api/skills/distill":
+            try:
+                from app.services.skill_distiller import skill_distiller
+                payload = json.loads(body.decode("utf-8") or "{}")
+                skill_name = payload.get("skill_name", "")
+                description = payload.get("description", "")
+                steps = payload.get("steps", [])
+                ok, msg = skill_distiller.distill_trajectory_to_skill(skill_name, description, steps)
+                self._send_json(200 if ok else 400, {"ok": ok, "message": msg})
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        # /api/hacker → Hacker AI Remote Terminal & Permissões
+        if path.startswith("/api/hacker"):
+            try:
+                from app.services.hacker_terminal import hacker_terminal
+                sub = path.removeprefix("/api/hacker").lstrip("/")
+                if sub == "policy" and self.command == "GET":
+                    self._send_json(200, {"ok": True, "policy_mode": hacker_terminal.policy_mode, "whitelist": list(hacker_terminal.allowed_whitelist)})
+                    return
+
+                payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+                if sub == "policy":
+                    mode = payload.get("mode", "")
+                    ok = hacker_terminal.set_policy_mode(mode, actor=principal.id)
+                    self._send_json(200 if ok else 400, {"ok": ok, "policy_mode": hacker_terminal.policy_mode})
+                elif sub == "execute":
+                    cmd = payload.get("command", "")
+                    receipt = str(payload.get("receipt", ""))
+                    if receipt:
+                        if not receipts.consume(receipt, principal.id, "hacker:command", cmd):
+                            self._send_json(403, {"ok": False, "error": "Recibo de autorização ausente, expirado ou inválido."})
+                            return
+                        analysis = hacker_terminal.analyze_command(cmd)
+                        res = hacker_terminal._run_command_subprocess(cmd.strip(), analysis.get("risk_level", "high"), approved=True)
+                    else:
+                        res = hacker_terminal.prepare_for_approval(cmd)
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif sub == "approve":
+                    cmd_id = payload.get("cmd_id", "")
+                    approved = hacker_terminal.approve_pending(cmd_id)
+                    res = ({"ok": True, "receipt": receipts.issue(principal.id, "hacker:command", approved["command"])}
+                           if approved.get("ok") else approved)
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif sub == "reject":
+                    cmd_id = payload.get("cmd_id", "")
+                    res = hacker_terminal.reject_pending(cmd_id)
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif sub == "history":
+                    logs = hacker_terminal.get_audit_logs()
+                    self._send_json(200, {"ok": True, "count": len(logs), "logs": logs})
+                else:
+                    self._send_json(400, {"ok": False, "error": f"Sub-rota hacker '{sub}' inválida."})
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        # /api/call → Voice Call Session RTC Engine (TEN-Framework Architecture)
+        if path.startswith("/api/call"):
+            try:
+                from app.services.voice_call import voice_call_engine
+                sub = path.removeprefix("/api/call").lstrip("/")
+                payload = json.loads(body.decode("utf-8") or "{}") if body else {}
+                if sub == "start":
+                    session = voice_call_engine.start_call(payload.get("session_id", ""))
+                    self._send_json(200, {"ok": True, "session_id": session.session_id, "state": session.state.value})
+                elif sub == "interrupt":
+                    res = voice_call_engine.interrupt_call(payload.get("session_id", ""))
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif sub == "mute":
+                    res = voice_call_engine.toggle_mute(payload.get("session_id", ""))
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif sub == "end":
+                    res = voice_call_engine.end_call(payload.get("session_id", ""))
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif sub == "status":
+                    res = voice_call_engine.get_session_status(payload.get("session_id", ""))
+                    self._send_json(200 if res.get("ok") else 400, res)
+                else:
+                    self._send_json(400, {"ok": False, "error": f"Sub-rota call '{sub}' inválida."})
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        # /api/deobfuscate → JS/AST Deobfuscator (reverse-skill)
+        if path == "/api/deobfuscate":
+            try:
+                from app.services.js_deobfuscator import js_deobfuscator
+                payload = json.loads(body.decode("utf-8") or "{}")
+                res = js_deobfuscator.deobfuscate(payload.get("code", ""))
+                self._send_json(200 if res.get("ok") else 400, res)
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        # /api/llm-security → LLM Security Auditor (reverse-skill)
+        if path == "/api/llm-security":
+            try:
+                from app.services.llm_security_auditor import llm_security_auditor
+                payload = json.loads(body.decode("utf-8") or "{}")
+                res = llm_security_auditor.audit_prompt(payload.get("prompt_text", ""))
+                self._send_json(200, res)
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        # /api/skills/import → Security Skill Importer (reverse-skill)
+        if path.startswith("/api/skills/import"):
+            try:
+                from app.services.skill_importer import skill_importer
+                if self.command == "GET":
+                    skills = skill_importer.list_available_source_skills()
+                    self._send_json(200, {"ok": True, "count": len(skills), "available_skills": skills})
+                    return
+                payload = json.loads(body.decode("utf-8") or "{}")
+                res = skill_importer.import_skill(payload.get("skill_name", ""))
+                self._send_json(200 if res.get("ok") else 400, res)
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        # /api/tool-forge POST → generate or install custom tool
+        if path.startswith("/api/tool-forge"):
+            try:
+                from app.services.tool_forge import tool_forge
+                payload = json.loads(body.decode("utf-8") or "{}")
+                sub = path.removeprefix("/api/tool-forge").lstrip("/")
+                if sub == "install":
+                    tool_name = payload.get("tool_name", "")
+                    code = payload.get("code", "")
+                    success, message = tool_forge.save_and_register_tool(tool_name, code)
+                    self._send_json(200 if success else 400, {"ok": success, "message": message})
+                elif sub == "validate":
+                    code = payload.get("code", "")
+                    valid, msg = tool_forge.validate_code_ast(code)
+                    self._send_json(200, {"ok": True, "valid": valid, "message": msg})
+                else:
+                    self._send_json(400, {"ok": False, "error": f"Sub-rota tool-forge '{sub}' não reconhecida."})
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            return
+
         # /api/chat → call orchestrator
+
+        if path == "/api/chat/stream":
+            if _orchestrator is None:
+                self._send_json(503, {"error": "Orquestrador não disponível."})
+                return
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+                message = payload.get("message", "").strip()
+                session_id = payload.get("session_id")
+                mode = payload.get("mode", "general")
+                profile_id = payload.get("profile_id")
+                if not message:
+                    self._send_json(400, {"error": "Mensagem não pode ser vazia."})
+                    return
+
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self._send_cors()
+                self.end_headers()
+
+                full_summary = ""
+                for item in _orchestrator.handle_request_stream(message, session_id=session_id, mode=mode, profile_id=profile_id):
+                    if item.get("status") == "complete" and item.get("plan"):
+                        full_summary = getattr(item["plan"], "summary", "")
+                    line = f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+                    self.wfile.write(line.encode("utf-8"))
+                    self.wfile.flush()
+
+                # Salvar conversa na memória semântica em background
+                if (
+                    full_summary
+                    and _orchestrator
+                    and getattr(_orchestrator, "semantic_memory", None)
+                    and not is_technical_error_memory(full_summary)
+                ):
+                    try:
+                        convo_text = f"Usuário: {message}\nJarvis: {full_summary}"
+                        threading.Thread(
+                            target=_orchestrator.semantic_memory.add_memory,
+                            args=("conversations", convo_text),
+                            kwargs={"metadata": {"session_id": session_id or ""}},
+                            daemon=True,
+                        ).start()
+                    except Exception:
+                        pass
+            except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError, OSError):
+                return
+            except Exception as exc:
+                try:
+                    line = f"data: {json.dumps({'status': 'error', 'error': str(exc)}, ensure_ascii=False)}\n\n"
+                    self.wfile.write(line.encode("utf-8"))
+                    self.wfile.flush()
+                except Exception:
+                    pass
+            return
 
         if path == "/api/chat":
             if _orchestrator is None:
@@ -665,10 +1402,16 @@ class PanelHandler(BaseHTTPRequestHandler):
                 message = payload.get("message", "").strip()
                 session_id = payload.get("session_id")
                 mode = payload.get("mode", "general")
+                profile_id = payload.get("profile_id")
+                racing_mode = bool(payload.get("racing", False))
+                if profile_id:
+                    from app.services.identity import IdentityService
+                    if not IdentityService.profile_exists(str(profile_id)):
+                        profile_id = None
                 if not message:
                     self._send_json(400, {"error": "Mensagem não pode ser vazia."})
                     return
-                plan = _orchestrator.handle_request(message, session_id=session_id, mode=mode)
+                plan = _orchestrator.handle_request(message, session_id=session_id, mode=mode, profile_id=profile_id, racing_mode=racing_mode)
                 prefix = _calendar_conversation_prefix()
                 if prefix:
                     plan.summary = prefix + getattr(plan, "summary", str(plan))
@@ -685,17 +1428,78 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": str(exc)})
             return
 
-        # /api/script/run → executa script com timeout 30s (aprovado pelo usuário no modal)
+        if path == "/api/script/authorize":
+            payload = json.loads(body.decode("utf-8") or "{}")
+            language = str(payload.get("language", "")).lower()
+            code = str(payload.get("code", "")).strip()
+            if language not in {"python", "powershell"} or not code or not payload.get("confirmed"):
+                self._send_json(400, {"ok": False, "error": "Confirmação e script válido são obrigatórios."})
+                return
+            self._send_json(200, {"ok": True, "receipt": receipts.issue(principal.id, f"script:{language}", code)})
+            return
+
+        # /api/script/run → privileged local execution with a single-use receipt.
         if path == "/api/script/run":
             try:
-                import subprocess, sys, tempfile
+                import subprocess, sys, tempfile, ast, re, logging
+                logger = logging.getLogger(__name__)
+                
                 payload = json.loads(body.decode("utf-8") or "{}")
                 language = payload.get("language", "python").lower()
                 code = payload.get("code", "").strip()
+                receipt = str(payload.get("receipt", ""))
+                
                 if not code:
                     self._send_json(400, {"error": "Código vazio."})
                     return
+                
+                if not receipts.consume(receipt, principal.id, f"script:{language}", code):
+                    self._send_json(403, {"ok": False, "error": "Recibo de autorização ausente, expirado ou inválido."})
+                    return
+                
+                # Security validation for Python code
                 if language == "python":
+                    # Check code length
+                    if len(code) > 10000:
+                        self._send_json(400, {"error": "Código muito longo (máximo 10000 caracteres)."})
+                        return
+                    
+                    # Basic syntax validation
+                    try:
+                        ast.parse(code)
+                    except SyntaxError as e:
+                        self._send_json(400, {"error": f"Erro de sintaxe Python: {e}"})
+                        return
+                    
+                    # Security checks for dangerous patterns
+                    dangerous_patterns = [
+                        r'__import__\s*\(',
+                        r'eval\s*\(',
+                        r'exec\s*\(',
+                        r'compile\s*\(',
+                        r'open\s*\(',
+                        r'\.__class__',
+                        r'\.__bases__',
+                        r'\.__subclasses__',
+                        r'\.__globals__',
+                        r'\.__code__',
+                        r'\.__func__',
+                        r'os\.system',
+                        r'subprocess\.',
+                        r'globals\s*\(\)',
+                        r'locals\s*\(\)',
+                        r'getattr\s*\(',
+                        r'setattr\s*\(',
+                        r'delattr\s*\(',
+                        r'__builtins__',
+                    ]
+                    
+                    for pattern in dangerous_patterns:
+                        if re.search(pattern, code, re.IGNORECASE):
+                            logger.warning(f"Blocked dangerous Python pattern: {pattern}")
+                            self._send_json(403, {"error": f"Código contém padrão perigoso não permitido: {pattern}"})
+                            return
+                    
                     with tempfile.NamedTemporaryFile(
                         suffix=".py", delete=False, mode="w", encoding="utf-8"
                     ) as f:
@@ -709,7 +1513,48 @@ class PanelHandler(BaseHTTPRequestHandler):
                         )
                     finally:
                         import os as _os; _os.unlink(tmp_path)
+                        
                 elif language == "powershell":
+                    # Check code length
+                    if len(code) > 10000:
+                        self._send_json(400, {"error": "Código muito longo (máximo 10000 caracteres)."})
+                        return
+                    
+                    # Security checks for dangerous PowerShell patterns
+                    dangerous_patterns = [
+                        r'Invoke-Expression',
+                        r'iex\s+',
+                        r'Invoke-Command',
+                        r'icm\s+',
+                        r'Start-Process',
+                        r'WScript\.Shell',
+                        r'New-Object\s+System\.Diagnostics\.Process',
+                        r'\[System\.Reflection\.Assembly\]',
+                        r'Add-Type',
+                        r'Invoke-WebRequest',
+                        r'Invoke-RestMethod',
+                        r'Out-File',
+                        r'Set-Content',
+                        r'Add-Content',
+                        r'Remove-Item',
+                        r'Remove-ItemProperty',
+                        r'Registry::',
+                        r'HKEY_',
+                        r'HKLM:',
+                        r'HKCU:',
+                        r'HKCR:',
+                        r'Get-Credential',
+                        r'Get-Process',
+                        r'Stop-Process',
+                        r'Kill-Process',
+                    ]
+                    
+                    for pattern in dangerous_patterns:
+                        if re.search(pattern, code, re.IGNORECASE):
+                            logger.warning(f"Blocked dangerous PowerShell pattern: {pattern}")
+                            self._send_json(403, {"error": f"Código contém padrão perigoso não permitido: {pattern}"})
+                            return
+                    
                     result = subprocess.run(
                         ["powershell", "-NoProfile", "-NonInteractive", "-Command", code],
                         capture_output=True, text=True, timeout=30,
@@ -718,6 +1563,8 @@ class PanelHandler(BaseHTTPRequestHandler):
                 else:
                     self._send_json(400, {"error": f"Linguagem '{language}' não suportada."})
                     return
+                    
+                logger.info(f"Script executed successfully: language={language}, returncode={result.returncode}")
                 self._send_json(200, {
                     "ok": result.returncode == 0,
                     "returncode": result.returncode,
@@ -987,15 +1834,20 @@ class PanelHandler(BaseHTTPRequestHandler):
             handle_enem_post,
             handle_settings_post,
             handle_voice_post,
+            handle_planning_post,
+            handle_actions_post,
+            handle_goals_post,
         ):
             result = handler_fn(path, body, self)
             if result:
                 status_code, data = result
                 if isinstance(data, bytes):
                     self.send_response(status_code)
-                    self.send_header("Content-Type", "audio/mpeg")
+                    # Fish/Edge retornam MP3; Gemini pode retornar WAV.
+                    audio_type = "audio/wav" if data[:4] == b"RIFF" else "audio/mpeg"
+                    self.send_header("Content-Type", audio_type)
                     self.send_header("Content-Length", str(len(data)))
-                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self._send_cors()
                     self.end_headers()
                     self.wfile.write(data)
                 else:
@@ -1003,6 +1855,12 @@ class PanelHandler(BaseHTTPRequestHandler):
                 return
 
         self._send_json(404, {"error": "Endpoint não encontrado."})
+
+    def do_PATCH(self) -> None:
+        self.do_POST()
+
+    def do_PUT(self) -> None:
+        self.do_POST()
 
 
 # ──────────────────────────────────────── WebSocket handler (asyncio) ────────
@@ -1032,6 +1890,11 @@ async def _ws_chat_handler(websocket) -> None:
             try:
                 session_id = data.get("session_id")
                 mode = data.get("mode", "general")
+                profile_id = data.get("profile_id")
+                if profile_id:
+                    from app.services.identity import IdentityService
+                    if not IdentityService.profile_exists(str(profile_id)):
+                        profile_id = None
                 loop = asyncio.get_running_loop()
 
                 def on_chunk(chunk_text: str) -> None:
@@ -1065,7 +1928,7 @@ async def _ws_chat_handler(websocket) -> None:
 
                 # Run the blocking orchestrator call in a thread
                 plan = await loop.run_in_executor(
-                    None, lambda: _orchestrator.handle_request(message, session_id=session_id, mode=mode, on_chunk=on_chunk, on_reasoning=on_reasoning, on_search=on_search)
+                    None, lambda: _orchestrator.handle_request(message, session_id=session_id, mode=mode, on_chunk=on_chunk, on_reasoning=on_reasoning, on_search=on_search, profile_id=profile_id)
                 )
                 prefix = _calendar_conversation_prefix()
                 if prefix:
@@ -1142,16 +2005,20 @@ class PanelServer:
         _orchestrator = orchestrator
 
     def set_voice_pipeline(self, pipeline: Any) -> None:
-        PanelHandler.voice_pipeline = pipeline
+        with PanelHandler._pipeline_lock:
+            PanelHandler.voice_pipeline = pipeline
 
     def _run_http(self) -> None:
         PanelHandler.settings = self.settings
         address = (self.settings.host, self.settings.port)
-        self.http_server = HTTPServer(address, PanelHandler)
+        self.http_server = ThreadingHTTPServer(address, PanelHandler)
+        self.http_server.daemon_threads = True
         self.http_server.serve_forever()
 
     def _run_ws(self) -> None:
-        """Run the asyncio WebSocket server in a dedicated thread on port+1."""
+        """Run legacy streaming only on a real loopback desktop listener."""
+        if not self._websocket_enabled():
+            return
         global _ws_loop
         ws_port = self.settings.port + 1
         loop = asyncio.new_event_loop()
@@ -1163,19 +2030,26 @@ class PanelServer:
             loop.close()
             _ws_loop = None
 
+    def _websocket_enabled(self) -> bool:
+        """Never expose the unauthenticated legacy WebSocket outside loopback."""
+        host = str(getattr(self.settings, "host", "")).strip().lower()
+        return self.settings.access_mode == "loopback" and host in {"127.0.0.1", "localhost", "::1", "[::1]"}
+
     def start(self) -> None:
         if self._http_thread and self._http_thread.is_alive():
             return
+        self.settings.validate_control_plane()
 
         self._http_thread = threading.Thread(
             target=self._run_http, daemon=True, name="PanelHTTP"
         )
         self._http_thread.start()
 
-        self._ws_thread = threading.Thread(
-            target=self._run_ws, daemon=True, name="PanelWS"
-        )
-        self._ws_thread.start()
+        if self._websocket_enabled():
+            self._ws_thread = threading.Thread(
+                target=self._run_ws, daemon=True, name="PanelWS"
+            )
+            self._ws_thread.start()
 
     def start_wake_word(self) -> None:
         """Inicia o detector de wake word (Vosk PT-BR, sem API key)."""

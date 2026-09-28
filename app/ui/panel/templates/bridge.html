@@ -32,8 +32,9 @@
     <p>Protótipo leve para testar a ponte entre o painel e futuros clientes móveis.</p>
     <section class="card">
       <strong>Código de pareamento</strong>
-      <div id="pairing" class="code">carregando…</div>
+      <p>Abra o painel do Jarvis no computador para ver o código temporário e digite-o aqui.</p>
       <div class="row">
+        <input id="pairingCode" aria-label="Código de pareamento" placeholder="Código exibido no computador">
         <input id="deviceId" value="phone-test" aria-label="ID do dispositivo" placeholder="ID do dispositivo">
         <input id="deviceName" value="Celular de teste" aria-label="Nome do dispositivo" placeholder="Nome">
         <button id="pair">Parear este dispositivo</button>
@@ -54,12 +55,12 @@
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     let status = null;
     let localDeviceId = localStorage.getItem('jarvis-bridge-device-id') || '';
+    let localDeviceToken = localStorage.getItem('jarvis-bridge-device-token') || '';
     let lastEventId = '';
     async function refresh() {
       try {
         const response = await fetch('/api/bridge');
         status = await response.json();
-        $('pairing').textContent = status.pairing_code || 'indisponível';
         const devices = status.devices || [];
         const events = status.events || [];
         const latestCommand = events.slice().reverse().find(event => String(event.type || '').startsWith('device.turn_') || String(event.type || '').startsWith('device.set_'));
@@ -86,16 +87,16 @@
       return data;
     }
     async function command(target_id, commandName) {
-      try { const result = await post({action:'command', target_id, command:commandName, source:'bridge-test'}); $('message').textContent = result.executed ? `Comando ${commandName} recebido e executado.` : `Comando ${commandName} recebido.`; await refresh(); }
+      try { const result = await post({action:'command', target_id, command:commandName, source:localDeviceId, device_token:localDeviceToken}); $('message').textContent = result.executed ? `Comando ${commandName} recebido e executado.` : `Comando ${commandName} recebido.`; await refresh(); }
       catch (error) { $('message').textContent = error.message; }
     }
     async function heartbeat(showError = true) {
       if (!localDeviceId) return;
-      try { await post({action:'heartbeat', device_id:localDeviceId}); }
+      try { await post({action:'heartbeat', device_id:localDeviceId, device_token:localDeviceToken}); }
       catch (error) { if (showError) $('message').textContent = error.message; }
     }
     $('pair').onclick = async () => {
-      try { localDeviceId = $('deviceId').value.trim(); await post({action:'pair', device_id:localDeviceId, name:$('deviceName').value, kind:'client', platform:'mobile-web', transport:'lan', pairing_code:status?.pairing_code}); localStorage.setItem('jarvis-bridge-device-id', localDeviceId); $('message').textContent = 'Dispositivo pareado e conectado.'; await refresh(); }
+      try { localDeviceId = $('deviceId').value.trim(); const result = await post({action:'pair', device_id:localDeviceId, name:$('deviceName').value, kind:'client', platform:'mobile-web', transport:'lan', pairing_code:$('pairingCode').value.trim()}); localDeviceToken = result.device_token || ''; localStorage.setItem('jarvis-bridge-device-id', localDeviceId); localStorage.setItem('jarvis-bridge-device-token', localDeviceToken); $('message').textContent = 'Dispositivo pareado e conectado.'; await refresh(); }
       catch (error) { $('message').textContent = error.message; }
     };
     refresh(); setInterval(refresh, 3000); setInterval(() => heartbeat(true), 15000);

@@ -6,27 +6,39 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
-from app.storage.runtime_settings import get_llm_provider
-
+from app.storage.runtime_settings import get_llm_provider, resolve_ai_routes
+from app.services.stm_filters import stm_filter
 
 import time
+
+try:
+    from app.services.llm_router import SmartLLMRouter
+    _smart_router = SmartLLMRouter()
+    SMART_ROUTER_AVAILABLE = True
+except Exception:
+    _smart_router = None  # type: ignore[assignment]
+    SMART_ROUTER_AVAILABLE = False
 
 class KeyRotator:
     """
     Gerencia rotação inteligente de múltiplas chaves de API (Round-Robin / Failover)
-    para Groq e Gemini com suporte a tempo de espera (cooldown) em caso de limite 429.
+    para Groq, Gemini e Oxyy com suporte a tempo de espera (cooldown) em caso de limite 429.
     """
     def __init__(self) -> None:
         self.cooldowns: dict[str, float] = {}
-        self.indices: dict[str, int] = {"groq": 0, "gemini": 0}
+        self.indices: dict[str, int] = {"groq": 0, "gemini": 0, "oxyy": 0}
 
-    def get_key(self, provider: str, settings: Any) -> str:
+    def _cleaned_keys(self, provider: str, settings: Any) -> list[str]:
         if provider == "groq":
             keys = getattr(settings, "groq_api_keys", []) or [getattr(settings, "groq_api_key", "")]
+        elif provider == "oxyy":
+            keys = getattr(settings, "oxyy_api_keys", []) or [getattr(settings, "oxyy_api_key", "")]
         else:
             keys = getattr(settings, "gemini_api_keys", []) or [getattr(settings, "gemini_api_key", "")]
+        return [k.strip() for k in keys if k and str(k).strip()]
 
-        cleaned = [k.strip() for k in keys if k and str(k).strip()]
+    def get_key(self, provider: str, settings: Any) -> str:
+        cleaned = self._cleaned_keys(provider, settings)
         if not cleaned:
             return ""
 
@@ -42,26 +54,29 @@ class KeyRotator:
                 self.indices[provider] = idx
                 return k
 
-        # Se todas estiverem em cooldown, retorna a que vai liberar primeiro
-        best_k = min(cleaned, key=lambda k: self.cooldowns.get(k, 0))
-        return best_k
+        # Se todas estiverem em cooldown, NÃO retorna chave bloqueada para evitar spam e loop infinito 429
+        return ""
 
-    def mark_cooldown(self, key: str, duration_seconds: float = 300.0) -> None:
+    def mark_cooldown(self, key: str, duration_seconds: float = 60.0) -> None:
         if not key:
             return
         self.cooldowns[key] = time.time() + duration_seconds
         print(f"[KeyRotator] Chave {key[:8]}... colocada em cooldown por {int(duration_seconds)}s devido a Rate Limit (429).")
 
     def rotate_next(self, provider: str, settings: Any) -> str:
-        if provider == "groq":
-            keys = getattr(settings, "groq_api_keys", []) or [getattr(settings, "groq_api_key", "")]
-        else:
-            keys = getattr(settings, "gemini_api_keys", []) or [getattr(settings, "gemini_api_key", "")]
-        cleaned = [k.strip() for k in keys if k and str(k).strip()]
+        cleaned = self._cleaned_keys(provider, settings)
         if not cleaned:
             return ""
-        self.indices[provider] = (self.indices.get(provider, 0) + 1) % len(cleaned)
-        return self.get_key(provider, settings)
+        now = time.time()
+        start_idx = (self.indices.get(provider, 0) + 1) % len(cleaned)
+        for i in range(len(cleaned)):
+            idx = (start_idx + i) % len(cleaned)
+            k = cleaned[idx]
+            if now >= self.cooldowns.get(k, 0):
+                self.indices[provider] = idx
+                return k
+        # Todas as chaves do provider estão em cooldown
+        return ""
 
 _key_rotator = KeyRotator()
 
@@ -78,21 +93,51 @@ class LLMService:
     settings: Any
 
     def get_active_provider(self, override: str | None = None) -> str:
-        if override and override.lower() in {"gemini", "groq"}:
+        if override and override.lower() in {"gemini", "groq", "oxyy"}:
             return override.lower()
         env_default = getattr(self.settings, "llm_provider", "gemini") or "gemini"
-        provider = get_llm_provider(env_default)
-        
-        # Fallback: se Gemini não tem API key, usa Groq
-        if provider == "gemini" and not self._api_key_for("gemini"):
-            if self._api_key_for("groq"):
-                print("[LLM] Gemini API key não configurada, usando Groq como fallback")
-                return "groq"
-        
+        route = resolve_ai_routes({"llm_provider": env_default}).get("chat", {})
+        effective = route.get("effective") or route.get("primary") or {"provider": get_llm_provider(env_default)}
+        provider = str(effective.get("provider", env_default)).lower()
+        if route.get("fallback_used"):
+            print(f"[LLM] Rota chat efetiva: {provider} ({effective.get('model')}); {route.get('reason')}")
         return provider
 
     def _api_key_for(self, provider: str) -> str:
         return _key_rotator.get_key(provider, self.settings)
+
+    _SAFE_MODEL_FALLBACKS = {
+        "oxyy": "gpt-4o-mini",
+        "groq": "llama-3.3-70b-versatile",
+        "gemini": "gemini-2.5-flash",
+    }
+
+    def _sanitize_model(self, model: str, provider: str) -> str:
+        """Rejeita IDs de placeholder/corrompidos e retorna um modelo seguro."""
+        bad_prefixes = ("official-", "the provider", "unknown", "qwen3-235b")
+        if not model or any(model.startswith(p) for p in bad_prefixes):
+            safe = self._SAFE_MODEL_FALLBACKS.get(provider, "gpt-4o-mini")
+            print(f"[LLM] Modelo invalido '{model}' rejeitado para {provider}, usando fallback: {safe}")
+            return safe
+        return model
+
+    def _effective_chat_model(self, provider: str | None = None) -> str:
+        """Retorna o modelo da rota efetiva, sem deixar cada método escolher outro."""
+        active = provider or self.get_active_provider()
+        route = resolve_ai_routes().get("chat", {})
+        effective = route.get("effective") or {}
+        if effective.get("provider") == active and effective.get("model"):
+            return self._sanitize_model(str(effective["model"]), active)
+        primary = route.get("primary") or {}
+        if primary.get("provider") == active and primary.get("model"):
+            return self._sanitize_model(str(primary["model"]), active)
+        defaults = {
+            "groq": getattr(self.settings, "groq_model", "llama-3.3-70b-versatile"),
+            "oxyy": getattr(self.settings, "oxyy_chat_model", getattr(self.settings, "oxyy_model", "gemini-2.5-flash")),
+            "gemini": getattr(self.settings, "llm_model", "gemini-flash-latest"),
+        }
+        result = str(defaults.get(active, defaults["gemini"]))
+        return self._sanitize_model(result, active)
 
     def ask(
         self,
@@ -176,15 +221,40 @@ class LLMService:
         system_instruction: str | None = None,
         provider: str | None = None,
     ) -> LLMResponse:
+        # SmartLLMRouter: auto-seleciona provedor se nenhum foi forçado
+        if provider is None and SMART_ROUTER_AVAILABLE and _smart_router is not None:
+            prompt_text = contents if isinstance(contents, str) else str(contents)[:300]
+            has_image = isinstance(contents, list) and any(
+                isinstance(c, dict) and c.get("mime_type", "").startswith("image") for c in contents
+            )
+            decision = _smart_router.route(prompt_text, has_image=has_image)
+            if _smart_router.is_provider_healthy(decision.primary_provider):
+                provider = decision.primary_provider
+
         active = self.get_active_provider(provider)
         api_key = self._api_key_for(active)
         if not api_key:
-            key_name = "GROQ_API_KEY" if active == "groq" else "GEMINI_API_KEY"
+            key_name = {"groq": "GROQ_API_KEY", "oxyy": "OXYY_API_KEY"}.get(active, "GEMINI_API_KEY")
             raise ValueError(f"{key_name} não configurada.")
 
-        if active == "groq":
-            return self._generate_groq(contents, tools, system_instruction, api_key)
-        return self._generate_gemini(contents, tools, system_instruction, api_key)
+        try:
+            if active == "groq":
+                return self._generate_groq(contents, tools, system_instruction, api_key)
+            if active == "oxyy":
+                return self._generate_oxyy(contents, tools, system_instruction, api_key)
+            return self._generate_gemini(contents, tools, system_instruction, api_key)
+        except Exception as exc:
+            # Failover automático: marca provedor com erro e tenta o fallback
+            if SMART_ROUTER_AVAILABLE and _smart_router is not None:
+                _smart_router.mark_provider_error(active)
+                fallback = "groq" if active != "groq" else "gemini"
+                fallback_key = self._api_key_for(fallback)
+                if fallback_key:
+                    print(f"[LLM] Failover automático: {active} → {fallback} ({exc})")
+                    if fallback == "groq":
+                        return self._generate_groq(contents, tools, system_instruction, fallback_key)
+                    return self._generate_gemini(contents, tools, system_instruction, fallback_key)
+            raise
 
     def generate_stream(
         self,
@@ -198,12 +268,64 @@ class LLMService:
         active = self.get_active_provider(provider)
         api_key = self._api_key_for(active)
         if not api_key:
-            key_name = "GROQ_API_KEY" if active == "groq" else "GEMINI_API_KEY"
+            key_name = {"groq": "GROQ_API_KEY", "oxyy": "OXYY_API_KEY"}.get(active, "GEMINI_API_KEY")
             raise ValueError(f"{key_name} não configurada.")
 
         if active == "groq":
             return self._generate_groq_stream(contents, on_chunk, tools, system_instruction, api_key, on_reasoning)
+        if active == "oxyy":
+            return self._generate_oxyy_stream(contents, on_chunk, tools, system_instruction, api_key, on_reasoning)
         return self._generate_gemini_stream(contents, on_chunk, tools, system_instruction, api_key, on_reasoning)
+
+    def _oxyy_client(self, api_key: str):
+        from openai import OpenAI
+        return OpenAI(
+            api_key=api_key,
+            base_url=getattr(self.settings, "oxyy_base_url", "https://api.oxyy.ai/v1"),
+        )
+
+    def _oxyy_kwargs(self, contents: Any, tools: list[dict[str, Any]] | None, system_instruction: str | None) -> dict[str, Any]:
+        raw_model = self._effective_chat_model("oxyy")
+        model = self._sanitize_model(raw_model, "oxyy")
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": self._contents_to_openai_messages(contents, system_instruction),
+            "temperature": 0.4,
+        }
+        if tools:
+            kwargs["tools"] = [{"type": "function", "function": {
+                "name": t["name"], "description": t.get("description", ""), "parameters": t["parameters"]
+            }} for t in tools]
+            kwargs["tool_choice"] = "auto"
+        return kwargs
+
+    def _generate_oxyy(self, contents: Any, tools: list[dict[str, Any]] | None, system_instruction: str | None, api_key: str) -> LLMResponse:
+        completion = self._oxyy_client(api_key).chat.completions.create(**self._oxyy_kwargs(contents, tools, system_instruction))
+        message = completion.choices[0].message
+        calls: list[Any] = []
+        for tc in getattr(message, "tool_calls", None) or []:
+            fn = tc.function
+            try:
+                args = json.loads(fn.arguments or "{}")
+            except Exception:
+                args = {}
+            calls.append(SimpleNamespace(name=fn.name, args=args, id=getattr(tc, "id", None)))
+        return LLMResponse(text=getattr(message, "content", None), function_calls=calls)
+
+    def _generate_oxyy_stream(self, contents: Any, on_chunk: Any, tools: list[dict[str, Any]] | None, system_instruction: str | None, api_key: str, on_reasoning: Any = None) -> LLMResponse:
+        kwargs = self._oxyy_kwargs(contents, tools, system_instruction)
+        kwargs["stream"] = True
+        text = ""
+        for chunk in self._oxyy_client(api_key).chat.completions.create(**kwargs):
+            if not getattr(chunk, "choices", None):
+                continue
+            delta = chunk.choices[0].delta
+            piece = getattr(delta, "content", None)
+            if piece:
+                text += piece
+                if on_chunk:
+                    on_chunk(piece)
+        return LLMResponse(text=text)
 
     def _generate_groq_stream(
         self,
@@ -215,8 +337,8 @@ class LLMService:
         on_reasoning: Any = None,
     ) -> LLMResponse:
         from groq import Groq
-        client = Groq(api_key=api_key)
-        model_name = getattr(self.settings, "groq_model", "llama-3.3-70b-versatile")
+        client = Groq(api_key=api_key, max_retries=0)
+        model_name = self._effective_chat_model("groq")
         messages = self._contents_to_openai_messages(contents, system_instruction)
 
         kwargs: dict[str, Any] = {
@@ -250,6 +372,13 @@ class LLMService:
                             pass
             return LLMResponse(text="".join(full_chunks))
         except Exception as e:
+            err_str = str(e).lower()
+            if "429" in err_str or "rate_limit" in err_str or "limit" in err_str:
+                _key_rotator.mark_cooldown(api_key, duration_seconds=60.0)
+                next_key = _key_rotator.rotate_next("groq", self.settings)
+                if next_key and next_key != api_key:
+                    print(f"[Groq Stream] 429 detectado. Rotação IMEDIATA para chave ({next_key[:8]}...).")
+                    return self._generate_groq_stream(contents, on_chunk, tools, system_instruction, next_key, on_reasoning)
             print(f"[LLMStream Groq] Fallback devido a erro: {e}")
             return self._generate_groq(contents, tools, system_instruction, api_key)
 
@@ -265,11 +394,13 @@ class LLMService:
         from google import genai
         from google.genai import types
         client = genai.Client(api_key=api_key)
-        model_name = getattr(self.settings, "llm_model", "gemini-flash-latest")
+        model_name = self._effective_chat_model("gemini")
         config_args: dict[str, Any] = {}
         if system_instruction:
             config_args["system_instruction"] = system_instruction
-        config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
+        # Only enable thinking_config if on_reasoning callback is provided (user wants to see thoughts)
+        if on_reasoning:
+            config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
 
         full_chunks = []
         try:
@@ -320,8 +451,8 @@ class LLMService:
 
         if active == "groq":
             from groq import Groq
-            client = Groq(api_key=api_key)
-            model_name = getattr(self.settings, "groq_model", "llama-3.3-70b-versatile")
+            client = Groq(api_key=api_key, max_retries=0)
+            model_name = self._effective_chat_model("groq")
             
             kwargs = {
                 "model": model_name,
@@ -371,7 +502,7 @@ class LLMService:
         from google.genai import types
 
         client = genai.Client(api_key=api_key)
-        model_name = getattr(self.settings, "llm_model", "gemini-flash-latest")
+        model_name = self._effective_chat_model("gemini")
 
         config_args: dict[str, Any] = {}
         if system_instruction:
@@ -435,8 +566,8 @@ class LLMService:
     ) -> LLMResponse:
         from groq import Groq
 
-        client = Groq(api_key=api_key)
-        model_name = getattr(self.settings, "groq_model", "llama-3.3-70b-versatile")
+        client = Groq(api_key=api_key, max_retries=0)
+        model_name = self._effective_chat_model("groq")
         messages = self._contents_to_openai_messages(contents, system_instruction)
 
         kwargs: dict[str, Any] = {
@@ -478,6 +609,13 @@ class LLMService:
                     args = {}
                 function_calls.append(SimpleNamespace(name=fn.name, args=args))
         except Exception as e:
+            err_str = str(e).lower()
+            if "429" in err_str or "rate_limit" in err_str or "limit" in err_str:
+                _key_rotator.mark_cooldown(api_key, duration_seconds=60.0)
+                next_key = _key_rotator.rotate_next("groq", self.settings)
+                if next_key and next_key != api_key:
+                    print(f"[Groq Generate] 429 detectado. Rotação IMEDIATA para chave ({next_key[:8]}...).")
+                    return self._generate_groq(contents, tools, system_instruction, next_key)
             # Se erro de validação de tools, retry sem tools
             if "tool" in str(e).lower() or "validation" in str(e).lower():
                 print(f"[Groq] Erro de validação de tools: {e}. Retry sem tools.")
@@ -503,13 +641,14 @@ class LLMService:
         on_chunk: callable | None = None,
         force_tool: bool = False,
         on_reasoning: callable | None = None,
+        provider: str | None = None,
     ) -> str | None:
         """Chat com function calling nativo para Gemini e Groq.
 
         on_reasoning recebe, em tempo real, os fragmentos de raciocínio do modelo
         (reasoning_content no Groq / thought parts no Gemini) para exibição ao vivo.
         """
-        active_provider = self.get_active_provider()
+        active_provider = self.get_active_provider(provider)
         if active_provider == "groq":
             return self._chat_groq_stream(
                 system_instruction=system_instruction,
@@ -519,7 +658,35 @@ class LLMService:
                 on_chunk=on_chunk,
                 on_reasoning=on_reasoning,
             )
+        if active_provider == "oxyy":
+            return self._chat_oxyy_stream(
+                system_instruction=system_instruction,
+                messages=messages,
+                tools=tools,
+                on_function_call=on_function_call,
+                on_chunk=on_chunk,
+            )
 
+        return self._chat_gemini_stream(
+            system_instruction=system_instruction,
+            messages=messages,
+            tools=tools,
+            on_function_call=on_function_call,
+            on_chunk=on_chunk,
+            force_tool=force_tool,
+            on_reasoning=on_reasoning,
+        )
+
+    def _chat_gemini_stream(
+        self,
+        system_instruction: str,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        on_function_call: callable | None = None,
+        on_chunk: callable | None = None,
+        force_tool: bool = False,
+        on_reasoning: callable | None = None,
+    ) -> str | None:
         api_key = self._api_key_for("gemini")
         if not api_key:
             return None
@@ -530,7 +697,7 @@ class LLMService:
             from google.genai import types
 
             client = genai.Client(api_key=api_key)
-            model_name = getattr(self.settings, "llm_model", "gemini-flash-latest")
+            model_name = self._effective_chat_model("gemini")
 
             # Recuperar a última mensagem do usuário (suporta 'content' e 'text')
             last_user_msg = ""
@@ -709,10 +876,27 @@ class LLMService:
             except Exception:
                 pass
 
+            err_str = str(e).lower()
+            # Rotação IMEDIATA entre chaves Gemini se houver mais de uma
+            if "429" in err_str or "resource_exhausted" in err_str:
+                _key_rotator.mark_cooldown(api_key, duration_seconds=60.0)
+                next_key = _key_rotator.rotate_next("gemini", self.settings)
+                if next_key and next_key != api_key:
+                    print(f"[Gemini Stream] 429 detectado. Rotação IMEDIATA para chave Gemini ({next_key[:8]}...).")
+                    return self._chat_gemini_stream(
+                        system_instruction=system_instruction,
+                        messages=messages,
+                        tools=tools,
+                        on_function_call=on_function_call,
+                        on_chunk=on_chunk,
+                        force_tool=force_tool,
+                        on_reasoning=on_reasoning,
+                    )
+
             # Fallback automático para Groq em caso de Rate Limit (429) ou erro na API Gemini
             groq_key = self._api_key_for("groq")
             if groq_key:
-                print("[LLM] Fallback automático para Groq...")
+                print("[LLM] Falha no Gemini. Fallback IMEDIATO para Groq...")
                 try:
                     return self._chat_groq_stream(
                         system_instruction=system_instruction or "",
@@ -725,11 +909,87 @@ class LLMService:
                 except Exception as groq_err:
                     print(f"[LLM] Falha no fallback Groq: {groq_err}")
 
-            if "429" in str(e) or "resource_exhausted" in str(e).lower():
+            if "429" in err_str or "resource_exhausted" in err_str:
                 raise ValueError("Limite de taxa da API Gemini excedido. Altere o provedor para 'Groq' nas Configurações do painel.")
             raise
 
 
+
+    def _chat_oxyy_stream(
+        self,
+        system_instruction: str,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        on_function_call: callable | None = None,
+        on_chunk: callable | None = None,
+    ) -> str | None:
+        """Chat OpenAI-compatible via Oxyy, com rotação de chaves e tools básicas."""
+        api_key = self._api_key_for("oxyy")
+        if not api_key:
+            return None
+        client = self._oxyy_client(api_key)
+        payload_messages: list[dict[str, Any]] = []
+        if system_instruction:
+            payload_messages.append({"role": "system", "content": system_instruction})
+        payload_messages.extend(messages or [])
+        kwargs = self._oxyy_kwargs([], tools, None)
+        kwargs["messages"] = payload_messages
+        kwargs["stream"] = True
+        text = ""
+        tool_calls: dict[int, dict[str, str]] = {}
+        try:
+            stream = client.chat.completions.create(**kwargs)
+            for chunk in stream:
+                if not getattr(chunk, "choices", None):
+                    continue
+                delta = chunk.choices[0].delta
+                piece = getattr(delta, "content", None)
+                if piece:
+                    text += piece
+                    if on_chunk:
+                        on_chunk(piece)
+                for tc in getattr(delta, "tool_calls", None) or []:
+                    idx = getattr(tc, "index", 0) or 0
+                    entry = tool_calls.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                    if getattr(tc, "id", None):
+                        entry["id"] = tc.id
+                    fn = getattr(tc, "function", None)
+                    if fn is not None:
+                        if getattr(fn, "name", None):
+                            entry["name"] = fn.name
+                        if getattr(fn, "arguments", None):
+                            entry["arguments"] += fn.arguments
+            if not tool_calls:
+                return text or None
+            assistant_call = {"role": "assistant", "content": text or None, "tool_calls": []}
+            results: list[dict[str, Any]] = []
+            for entry in [tool_calls[i] for i in sorted(tool_calls)]:
+                assistant_call["tool_calls"].append({"id": entry["id"], "type": "function", "function": {"name": entry["name"], "arguments": entry["arguments"] or "{}"}})
+                try:
+                    args = json.loads(entry["arguments"] or "{}")
+                except Exception:
+                    args = {}
+                result = on_function_call(entry["name"], args) if on_function_call else "Ação concluída."
+                results.append({"role": "tool", "tool_call_id": entry["id"], "content": str(result)})
+            final_messages = payload_messages + [assistant_call] + results
+            final_kwargs = {"model": self._effective_chat_model("oxyy"), "messages": final_messages, "temperature": 0.4, "stream": True}
+            final_text = ""
+            for chunk in client.chat.completions.create(**final_kwargs):
+                if not getattr(chunk, "choices", None):
+                    continue
+                piece = getattr(chunk.choices[0].delta, "content", None)
+                if piece:
+                    final_text += piece
+                    if on_chunk:
+                        on_chunk(piece)
+            return final_text or text or None
+        except Exception as exc:
+            if "429" in str(exc) or "rate" in str(exc).lower() or "limit" in str(exc).lower():
+                _key_rotator.mark_cooldown(api_key, duration_seconds=600.0)
+                next_key = _key_rotator.rotate_next("oxyy", self.settings)
+                if next_key and next_key != api_key:
+                    return self._chat_oxyy_stream(system_instruction, messages, tools, on_function_call, on_chunk)
+            raise
 
     def _chat_groq_stream(
         self,
@@ -739,38 +999,97 @@ class LLMService:
         on_function_call: callable | None = None,
         on_chunk: callable | None = None,
         on_reasoning: callable | None = None,
+        tried_keys: set[str] | None = None,
     ) -> str | None:
         """Function calling nativo de 2 etapas para Groq (streaming + reasoning)."""
         from groq import Groq
+        if tried_keys is None:
+            tried_keys = set()
+
         api_key = self._api_key_for("groq")
         if not api_key:
+            api_key = _key_rotator.rotate_next("groq", self.settings)
+
+        if not api_key or api_key in tried_keys:
+            gemini_key = self._api_key_for("gemini")
+            if gemini_key:
+                print("[LLM] Todas as chaves Groq em cooldown (429). Fallback IMEDIATO para Gemini...")
+                return self._chat_gemini_stream(
+                    system_instruction=system_instruction,
+                    messages=messages,
+                    tools=tools,
+                    on_function_call=on_function_call,
+                    on_chunk=on_chunk,
+                    force_tool=False,
+                    on_reasoning=on_reasoning,
+                )
+            oxyy_key = self._api_key_for("oxyy")
+            if oxyy_key:
+                print("[LLM] Todas as chaves Groq em cooldown (429). Fallback IMEDIATO para Oxyy...")
+                return self._chat_oxyy_stream(
+                    system_instruction=system_instruction,
+                    messages=messages,
+                    tools=tools,
+                    on_function_call=on_function_call,
+                    on_chunk=on_chunk,
+                )
             return None
 
-        client = Groq(api_key=api_key)
-        model_name = getattr(self.settings, "groq_model", "llama-3.3-70b-versatile")
+        client = Groq(api_key=api_key, max_retries=0)
+        model_name = self._effective_chat_model("groq")
 
         formatted_messages: list[dict[str, Any]] = []
         if system_instruction:
             formatted_messages.append({"role": "system", "content": system_instruction})
 
-        for m in messages or []:
+        # Limita histórico recente para não estourar limite de TPM (8000 TPM no gpt-oss-120b na Groq)
+        history_msgs = [m for m in (messages or []) if (m.get("content") or m.get("text"))]
+        if len(history_msgs) > 10:
+            history_msgs = history_msgs[-10:]
+
+        for m in history_msgs:
             role = m.get("role", "user")
-            content = m.get("content") or m.get("text") or ""
+            content = str(m.get("content") or m.get("text") or "")
             if content:
+                if len(content) > 3000:
+                    content = content[:3000] + "... [truncado para caber no contexto]"
                 formatted_messages.append({"role": role, "content": content})
 
         groq_tools = None
         if tools:
+            # Proteção contra estouro de TPM na Groq:
+            # Enviar 35 ferramentas consome ~6500 tokens só de schemas.
+            # Filtramos para as essenciais + quaisquer mencionadas na última fala do usuário:
+            core_groq_names = {
+                "web_search", "system_control", "open_windows_app", "timer",
+                "spotify", "whatsapp", "calendar", "file_manager", "notes",
+                "cinema", "script_runner", "image_generator", "vision"
+            }
+            last_user_content = ""
+            for msg in reversed(messages or []):
+                if msg.get("role") == "user":
+                    last_user_content = str(msg.get("content") or "").lower()
+                    break
+
+            selected_tools = []
+            for tool in tools:
+                t_name = tool.get("name", "")
+                if t_name in core_groq_names or t_name in last_user_content or t_name.replace("_", " ") in last_user_content:
+                    selected_tools.append(tool)
+
+            if not selected_tools:
+                selected_tools = tools[:8]
+
             groq_tools = [
                 {
                     "type": "function",
                     "function": {
                         "name": tool["name"],
-                        "description": tool.get("description", ""),
+                        "description": (tool.get("description", "") or "")[:200],
                         "parameters": tool["parameters"],
                     },
                 }
-                for tool in tools
+                for tool in selected_tools
             ]
 
         def _emit_reasoning(piece: str) -> None:
@@ -948,14 +1267,30 @@ class LLMService:
 
             print(f"[Groq Function Calling Stream] Erro: {e}")
             err_str = str(e).lower()
-            if "429" in err_str or "rate_limit" in err_str or "limit" in err_str or "tpd" in err_str:
-                # Marca a chave atual em cooldown (10 min)
-                _key_rotator.mark_cooldown(api_key, duration_seconds=600.0)
+            if "413" in err_str or "too large" in err_str or "message size" in err_str:
+                print("[Groq] Contexto excedeu limite de TPM/tamanho (413). Compactando histórico para 3 mensagens...")
+                reduced_messages = (messages or [])[-3:]
+                try:
+                    return self._chat_groq_stream(
+                        system_instruction=system_instruction[:1500] if system_instruction else None,
+                        messages=reduced_messages,
+                        tools=None,
+                        on_function_call=on_function_call,
+                        on_chunk=on_chunk,
+                        on_reasoning=on_reasoning,
+                    )
+                except Exception as retry_413_err:
+                    print(f"[Groq] Falha após compactação: {retry_413_err}")
 
-                # Tenta a proxima chave do pool Groq
+            if "429" in err_str or "rate_limit" in err_str or "limit" in err_str or "tpd" in err_str:
+                # Marca a chave atual em cooldown (60s)
+                _key_rotator.mark_cooldown(api_key, duration_seconds=60.0)
+                tried_keys.add(api_key)
+
+                # Tenta a próxima chave do pool Groq livre que ainda não foi tentada nesta chamada
                 next_key = _key_rotator.rotate_next("groq", self.settings)
-                if next_key and next_key != api_key:
-                    print(f"[Groq] Alternando para proxima chave do pool ({next_key[:8]}...)...")
+                if next_key and next_key not in tried_keys:
+                    print(f"[Groq] Rate limit (429)! Alternando IMEDIATAMENTE para próxima chave ({next_key[:8]}...)...")
                     try:
                         return self._chat_groq_stream(
                             system_instruction=system_instruction,
@@ -964,27 +1299,44 @@ class LLMService:
                             on_function_call=on_function_call,
                             on_chunk=on_chunk,
                             on_reasoning=on_reasoning,
+                            tried_keys=tried_keys,
                         )
                     except Exception as retry_err:
-                        print(f"[Groq] Falha com chave secundaria: {retry_err}")
+                        print(f"[Groq] Falha com chave secundária: {retry_err}")
 
-                # Fallback automatico para Gemini se todas as chaves Groq falharem
+                # Fallback automático IMEDIATO para Gemini se todas as chaves Groq falharem ou estiverem em cooldown
                 gemini_key = self._api_key_for("gemini")
                 if gemini_key:
-                    print("[LLM] Todas as chaves Groq esgotadas. Fallback automatico de emergencia para Gemini...")
+                    print("[LLM] Todas as chaves Groq em cooldown (429). Fallback IMEDIATO para Gemini...")
                     try:
-                        return self.chat_with_functions_stream(
+                        return self._chat_gemini_stream(
                             system_instruction=system_instruction,
                             messages=messages,
                             tools=tools,
                             on_function_call=on_function_call,
                             on_chunk=on_chunk,
+                            force_tool=False,
                             on_reasoning=on_reasoning,
                         )
                     except Exception as gem_err:
                         print(f"[LLM] Falha no fallback para Gemini: {gem_err}")
 
-                raise ValueError("Todas as chaves da API Groq atingiram o limite de cota (TPD/TPM). Por favor, adicione mais chaves em GROQ_API_KEYS no .env ou altere para 'Gemini' nas Configuracoes.")
+                # Se Gemini falhar, tenta Oxyy
+                oxyy_key = self._api_key_for("oxyy")
+                if oxyy_key:
+                    print("[LLM] Fallback IMEDIATO para Oxyy...")
+                    try:
+                        return self._chat_oxyy_stream(
+                            system_instruction=system_instruction,
+                            messages=messages,
+                            tools=tools,
+                            on_function_call=on_function_call,
+                            on_chunk=on_chunk,
+                        )
+                    except Exception as oxyy_err:
+                        print(f"[LLM] Falha no fallback para Oxyy: {oxyy_err}")
+
+                raise ValueError("Todas as chaves da API Groq atingiram o limite de cota (429) e nenhum fallback respondeu.")
             raise
 
 

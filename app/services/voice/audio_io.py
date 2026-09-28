@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import time
 import threading
 from pathlib import Path

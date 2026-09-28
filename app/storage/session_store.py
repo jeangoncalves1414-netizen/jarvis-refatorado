@@ -21,8 +21,10 @@ def _read() -> dict[str, Any]:
 
 
 def _write(data: dict[str, Any]) -> None:
-    with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
+    tmp = f"{SESSIONS_FILE}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, SESSIONS_FILE)
 
 
 def _find_session(data: dict[str, Any], session_id: str) -> dict[str, Any] | None:
