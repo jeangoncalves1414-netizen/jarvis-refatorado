@@ -841,6 +841,11 @@ export default function App() {
         onNavigate={(screen) => {
           playToggle()
           setActive(screen)
+          try {
+            localStorage.setItem(ACTIVE_SCREEN_KEY, screen)
+          } catch {
+            /* ignore storage error */
+          }
         }}
         onOpenQuestLog={questLog.openQuestLog}
         onOpenToolForge={() => setIsToolForgeOpen(true)}
