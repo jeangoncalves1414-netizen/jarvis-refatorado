@@ -23,7 +23,7 @@ Este documento centraliza todas as funcionalidades, arquiteturas e oportunidades
 
 | Funcionalidade / Inovação | Origem | Estado Atual no Jarvis | Precisa Implementar no Jarvis? |
 | :--- | :--- | :--- | :--- |
-| **Orb 3D & Avatar Reativo em Three.js** | `Ada-SI` / `IRIS-X` / `IRIS-AI` | 2D HTML Canvas simples (`JarvisOrb.tsx`). | **SIM 🚀** (WebGL/Three.js, rotação por ponteiro, reatividade à voz e 5 estados de agente). |
+| **Orb Canônico (Quantum Arc Core Holográfico)** | `Jarvis Original` | Canvas 2D holográfico com anéis concêntricos ciano, tacômetro, ondas senoidais e HUD. | **CANÔNICO FIXO 🔒** (Visualizador definitivo; esferas 3D Three.js rejeitadas). |
 | **Quest Log / Drawer Lateral de Etapas** | `Ada-SI` | Accordion estático `Reasoning.tsx` no chat. | **SIM 🚀** (Drawer retrátil com cronômetro, status por sub-etapa e botão de abortar). |
 | **Tool Forge (Pipeline de Criação de Tools)** | `Ada-SI` / `IRIS-AI` | Execução manual via `DevAgent`/`HackerMode`. | **SIM 🚀** (Pipeline com `ToolPlanCard`, `ToolBuildViewer`, `PipApprovalCard` e `UiPreviewCard`). |
 | **Busca Indexada na Área de Trabalho (Desktop Search)** | `Brahma-AI` / `IRIS-AI` / `Mark-L` | Manipulação genérica de arquivos em lote. | **SIM 🚀** (Busca rápida por categorias *code*, *doc*, *image* e filtros temporais *today*, *yesterday*). |
@@ -50,9 +50,9 @@ Este documento centraliza todas as funcionalidades, arquiteturas e oportunidades
 - [x] Implementar o `QuestLogPanel` (drawer lateral retrátil) no frontend React com status de sub-etapas (*pending*, *active*, *done*, *error*), cronômetro e botão de abortar quest.
 - [x] Adicionar **Instant Vision Acknowledgment**: feedback sonoro/visual imediato ao solicitar análise de tela antes do processamento do modelo.
 
-### 📍 Fase 2: Jarvis Orb 3D Reativo (Three.js & WebGL)
-- [x] Substituir o canvas 2D do `JarvisOrb.tsx` por um visualizer 3D em Three.js (`JarvisOrb3D.tsx`).
-- [x] Adicionar rotação interativa com o ponteiro do mouse, partículas iluminadas e transição fluida entre os 5 estados: `idle`, `thinking`, `streaming`, `tool_executing`, `celebrating`.
+### 📍 Fase 2: Jarvis Orb Canônico (Quantum Arc Reactor Core Holográfico)
+- [x] **Canônico & Intocável:** Manter estritamente o visualizador holográfico **Quantum Arc Reactor Core** em Canvas 2D (`JarvisOrb3D.tsx` / `JarvisOrb.tsx`), com anéis concêntricos ciano `#00daf8` em contra-rotação, tacômetro, onda senoidal reativa a voz e núcleo quântico com HUD central.
+- [!] **REJEITADO DEFINITIVAMENTE:** Esferas 3D Three.js sólidas, modelos tridimensionais com SphereGeometry e runas amarelas foram expressamente proibidos pelo usuário e não devem ser reintroduzidos sob hipótese alguma.
 
 ### 📍 Fase 3: Continuidade de Sessão, Proatividade 2.0 & Monitor de Tópicos
 - [x] Implementar o **Session Memory Engine**: gerar um resumo curto ao final de cada sessão e integrá-lo ao briefing do dia seguinte (`save_session_summary`, `get_yesterday_summary`).
