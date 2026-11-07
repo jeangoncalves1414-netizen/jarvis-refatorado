@@ -112,10 +112,28 @@ class ToolMetadata:
     reversible: bool = False
 
     requires_confirmation: bool = False
+    # Risco por operação, para ferramentas que fazem coisas diferentes conforme
+    # um argumento. A operação é o valor da primeira chave de
+    # ``operation_arguments`` presente; sem nenhuma, vale ``default_operation``,
+    # que deve espelhar o padrão da própria ferramenta. Operação fora de
+    # ``operation_risks`` recebe "critical", o risco mais estrito.
+    operation_arguments: tuple[str, ...] = ()
+    default_operation: str = ""
+    operation_risks: tuple[tuple[str, ActionRisk], ...] = ()
 
     def __post_init__(self) -> None:
-        if self.default_risk not in RISKS:
-            raise ValueError(f"Risco de ferramenta inválido: {self.default_risk}")
+        for risk in (self.default_risk, *(risk for _operation, risk in self.operation_risks)):
+            if risk not in RISKS:
+                raise ValueError(f"Risco de ferramenta inválido: {risk}")
+
+    def risk_for(self, arguments: dict[str, Any] | None) -> ActionRisk:
+        """Risco desta chamada: o da operação pedida ou, sem mapa por operação, ``default_risk``."""
+        if not self.operation_risks:
+            return self.default_risk
+        arguments = arguments or {}
+        key = next((name for name in self.operation_arguments if name in arguments), None)
+        operation = str(arguments[key] if key else self.default_operation).strip().lower()
+        return dict(self.operation_risks).get(operation, "critical")
 
 
 @dataclass(slots=True)
@@ -140,11 +158,12 @@ class ActionRecord:
     @classmethod
     def create(cls, *, source: str, tool_name: str, metadata: ToolMetadata, arguments: dict[str, Any], preview: str) -> "ActionRecord":
         now = time.time()
-        status: ActionStatus = "awaiting_confirmation" if metadata.requires_confirmation or metadata.default_risk in {"high", "critical"} else "proposed"
+        risk = metadata.risk_for(arguments)
+        status: ActionStatus = "awaiting_confirmation" if metadata.requires_confirmation or risk in {"high", "critical"} else "proposed"
         return cls(
             id=f"act_{uuid.uuid4().hex}", source=source[:80], tool_name=tool_name[:120],
             capability=(metadata.capabilities[0] if metadata.capabilities else "general")[:80],
-            arguments_digest=arguments_digest(arguments), risk=metadata.default_risk,
+            arguments_digest=arguments_digest(arguments), risk=risk,
             preview=redact(preview, limit=500), status=status, created_at=now, updated_at=now,
             correlation_id=uuid.uuid4().hex, reversible=metadata.reversible,
         )

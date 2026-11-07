@@ -6,12 +6,29 @@ fall back to their own metadata (or the conservative BaseTool default).
 """
 from __future__ import annotations
 
-from app.core.actions import ToolMetadata
+from app.core.actions import ActionRisk, ToolMetadata
+
+
+def _by_operation(**levels: tuple[str, ...]) -> tuple[tuple[str, ActionRisk], ...]:
+    """Agrupa operações por risco: ``observe=(...), low=(...), high=(...)``."""
+    return tuple((operation, risk) for risk, operations in levels.items() for operation in operations)
 
 
 TOOL_CATALOG: dict[str, ToolMetadata] = {
     "web_search": ToolMetadata(("web", "observe"), "observe"),
-    "system_control": ToolMetadata(("system", "observe"), "observe"),
+    # Ferramentas de controle têm risco por operação (ToolMetadata.risk_for).
+    # Os nomes espelham o despacho de cada ferramenta; o que estiver fora do
+    # mapa recebe "critical" e exige aprovação.
+    "system_control": ToolMetadata(
+        ("system", "control"), "critical",
+        # O caminho de marcadores envia a operação em "command".
+        operation_arguments=("action", "command"), default_operation="telemetry",
+        operation_risks=_by_operation(
+            observe=("telemetry", "list_processes"),
+            low=("open_app", "media_play_pause", "play", "pause", "media_next", "next",
+                 "media_prev", "prev", "previous", "volume_up", "volume_down", "volume_mute"),
+        ),
+    ),
     "vision": ToolMetadata(("vision", "observe"), "observe"),
     "realtime": ToolMetadata(("realtime", "observe"), "observe"),
     "desktop_search": ToolMetadata(("desktop", "observe"), "observe"),
@@ -23,7 +40,11 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
     "whiteboard_add_image": ToolMetadata(("whiteboard", "productivity"), "low", reversible=True),
     "whiteboard_edit": ToolMetadata(("whiteboard", "productivity"), "low", reversible=True),
     "whiteboard_clear": ToolMetadata(("whiteboard", "productivity"), "high", requires_confirmation=True),
-    "open_windows_app": ToolMetadata(("desktop", "application"), "low"),
+    "open_windows_app": ToolMetadata(
+        ("desktop", "application"), "critical",
+        operation_arguments=("action",), default_operation="open",
+        operation_risks=_by_operation(observe=("list", "status"), low=("open",), high=("close",)),
+    ),
     "spotify": ToolMetadata(("media",), "low"),
     "clipboard": ToolMetadata(("clipboard",), "low"),
     "whatsapp": ToolMetadata(("messaging",), "high", requires_confirmation=True),
