@@ -7,7 +7,7 @@ echo ===================================================
 
 cd /d "%~dp0\..\frontend"
 echo [1/3] Compilando frontend e sincronizando assets protegidos...
-call npm run build
+call npm run build:mobile
 if %errorlevel% neq 0 (
     echo [ERRO] Falha no build do frontend ou violacao de integridade da Orbe!
     exit /b %errorlevel%

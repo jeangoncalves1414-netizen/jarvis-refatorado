@@ -11,6 +11,11 @@ type AppShellProps = {
   hero?: ReactNode; children: ReactNode; quickActions: ReactNode
 }
 
+const build = __PANEL_BUILD__
+const builtAt = new Date(build.builtAt)
+const panelVersion = [`v${build.version}`, build.commit, import.meta.env.DEV ? 'dev' : builtAt.toLocaleDateString('pt-BR')].filter(Boolean).join(' · ')
+const panelVersionTitle = `Versão do painel ${build.version}${build.commit ? `, commit ${build.commit}` : ''}, ${import.meta.env.DEV ? 'servidor de desenvolvimento iniciado' : 'gerada'} em ${builtAt.toLocaleString('pt-BR')}`
+
 export function AppShell({ active, sidebarCollapsed, onToggleSidebar, onNavigate, sessions, sessionId, onSelectSession, onNewChat, onOpenCommands, operational, controls, hero, children, quickActions }: AppShellProps) {
   const [search, setSearch] = useState('')
   const [controlsOpen, setControlsOpen] = useState(true)
@@ -31,7 +36,7 @@ export function AppShell({ active, sidebarCollapsed, onToggleSidebar, onNavigate
     <nav aria-label="Navegação principal" className="ws-navigation">{navigation.filter(item => item.group === 'workspace').map(navButton)}</nav>
     <details className="ws-modules"><summary><span>Módulos pessoais</span><ChevronDown size={14} /></summary><nav aria-label="Módulos pessoais">{navigation.filter(item => item.group === 'modules').map(navButton)}</nav></details>
     <div className="ws-history"><div className="ws-section-heading"><span>CONVERSAS RECENTES</span><span>{sessions.length}</span></div><label className="ws-history-search"><Search size={13} /><input aria-label="Buscar conversas" placeholder="Filtrar conversas…" value={search} onChange={event => setSearch(event.target.value)} /></label><div className="ws-history-list">{sessions.filter(item => (item.title || 'Nova conversa').toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR'))).map(item => <button key={item.id} className={active === 'Chat' && item.id === sessionId ? 'selected' : ''} onClick={() => { onSelectSession(item.id); navigate('Chat') }} title={item.title || 'Nova conversa'}>{item.title || 'Nova conversa'}</button>)}{!sessions.length && <p>Suas conversas ficam aqui.</p>}</div></div>
-    <div className="ws-sidebar-footer">{navigation.filter(item => item.group === 'settings').map(navButton)}<div className="ws-local-status" title={statusLabel}><span className={`ws-dot ${status}`} /><span>{statusLabel}</span><Command size={13} /></div></div>
+    <div className="ws-sidebar-footer">{navigation.filter(item => item.group === 'settings').map(navButton)}<div className="ws-local-status" title={statusLabel}><span className={`ws-dot ${status}`} /><span>{statusLabel}</span><Command size={13} /></div><p className="ws-build-version" title={panelVersionTitle}>{panelVersion}</p></div>
   </>
   return <div className={`agent-workspace ${sidebarCollapsed ? 'nav-collapsed' : ''} ${controlsOpen ? 'controls-open' : ''}`}>
     <a className="ws-skip" href="#workspace-content">Ir para o conteúdo</a>

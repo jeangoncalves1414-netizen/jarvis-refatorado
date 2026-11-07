@@ -11,7 +11,9 @@ const orbComponentPath = path.resolve(frontendDir, 'src', 'components', 'JarvisO
 const distDir = path.resolve(frontendDir, 'dist');
 const mobileAssetsDir = path.resolve(repoRoot, 'mobile_app', 'app', 'src', 'main', 'assets');
 
-console.log('--- [JARVIS POST-BUILD & PROTECTION CHECK] ---');
+// Executado somente por `npm run build:mobile`. O build web (`npm run build`)
+// gera apenas frontend/dist e não verifica a Orbe nem altera mobile_app/.
+console.log('--- [SINCRONIZAÇÃO MOBILE E VERIFICAÇÃO DA ORBE] ---');
 
 // 1. Verificação de integridade da Orbe Oficial
 if (fs.existsSync(orbComponentPath)) {
@@ -55,4 +57,4 @@ if (fs.existsSync(distDir) && fs.existsSync(mobileAssetsDir)) {
   console.warn('⚠️ Diretório dist ou mobileAssetsDir não encontrado para sincronização.');
 }
 
-console.log('--- [BUILD CONCLUÍDO E PROTEGIDO COM SUCESSO] ---\n');
+console.log('--- [SINCRONIZAÇÃO MOBILE CONCLUÍDA] ---\n');

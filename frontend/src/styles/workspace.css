@@ -52,6 +52,7 @@
 .ws-sidebar-footer { margin-top: auto; padding-top: 8px; border-top: 1px solid #292e2b; }
 .ws-local-status { display: flex; align-items: center; gap: 7px; padding: 12px; font-size: 10px; color: #959e98; }
 .ws-local-status svg { margin-left: auto; }
+.ws-build-version { margin: 0; padding: 0 12px 4px; font-size: 9px; color: #7d8680; letter-spacing: .2px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ws-dot { width: 6px; height: 6px; display: inline-block; border-radius: 100%; background: #727b76; flex-shrink: 0; }
 .ws-dot.connected, .ws-dot.healthy, .ws-dot.succeeded { background: #a5ceb5; }
 .ws-dot.degraded, .ws-dot.awaiting_confirmation, .ws-dot.authorized, .ws-dot.running { background: #dfba7e; }
@@ -102,7 +103,7 @@
 .ws-extra-tools summary { cursor: pointer; margin-bottom: 12px; }
 .ws-extra-tools .sidebar-action-btn { color: #bbc6bf; background: transparent; border: 0; font: 11px inherit; padding: 8px; display: inline-flex; gap: 6px; }
 .nav-collapsed .ws-sidebar { width: 72px; flex-basis: 72px; padding: 24px 10px 12px; }
-.nav-collapsed .ws-sidebar :is(.ws-brand strong, .ws-brand-mark, .ws-nav-item span, .ws-nav-item small, .ws-new-chat span, .ws-new-chat small, .ws-command-search span, .ws-command-search kbd, .ws-history, .ws-modules, .ws-local-status span:not(.ws-dot), .ws-local-status svg) { display: none; }
+.nav-collapsed .ws-sidebar :is(.ws-brand strong, .ws-brand-mark, .ws-nav-item span, .ws-nav-item small, .ws-new-chat span, .ws-new-chat small, .ws-command-search span, .ws-command-search kbd, .ws-history, .ws-modules, .ws-local-status span:not(.ws-dot), .ws-local-status svg, .ws-build-version) { display: none; }
 .nav-collapsed .ws-sidebar :is(.ws-nav-item, .ws-new-chat, .ws-command-search, .ws-local-status) { justify-content: center; }
 .nav-collapsed .ws-sidebar .ws-brand { justify-content: center; padding: 0; }
 .ws-chat { display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative; }
