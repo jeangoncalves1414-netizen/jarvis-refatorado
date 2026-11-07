@@ -8,6 +8,17 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+@pytest.fixture
+def isolated_conversation_journal(tmp_path, monkeypatch):
+    from app.storage.action_store import ActionStore
+    monkeypatch.setattr("app.storage.task_store.TASKS_FILE", str(tmp_path / "tasks.json"))
+    journal = ActionStore(tmp_path / "conversation.sqlite3")
+    monkeypatch.setattr("app.storage.action_store.action_store", journal)
+    yield
+    if journal._runtime_lock:
+        journal._runtime_lock.close()
+
+
 def pytest_collection_modifyitems(items):
     """Keep legacy manual suites out of the default deterministic test run."""
     by_file = {

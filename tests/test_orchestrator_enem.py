@@ -33,7 +33,7 @@ def test_resolve_enem_context_prefers_inline(tmp_path) -> None:
     assert resolved["text"] == "Colada agora"
 
 
-def test_enem_prefix_without_api_key(tmp_path) -> None:
+def test_enem_prefix_without_api_key(tmp_path, isolated_conversation_journal) -> None:
     enem_store = EnemStore(storage_dir=str(tmp_path / "enem"))
     settings = Settings()
     settings.llm_provider = "gemini"

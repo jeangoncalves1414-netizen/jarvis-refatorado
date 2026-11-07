@@ -21,6 +21,7 @@ from app.ui.panel.api.tutor import handle_tutor_get, handle_tutor_post
 from app.ui.panel.api.voice import handle_voice_post, handle_voice_stream, handle_voice_realtime_stream
 from app.ui.panel.api.planning import handle_planning_get, handle_planning_post
 from app.ui.panel.api.actions import handle_actions_get, handle_actions_post
+from app.ui.panel.api.runs import handle_runs_get, handle_runs_post
 from app.ui.panel.api.mission_control import handle_mission_control_get
 from app.ui.panel.api.goals import handle_goals_get, handle_goals_post
 from app.storage.vector.semantic_memory import is_technical_error_memory
@@ -666,6 +667,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 handle_settings_get,
                 handle_planning_get,
                 handle_actions_get,
+                handle_runs_get,
                 handle_mission_control_get,
                 handle_goals_get,
             ):
@@ -1148,19 +1150,32 @@ class PanelHandler(BaseHTTPRequestHandler):
         # /api/react → ReAct Loop execution
         if path == "/api/react":
             try:
-                from app.agent.react_loop import ReActLoopEngine
                 payload = json.loads(body.decode("utf-8") or "{}")
+                if not isinstance(payload, dict):
+                    self._send_json(400, {"ok": False, "error": "Envie um objeto JSON."})
+                    return
                 goal = payload.get("goal", "")
-                max_steps = int(payload.get("max_steps", 8))
-                engine = ReActLoopEngine(llm_service=_orchestrator.llm_service if _orchestrator else None)
-                trajectory = engine.run_loop(goal, max_steps=max_steps)
+                max_steps = payload.get("max_steps", 8)
+                session_id = payload.get("session_id")
+                if not isinstance(goal, str) or not goal.strip() or type(max_steps) is not int or not 1 <= max_steps <= 20 or (session_id is not None and (not isinstance(session_id, str) or len(session_id) > 200)):
+                    self._send_json(400, {"ok": False, "error": "Informe um objetivo, um limite inteiro entre 1 e 20 e uma sessão válida."})
+                    return
+                if _orchestrator is None:
+                    self._send_json(503, {"ok": False, "error": "O agente não está disponível."})
+                    return
+                plan = _orchestrator.handle_request(goal, mode="react", session_id=session_id, react_max_steps=max_steps)
                 self._send_json(200, {
-                    "ok": trajectory.success,
-                    "goal": trajectory.goal,
-                    "final_output": trajectory.final_output,
-                    "steps_count": len(trajectory.steps),
-                    "total_elapsed_sec": trajectory.total_elapsed_sec
+                    "ok": plan.context.get("success", False),
+                    "goal": goal,
+                    "final_output": plan.summary,
+                    "steps_count": plan.context.get("steps_count", 0),
+                    "total_elapsed_sec": plan.context.get("elapsed_sec", 0),
+                    "run_id": plan.context.get("run_id"),
+                    "pending_action_id": plan.context.get("pending_action_id"),
+                    "cancelled": plan.intent == "cancelled",
                 })
+            except (ValueError, TypeError):
+                self._send_json(400, {"ok": False, "error": "Pedido ReAct inválido."})
             except Exception as exc:
                 self._send_json(500, {"ok": False, "error": str(exc)})
             return
@@ -1353,14 +1368,21 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Cache-Control", "no-cache")
-                self.send_header("Connection", "keep-alive")
+                self.send_header("Connection", "close")
+                self.close_connection = True
                 self._send_cors()
                 self.end_headers()
 
                 full_summary = ""
                 for item in _orchestrator.handle_request_stream(message, session_id=session_id, mode=mode, profile_id=profile_id):
-                    if item.get("status") == "complete" and item.get("plan"):
-                        full_summary = getattr(item["plan"], "summary", "")
+                    plan = item.get("plan")
+                    if plan is not None:
+                        if item.get("status") == "complete" and plan.intent != "cancelled" and plan.context.get("success") is not False:
+                            full_summary = plan.summary
+                        item = {**item, "plan": {"intent": plan.intent, "summary": plan.summary, "actions": plan.actions,
+                                                 "context": plan.context, "whiteboard_updated": plan.whiteboard_updated}}
+                        if item["status"] == "error":
+                            item["error"] = plan.summary
                     line = f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                     self.wfile.write(line.encode("utf-8"))
                     self.wfile.flush()
@@ -1836,6 +1858,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             handle_voice_post,
             handle_planning_post,
             handle_actions_post,
+            handle_runs_post,
             handle_goals_post,
         ):
             result = handler_fn(path, body, self)
@@ -1901,7 +1924,7 @@ async def _ws_chat_handler(websocket) -> None:
                     if chunk_text:
                         try:
                             asyncio.run_coroutine_threadsafe(
-                                websocket.send(json.dumps({"type": "chunk", "text": chunk_text})),
+                                websocket.send(json.dumps({"type": "chunk", "text": chunk_text, "session_id": session_id})),
                                 loop
                             )
                         except Exception:
@@ -1911,7 +1934,7 @@ async def _ws_chat_handler(websocket) -> None:
                     if reason_text:
                         try:
                             asyncio.run_coroutine_threadsafe(
-                                websocket.send(json.dumps({"type": "reasoning", "text": reason_text})),
+                                websocket.send(json.dumps({"type": "reasoning", "text": reason_text, "session_id": session_id})),
                                 loop
                             )
                         except Exception:
@@ -1920,7 +1943,7 @@ async def _ws_chat_handler(websocket) -> None:
                 def on_search(payload: dict) -> None:
                     try:
                         asyncio.run_coroutine_threadsafe(
-                            websocket.send(json.dumps({"type": "search", "payload": payload}, ensure_ascii=False)),
+                            websocket.send(json.dumps({"type": "search", "payload": payload, "session_id": session_id}, ensure_ascii=False)),
                             loop,
                         )
                     except Exception:
@@ -1935,6 +1958,7 @@ async def _ws_chat_handler(websocket) -> None:
                     plan.summary = prefix + getattr(plan, "summary", str(plan))
                 await websocket.send(json.dumps({
                     "type":    "complete",
+                    "session_id": session_id,
                     "summary": getattr(plan, "summary", str(plan)),
                     "intent":  getattr(plan, "intent", ""),
                     "actions": getattr(plan, "actions", []),
@@ -1946,7 +1970,8 @@ async def _ws_chat_handler(websocket) -> None:
                     _orchestrator
                     and hasattr(_orchestrator, "semantic_memory")
                     and _orchestrator.semantic_memory
-                    and getattr(plan, "intent", "") != "error"
+                    and plan.intent not in {"error", "cancelled"}
+                    and plan.context.get("success") is not False
                     and not is_technical_error_memory(getattr(plan, "summary", ""))
                 ):
                     try:
@@ -2039,6 +2064,8 @@ class PanelServer:
         if self._http_thread and self._http_thread.is_alive():
             return
         self.settings.validate_control_plane()
+        from app.storage.action_store import action_store
+        action_store.start_runtime()
 
         self._http_thread = threading.Thread(
             target=self._run_http, daemon=True, name="PanelHTTP"

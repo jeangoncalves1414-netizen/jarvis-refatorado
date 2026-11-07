@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -21,24 +22,28 @@ class ToolCallGuardrailController:
         self.no_progress_limit = max(1, no_progress_limit)
         self._call_counts: dict[str, int] = {}
         self._result_counts: dict[tuple[str, str], int] = {}
+        self._lock = threading.Lock()
 
     def reset_turn(self) -> None:
-        self._call_counts.clear()
-        self._result_counts.clear()
+        with self._lock:
+            self._call_counts.clear()
+            self._result_counts.clear()
 
     def before_call(self, tool_name: str, args: Mapping[str, Any] | None) -> ToolGuardrailDecision:
         key = self._call_key(tool_name, args)
-        count = self._call_counts.get(key, 0)
-        if count >= self.exact_repeat_limit:
-            return ToolGuardrailDecision(False, f"Chamada repetida bloqueada: {tool_name}.")
-        self._call_counts[key] = count + 1
+        with self._lock:
+            count = self._call_counts.get(key, 0)
+            if count >= self.exact_repeat_limit:
+                return ToolGuardrailDecision(False, f"Chamada repetida bloqueada: {tool_name}.")
+            self._call_counts[key] = count + 1
         return ToolGuardrailDecision(True)
 
     def after_call(self, tool_name: str, args: Mapping[str, Any] | None, result: Any) -> ToolGuardrailDecision:
         text = self._normalize_result(result)
         result_key = (tool_name, text)
-        count = self._result_counts.get(result_key, 0) + 1
-        self._result_counts[result_key] = count
+        with self._lock:
+            count = self._result_counts.get(result_key, 0) + 1
+            self._result_counts[result_key] = count
         if count >= self.no_progress_limit and self._looks_no_progress(text):
             return ToolGuardrailDecision(False, f"Ferramenta interrompida por resultado sem progresso: {tool_name}.")
         return ToolGuardrailDecision(True)

@@ -1,5 +1,9 @@
 import { FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { AppShell } from './components/AppShell'
+import { AgentControls } from './components/AgentControls'
+import { useOperationalSnapshot } from './hooks/useOperationalSnapshot'
+import { resolveScreen } from './navigation'
+import { WorkspaceHome, IntegrationsPage } from './pages/WorkspaceOverview'
 import { useQuestLog } from './hooks/useQuestLog'
 import { CameraWorkspace, type CameraWorkspaceHandle } from './components/CameraWorkspace'
 import { type ChatMode } from './components/ChatComposer'
@@ -41,29 +45,18 @@ const LiveCallModal = lazy(() => import('./components/LiveCallModal').then(modul
 const IsolatedVideoPlayer = lazy(() => import('./components/VideoPlayer').then(module => ({ default: module.VideoPlayer })))
 const CommandPalette = lazy(() => import('./components/CommandPalette').then(module => ({ default: module.CommandPalette })))
 
-const navItems = [
-  { id: 'Chat', icon: '✦' },
-  { id: 'Dashboard', icon: '◈' },
-  { id: 'Central', icon: '◉' },
-  { id: 'Estudos', icon: '◎' },
-  { id: 'Evolução', icon: '⚡' },
-  { id: 'Memórias', icon: '◇' },
-  { id: 'Configurações', icon: '⚙' },
-]
-
 const ACTIVE_SCREEN_KEY = 'jarvis-active-screen'
 const IS_MOBILE = isMobileStandalone()
 
 function readActiveScreen() {
-  // On mobile standalone (WebView), always start on Dashboard for a clean UX
-  if (IS_MOBILE) return 'Dashboard'
+  if (IS_MOBILE) return 'Chat'
   try {
     const stored = localStorage.getItem(ACTIVE_SCREEN_KEY)
-    if (stored) return stored
+    if (stored) return resolveScreen(stored)
   } catch {
     /* ignore storage errors */
   }
-  return 'Dashboard'
+  return 'Chat'
 }
 
 export default function App() {
@@ -73,8 +66,11 @@ export default function App() {
   }
 
   const questLog = useQuestLog()
+  const operational = useOperationalSnapshot()
   const [isToolForgeOpen, setIsToolForgeOpen] = useState(false)
   const [active, setActive] = useState(readActiveScreen)
+  const [linkedRun, setLinkedRun] = useState('')
+  useEffect(() => { if (active !== 'Central') setLinkedRun('') }, [active])
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -567,7 +563,9 @@ export default function App() {
 
   const renderSection = () => {
     const page = (() => {
-    if (active === 'Dashboard') {
+    if (active === 'Dashboard') return <WorkspaceHome operational={operational} onNavigate={setActive} />
+    if (active === 'Integrações') return <IntegrationsPage operational={operational} onNavigate={setActive} />
+    if (active === 'Painel pessoal') {
       return (
         <DashboardPage
           dashboard={dashboard}
@@ -579,7 +577,7 @@ export default function App() {
         />
       )
     }
-    if (active === 'Central') return <MissionControlPage />
+    if (active === 'Central') return <MissionControlPage initialRunId={linkedRun} operational={operational} sessionId={sessionId} onOpenSession={id => { void selectSession(id); setActive('Chat') }} />
     if (active === 'Automações') {
       return (
         <AutomationsPage
@@ -601,6 +599,7 @@ export default function App() {
     if (active === 'Chat') {
       return (
         <ChatPage
+          onOpenRun={IS_MOBILE ? undefined : id => { setLinkedRun(id); setActive('Central') }}
           sessions={sessions}
           sessionId={sessionId}
           messages={messages}
@@ -615,13 +614,7 @@ export default function App() {
           chatAttachment={chatAttachment}
           recording={recording}
           pendingScript={pendingScript}
-          onSelectSession={selectSession}
-          onDeleteSession={id => void Promise.resolve(deleteSession(id)).catch(() => undefined)}
-          onCreateSession={() => Promise.resolve(createSession()).catch((error: any) => {
-            const message = error instanceof Error ? error.message : 'Não foi possível criar uma nova conversa.'
-            setNotice(message)
-            setAnswer(message)
-          })}
+          onDeleteSession={id => void Promise.resolve(deleteSession(id, true)).catch(() => setNotice('Não foi possível excluir a conversa.'))}
           onExportSession={() => handleExportSession().catch(() => undefined)}
           onCopySession={() => handleCopySession().catch(() => undefined)}
           onOpenLiveCall={() => setLiveCallOpen(true)}
@@ -638,7 +631,6 @@ export default function App() {
           onCinemaRequest={openCinemaPayload}
           onSendText={sendText}
           onRunPendingScript={runPendingScript}
-          onOpenEvolute={openEvoluteWindow}
         />
       )
     }
@@ -819,7 +811,7 @@ export default function App() {
     }
   }
 
-  const hero = active === 'Dashboard' ? (
+  const hero = active === 'Painel pessoal' ? (
     <DashboardHero
       weather={weather}
       onOpenCinema={() => setCinemaLauncherOpen(true)}
@@ -835,7 +827,18 @@ export default function App() {
     <>
       <AppShell
         active={active}
-        navItems={navItems}
+        sessions={sessions}
+        sessionId={sessionId}
+        onSelectSession={selectSession}
+        onNewChat={() => {
+          setActive('Chat')
+          setQuery('')
+          setChatAttachment(null)
+          void Promise.resolve(createSession()).catch(() => setNotice('Não foi possível criar a conversa.'))
+        }}
+        onOpenCommands={() => setIsCommandPaletteOpen(true)}
+        operational={operational}
+        controls={<AgentControls operational={operational} llm={llmSettings} speakEnabled={speakEnabled} onToggleSpeech={() => setSpeakEnabled(!speakEnabled)} onNavigate={setActive} />}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         onNavigate={(screen) => {
@@ -847,10 +850,6 @@ export default function App() {
             /* ignore storage error */
           }
         }}
-        onOpenQuestLog={questLog.openQuestLog}
-        onOpenToolForge={() => setIsToolForgeOpen(true)}
-        activeQuestsCount={questLog.quests.filter(q => q.status === 'active').length}
-        headerExtra={active === 'Chat' && sessionId ? <button type="button" className="header-delete" onClick={() => deleteSession(sessionId)}>Excluir conversa</button> : null}
         hero={hero}
         quickActions={quickActions}
       >
@@ -926,7 +925,6 @@ export default function App() {
             isOpen={questLog.isOpen}
             onClose={questLog.closeQuestLog}
             quests={questLog.quests}
-            onAbortQuest={questLog.abortQuest}
           />
         </Suspense>
       )}

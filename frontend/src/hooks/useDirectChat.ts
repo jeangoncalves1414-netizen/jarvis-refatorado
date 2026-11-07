@@ -58,7 +58,14 @@ export function setMobileApiKeys(keys: Record<string, string>) {
 }
 
 export function getMobileProvider(): DirectChatProvider {
-  return (localStorage.getItem(MOBILE_PROVIDER_STORAGE) as DirectChatProvider) || 'oxyy'
+  const saved = localStorage.getItem(MOBILE_PROVIDER_STORAGE) as DirectChatProvider | null
+  if (saved && (saved === 'gemini' || saved === 'groq' || saved === 'oxyy')) {
+    return saved
+  }
+  const keys = getMobileApiKeys()
+  if (keys.gemini && !keys.oxyy && !keys.groq) return 'gemini'
+  if (keys.groq && !keys.oxyy) return 'groq'
+  return 'oxyy'
 }
 
 export function setMobileProvider(v: DirectChatProvider) {
@@ -186,7 +193,61 @@ function saveHistory(id: string, history: ChatMessage[]) {
   try { localStorage.setItem(HISTORY_PREFIX + id, JSON.stringify(history)) } catch {}
 }
 
-// ── Provider Streaming ────────────────────────────────────────────────────────
+// ── Native Android Streaming Bridge ──────────────────────────────────────────
+type StreamCallbacks = {
+  onChunk: (chunk: string) => void
+  onDone: () => void
+  onError: (err: Error) => void
+}
+
+const activeNativeStreams = new Map<string, StreamCallbacks>()
+
+if (typeof window !== 'undefined') {
+  ;(window as any).__onNativeStreamChunk = (id: string, chunk: string) => {
+    const cb = activeNativeStreams.get(id)
+    if (cb) cb.onChunk(chunk)
+  }
+  ;(window as any).__onNativeStreamDone = (id: string) => {
+    const cb = activeNativeStreams.get(id)
+    if (cb) {
+      cb.onDone()
+      activeNativeStreams.delete(id)
+    }
+  }
+  ;(window as any).__onNativeStreamError = (id: string, errorMsg: string) => {
+    const cb = activeNativeStreams.get(id)
+    if (cb) {
+      cb.onError(new Error(errorMsg))
+      activeNativeStreams.delete(id)
+    }
+  }
+}
+
+export function hasNativePostStream(): boolean {
+  return typeof (window as any)?.Android?.nativePostStream === 'function'
+}
+
+export async function nativeDirectPost(url: string, headers: Record<string, string>, body: string): Promise<string> {
+  if (hasNativePostStream()) {
+    return new Promise<string>((resolve, reject) => {
+      const reqId = 'post_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)
+      let full = ''
+      activeNativeStreams.set(reqId, {
+        onChunk: (chunk: string) => { full += chunk + '\n' },
+        onDone: () => resolve(full),
+        onError: (err: Error) => reject(err),
+      })
+      ;(window as any).Android.nativePostStream(reqId, url, JSON.stringify(headers), body)
+    })
+  }
+  const res = await fetch(url, { method: 'POST', headers, body })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err?.error?.message || `HTTP ${res.status}`)
+  }
+  return res.text()
+}
+
 // ── Provider Streaming ────────────────────────────────────────────────────────
 async function streamGemini(
   apiKey: string, model: string, history: ChatMessage[],
@@ -206,7 +267,6 @@ async function streamGemini(
     } else {
       const prev = contents[contents.length - 1]
       if (prev.role === role) {
-        // Se houver dois turnos seguidos com o mesmo papel, agrupa os textos
         prev.parts[0].text += '\n\n' + m.content.trim()
       } else {
         contents.push({ role, parts: [{ text: m.content.trim() }] })
@@ -220,14 +280,61 @@ async function streamGemini(
   }
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`
+  const body = JSON.stringify({
+    contents,
+    generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
+    systemInstruction: { parts: [{ text: getJarvisSystemPrompt() }] },
+  })
+  const headers = { 'Content-Type': 'application/json' }
+
+  // 1. Prioriza ponte nativa se estiver dentro do app Android
+  if (hasNativePostStream()) {
+    return new Promise<string>((resolve, reject) => {
+      const reqId = 'gem_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)
+      let full = ''
+
+      const onAbort = () => {
+        try { (window as any).Android?.abortNativeStream?.(reqId) } catch {}
+        activeNativeStreams.delete(reqId)
+        reject(new DOMException('Aborted', 'AbortError'))
+      }
+
+      if (signal.aborted) {
+        return reject(new DOMException('Aborted', 'AbortError'))
+      }
+
+      signal.addEventListener('abort', onAbort, { once: true })
+
+      activeNativeStreams.set(reqId, {
+        onChunk: (line: string) => {
+          if (!line.startsWith('data: ')) return
+          const data = line.slice(6).trim()
+          if (data === '[DONE]') return
+          try {
+            const json = JSON.parse(data)
+            const chunk: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+            if (chunk) { full += chunk; onChunk(chunk) }
+          } catch {}
+        },
+        onDone: () => {
+          signal.removeEventListener('abort', onAbort)
+          resolve(full)
+        },
+        onError: (err: Error) => {
+          signal.removeEventListener('abort', onAbort)
+          reject(err)
+        },
+      })
+
+      ;(window as any).Android.nativePostStream(reqId, endpoint, JSON.stringify(headers), body)
+    })
+  }
+
+  // 2. Fallback para fetch padrão do navegador
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents,
-      generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
-      systemInstruction: { parts: [{ text: getJarvisSystemPrompt() }] },
-    }),
+    headers,
+    body,
     signal,
   })
   if (!res.ok) {
@@ -266,10 +373,58 @@ async function streamOpenAICompatible(
     { role: 'system', content: getJarvisSystemPrompt() },
     ...windowed.map(m => ({ role: m.role, content: m.content.trim() })),
   ]
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const endpoint = `${baseUrl}/chat/completions`
+  const body = JSON.stringify({ model, messages, stream: true, temperature: 0.7, max_tokens: 4096 })
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }
+
+  // 1. Ponte nativa Android (ignora restrições de CORS e preflight 403 do Oxyy/Groq)
+  if (hasNativePostStream()) {
+    return new Promise<string>((resolve, reject) => {
+      const reqId = 'oai_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)
+      let full = ''
+
+      const onAbort = () => {
+        try { (window as any).Android?.abortNativeStream?.(reqId) } catch {}
+        activeNativeStreams.delete(reqId)
+        reject(new DOMException('Aborted', 'AbortError'))
+      }
+
+      if (signal.aborted) {
+        return reject(new DOMException('Aborted', 'AbortError'))
+      }
+
+      signal.addEventListener('abort', onAbort, { once: true })
+
+      activeNativeStreams.set(reqId, {
+        onChunk: (line: string) => {
+          if (!line.startsWith('data: ')) return
+          const data = line.slice(6).trim()
+          if (data === '[DONE]') return
+          try {
+            const json = JSON.parse(data)
+            const chunk: string = json?.choices?.[0]?.delta?.content ?? ''
+            if (chunk) { full += chunk; onChunk(chunk) }
+          } catch {}
+        },
+        onDone: () => {
+          signal.removeEventListener('abort', onAbort)
+          resolve(full)
+        },
+        onError: (err: Error) => {
+          signal.removeEventListener('abort', onAbort)
+          reject(err)
+        },
+      })
+
+      ;(window as any).Android.nativePostStream(reqId, endpoint, JSON.stringify(headers), body)
+    })
+  }
+
+  // 2. Fallback para fetch no navegador desktop
+  const res = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages, stream: true, temperature: 0.7, max_tokens: 4096 }),
+    headers,
+    body,
     signal,
   })
   if (!res.ok) {
@@ -302,9 +457,21 @@ async function callProvider(
   provider: DirectChatProvider, apiKey: string, model: string,
   history: ChatMessage[], onChunk: (text: string) => void, signal: AbortSignal,
 ): Promise<string> {
-  if (provider === 'gemini') return streamGemini(apiKey, model, history, onChunk, signal)
-  const baseUrl = provider === 'oxyy' ? 'https://api.oxyy.ai/v1' : 'https://api.groq.com/openai/v1'
-  return streamOpenAICompatible(baseUrl, apiKey, model, history, onChunk, signal)
+  try {
+    if (provider === 'gemini') return await streamGemini(apiKey, model, history, onChunk, signal)
+    const baseUrl = provider === 'oxyy' ? 'https://api.oxyy.ai/v1' : 'https://api.groq.com/openai/v1'
+    return await streamOpenAICompatible(baseUrl, apiKey, model, history, onChunk, signal)
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') throw err
+    const geminiKey = resolveActiveKey('gemini')
+    if (provider !== 'gemini' && geminiKey) {
+      console.warn(`[DirectChat] Falha no provedor ${provider} (${(err as Error).message}), ativando fallback automático para Gemini...`)
+      onChunk(`*(Conexão com ${provider.toUpperCase()} instável. Respondendo via Gemini...)*\n\n`)
+      const geminiModel = getMobileGeminiModel()
+      return await streamGemini(geminiKey, geminiModel, history, onChunk, signal)
+    }
+    throw err
+  }
 }
 
 export function useDirectChat() {
@@ -341,8 +508,8 @@ export function useDirectChat() {
     setSessionId(id); localStorage.setItem(ACTIVE_SESSION_KEY, id)
   }, [])
 
-  const deleteSession = useCallback((id: string) => {
-    if (!window.confirm('Excluir esta conversa?')) return
+  const deleteSession = useCallback((id: string, confirmed = false) => {
+    if (!confirmed && !window.confirm('Excluir esta conversa?')) return
     const updated = loadSessions().filter(s => s.id !== id)
     saveSessions(updated); setSessions(updated)
     try { localStorage.removeItem(HISTORY_PREFIX + id) } catch {}

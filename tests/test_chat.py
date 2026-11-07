@@ -7,7 +7,7 @@ from app.services.llm import LLMService
 from app.storage.memory_store import MemoryStore
 
 
-def test_chat_session_records_user_and_assistant_messages(tmp_path) -> None:
+def test_chat_session_records_user_and_assistant_messages(tmp_path, isolated_conversation_journal) -> None:
     settings = Settings()
     llm = LLMService(settings=settings)
     memory_store = MemoryStore(storage_path=str(tmp_path / "memory.json"))

@@ -5,6 +5,7 @@ import './memory-and-chat.css'
 import './profile-memory.css'
 import './camera-workspace.css'
 import './styles.css'
+import './styles/workspace.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

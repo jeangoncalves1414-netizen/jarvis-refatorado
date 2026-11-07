@@ -20,8 +20,9 @@ class TestGodModeComponents(unittest.TestCase):
 
         self.assertIsNotNone(trajectory)
         self.assertEqual(trajectory.goal, "Test Goal")
-        self.assertTrue(len(trajectory.steps) > 0)
-        self.assertTrue(trajectory.success)
+        self.assertEqual(trajectory.steps, [])
+        self.assertFalse(trajectory.success)
+        self.assertIn("indisponível", trajectory.final_output)
 
     def test_coder_subagent_ast_validation(self):
         coder = CoderSubagent(llm_service=None)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.agent.action_executor import ActionExecutor
 from app.agent.tool_guardrails import ToolCallGuardrailController
+from app.agent.tools.base import ToolResult
 from app.core.actions import ToolMetadata
 from app.storage.action_store import ActionStore
 
@@ -10,7 +11,7 @@ def test_native_function_style_execution_cannot_bypass_high_risk_proposal(tmp_pa
     calls: list[str] = []
     executor = ActionExecutor(
         frozenset({"browser_agent"}), ToolCallGuardrailController(),
-        lambda name, args, user: calls.append(name) or "executado",
+        lambda name, args, user: calls.append(name) or ToolResult(True, "executado"),
         metadata_for=lambda _name: ToolMetadata(("browser",), "high", requires_confirmation=True),
         store=ActionStore(tmp_path / "journal.jsonl"), source="function:test",
     )

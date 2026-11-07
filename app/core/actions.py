@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -17,23 +18,24 @@ from typing import Any, Callable, Literal
 ActionRisk = Literal["observe", "low", "high", "critical"]
 ActionStatus = Literal[
     "proposed", "awaiting_confirmation", "authorized", "running",
-    "succeeded", "failed", "cancelled", "expired",
+    "succeeded", "failed", "cancelled", "expired", "interrupted",
 ]
 
 RISKS: frozenset[str] = frozenset({"observe", "low", "high", "critical"})
 STATUSES: frozenset[str] = frozenset({
     "proposed", "awaiting_confirmation", "authorized", "running",
-    "succeeded", "failed", "cancelled", "expired",
+    "succeeded", "failed", "cancelled", "expired", "interrupted",
 })
-TERMINAL_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "cancelled", "expired"})
+TERMINAL_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "cancelled", "expired", "interrupted"})
 ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "proposed": frozenset({"awaiting_confirmation", "authorized", "running", "cancelled", "expired"}),
     "awaiting_confirmation": frozenset({"authorized", "cancelled", "expired"}),
     "authorized": frozenset({"running", "cancelled", "expired"}),
-    "running": frozenset({"succeeded", "failed"}),
+    "running": frozenset({"succeeded", "failed", "interrupted"}),
 }
 
 _SENSITIVE_KEY = re.compile(r"(?:token|secret|password|authorization|api[_-]?key|audio|transcript|prompt|code|script)", re.I)
+_CREDENTIAL_TEXT = re.compile(r'''((?:api[_-]?key|token|secret|password|authorization)\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)|\bBearer\s+[^\s,;]+''', re.I)
 
 
 def redact(value: Any, *, limit: int = 240) -> Any:
@@ -44,10 +46,26 @@ def redact(value: Any, *, limit: int = 240) -> Any:
     if isinstance(value, (list, tuple)):
         return [redact(item, limit=limit) for item in value[:20]]
     if isinstance(value, str):
-        return value.replace("\n", " ")[:limit]
+        return _CREDENTIAL_TEXT.sub(lambda match: (match.group(1) or "") + "[redacted]", value).replace("\n", " ")[:limit]
     if isinstance(value, (int, float, bool)) or value is None:
         return value
     return str(value)[:limit]
+
+
+def summarize_result(message: str, arguments: dict[str, Any]) -> str:
+    """Hide known sensitive argument values before persisting a short outcome."""
+    def scrub(value: Any, sensitive: bool = False) -> None:
+        nonlocal message
+        if isinstance(value, dict):
+            for key, item in value.items():
+                scrub(item, sensitive or bool(_SENSITIVE_KEY.search(str(key))))
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                scrub(item, sensitive)
+        elif sensitive and isinstance(value, str) and value:
+            message = message.replace(value, "[redacted]")
+    scrub(arguments)
+    return redact(message, limit=500)
 
 
 def arguments_digest(arguments: dict[str, Any]) -> str:
@@ -64,15 +82,24 @@ class PendingActionBroker:
     def __init__(self, ttl_seconds: int = 600) -> None:
         self.ttl_seconds = ttl_seconds
         self._items: dict[str, tuple[float, Callable[[], str]]] = {}
+        self._lock = threading.Lock()
 
     def register(self, action_id: str, callback: Callable[[], str]) -> None:
-        self._items[action_id] = (time.monotonic() + self.ttl_seconds, callback)
+        with self._lock:
+            now = time.monotonic()
+            self._items = {key: item for key, item in self._items.items() if item[0] >= now}
+            self._items[action_id] = (now + self.ttl_seconds, callback)
 
     def take(self, action_id: str) -> Callable[[], str] | None:
-        item = self._items.pop(action_id, None)
+        with self._lock:
+            item = self._items.pop(action_id, None)
         if item is None or item[0] < time.monotonic():
             return None
         return item[1]
+
+    def discard(self, action_id: str) -> None:
+        with self._lock:
+            self._items.pop(action_id, None)
 
 
 pending_action_broker = PendingActionBroker()
@@ -83,6 +110,7 @@ class ToolMetadata:
     capabilities: tuple[str, ...] = ("general",)
     default_risk: ActionRisk = "low"
     reversible: bool = False
+
     requires_confirmation: bool = False
 
     def __post_init__(self) -> None:
@@ -107,6 +135,7 @@ class ActionRecord:
     result_summary: str | None = None
     undo_payload: dict[str, Any] | None = None
     reversible: bool = False
+    run_id: str | None = None
 
     @classmethod
     def create(cls, *, source: str, tool_name: str, metadata: ToolMetadata, arguments: dict[str, Any], preview: str) -> "ActionRecord":
@@ -124,7 +153,7 @@ class ActionRecord:
     def from_dict(cls, value: dict[str, Any]) -> "ActionRecord":
         if value.get("risk") not in RISKS or value.get("status") not in STATUSES:
             raise ValueError("Registro de ação inválido.")
-        return cls(**{key: value.get(key) for key in cls.__dataclass_fields__})
+        return cls(**{key: value[key] for key in cls.__dataclass_fields__ if key in value})
 
     def public_dict(self) -> dict[str, Any]:
         data = asdict(self)

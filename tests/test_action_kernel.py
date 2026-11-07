@@ -4,6 +4,7 @@ import pytest
 
 from app.agent.action_executor import ActionExecutor
 from app.agent.tool_guardrails import ToolCallGuardrailController
+from app.agent.tools.base import ToolResult
 from app.agent.tools.workflow import WorkflowTool, validate_recipe
 from app.core.actions import ActionRecord, ToolMetadata
 from app.storage.action_store import ActionStore
@@ -13,7 +14,7 @@ from app.core.actions import pending_action_broker
 def _executor(tmp_path, metadata: ToolMetadata, calls: list[str]) -> ActionExecutor:
     return ActionExecutor(
         frozenset({"fixture"}), ToolCallGuardrailController(),
-        lambda name, args, user: calls.append(name) or "feito",
+        lambda name, args, user: calls.append(name) or ToolResult(True, "feito"),
         metadata_for=lambda name: metadata,
         store=ActionStore(tmp_path / "actions.jsonl"), source="test",
     )
@@ -67,3 +68,20 @@ def test_workflow_is_declarative_and_dry_run_only():
     assert result.ok and result.data["dry_run"] is True
     with pytest.raises(ValueError):
         validate_recipe({"name": "x", "capabilities": ["a"], "steps": [{"tool": "other"}]})
+
+
+@pytest.mark.parametrize("approved", [False, True])
+def test_typed_failure_is_never_recorded_as_success(tmp_path, approved):
+    executor = ActionExecutor(
+        None, ToolCallGuardrailController(),
+        lambda *_: ToolResult(False, "Arquivo não encontrado."),
+        metadata_for=lambda _: ToolMetadata(requires_confirmation=approved),
+        store=ActionStore(tmp_path / "actions.jsonl"),
+    )
+    message = executor.execute("fixture", {}, "leia")
+    action = executor.store.list()[0]
+    if approved:
+        executor.store.transition(action.id, "authorized")
+        message = pending_action_broker.take(action.id)()
+    assert message == "Arquivo não encontrado."
+    assert executor.store.get(action.id).status == "failed"

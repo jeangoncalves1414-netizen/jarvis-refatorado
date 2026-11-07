@@ -136,3 +136,29 @@ def test_lan_mode_explicitly_disables_the_unauthenticated_websocket_port() -> No
     assert not PanelServer(settings)._websocket_enabled()
     assert not PanelServer(Settings(host="0.0.0.0"))._websocket_enabled()
     assert PanelServer(Settings(host="127.0.0.1"))._websocket_enabled()
+
+
+def test_run_routes_keep_control_plane_boundary(panel_http_server, tmp_path, monkeypatch):
+    from app.storage.action_store import ActionStore
+    from app.ui.panel.api import runs
+    store = ActionStore(tmp_path / "runs.sqlite3")
+    monkeypatch.setattr(runs, "action_store", store)
+    run = store.create_run(session_id="fixture-session", mode="general")
+    address, calls = panel_http_server
+    connection = http.client.HTTPConnection(address, timeout=3)
+    try:
+        connection.request("GET", "/api/runs")
+        response = connection.getresponse()
+        assert response.status == 200
+        assert json.loads(response.read())["runs"][0]["id"] == run.id
+        connection.request("POST", f"/api/runs/{run.id}/cancel", "{}", {"Origin": "https://evil.example", "Content-Type": "application/json"})
+        response = connection.getresponse()
+        assert response.status == 403
+        response.read()
+        assert store.run_details(run.id)["run"]["status"] == "running"
+        status, body = _post(address, f"/api/runs/{run.id}/cancel", {})
+        assert status == 200 and body["run"]["status"] == "cancel_requested"
+        assert calls == []
+    finally:
+        connection.close()
+        store._runtime_lock.close()

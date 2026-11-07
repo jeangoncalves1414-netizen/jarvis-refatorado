@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Switch } from '../components/Switch'
 import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download } from 'lucide-react'
 import type { AiSettings, LlmSettings, OxyyCatalog, OxyySettings, Proactive, SttSettings, TtsSettings, Tray, WakeWord } from '../types'
-import { isMobileStandalone, getMobileProvider, getMobileApiKeys, setMobileProvider, setMobileApiKeys, getMobileOxyyModels, setMobileOxyyModels, DEFAULT_MOBILE_KEYS, DEFAULT_OXXY_MODELS, type DirectChatProvider, countKeys } from '../hooks/useDirectChat'
+import { isMobileStandalone, getMobileProvider, getMobileApiKeys, setMobileProvider, setMobileApiKeys, getMobileOxyyModels, setMobileOxyyModels, DEFAULT_MOBILE_KEYS, DEFAULT_OXXY_MODELS, type DirectChatProvider, countKeys, nativeDirectPost } from '../hooks/useDirectChat'
 import { isSfxEnabled, setSfxEnabled, playSuccess } from '../utils/sfx'
 import {
   DEFAULT_SUPABASE_KEY,
@@ -21,6 +21,7 @@ import {
   downloadJarvisVault,
   pushJarvisVault,
   autoSyncOnOpen,
+  syncJarvisAfterLogin,
 } from '../utils/jarvisCloud'
 
 type SettingsPageProps = {
@@ -659,25 +660,25 @@ function MobileApiConfig() {
     setTesting(true); setTestResult('Testando...')
     try {
       if (provider === 'gemini') {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: 'oi' }] }] }),
-        })
-        const data = await res.json()
-        if (res.ok && data.candidates) setTestResult('✅ Conexão OK! Gemini respondeu.')
-        else setTestResult(`❌ Erro: ${data.error?.message || res.status}`)
+        const raw = await nativeDirectPost(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeKey}`,
+          { 'Content-Type': 'application/json' },
+          JSON.stringify({ contents: [{ parts: [{ text: 'oi' }] }] })
+        )
+        const data = JSON.parse(raw)
+        if (data.candidates) setTestResult('✅ Conexão OK! Gemini respondeu.')
+        else setTestResult(`❌ Erro: ${data.error?.message || 'Sem resposta do Gemini'}`)
       } else {
         const baseUrl = provider === 'oxyy' ? 'https://api.oxyy.ai/v1' : 'https://api.groq.com/openai/v1'
         const model = provider === 'oxyy' ? oxyyModels.chat : 'llama-3.3-70b-versatile'
-        const res = await fetch(`${baseUrl}/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${activeKey}` },
-          body: JSON.stringify({ model, messages: [{ role: 'user', content: 'oi' }], max_tokens: 10 }),
-        })
-        const data = await res.json()
-        if (res.ok && data.choices) setTestResult(`✅ Conexão OK! ${provider.toUpperCase()} (${model}) respondeu.`)
-        else setTestResult(`❌ Erro: ${data.error?.message || res.status}`)
+        const raw = await nativeDirectPost(
+          `${baseUrl}/chat/completions`,
+          { 'Content-Type': 'application/json', Authorization: `Bearer ${activeKey}` },
+          JSON.stringify({ model, messages: [{ role: 'user', content: 'oi' }], max_tokens: 10 })
+        )
+        const data = JSON.parse(raw)
+        if (data.choices) setTestResult(`✅ Conexão OK! ${provider.toUpperCase()} (${model}) respondeu.`)
+        else setTestResult(`❌ Erro: ${data.error?.message || 'Resposta inesperada'}`)
       }
     } catch (err) {
       setTestResult(`❌ ${err instanceof Error ? err.message : 'Falha de rede'}`)
@@ -837,6 +838,9 @@ function EvoluteSyncSettings() {
   const [cloudMessage, setCloudMessage] = useState<string | null>(null)
   const [cloudBusy, setCloudBusy] = useState(false)
   const [cloudConnected, setCloudConnected] = useState(isEvoluteCloudConnected(initial))
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [customUrl, setCustomUrl] = useState(initial.supabaseUrl || '')
+  const [customKey, setCustomKey] = useState(initial.supabasePublishableKey || '')
 
   // Verificar login persistente ao carregar
   useEffect(() => {
@@ -860,19 +864,35 @@ function EvoluteSyncSettings() {
     setCloudBusy(true)
     setCloudMessage(null)
     try {
+      const currentSettings = getEvoluteSettings()
+      const urlToUse = customUrl.trim() || currentSettings.supabaseUrl || DEFAULT_SUPABASE_URL
+      const keyToUse = customKey.trim() || currentSettings.supabasePublishableKey || DEFAULT_SUPABASE_KEY
+      
       const action = signup ? signUpEvoluteCloud : signInEvoluteCloud
       await action(email, password, {
-        ...getEvoluteSettings(),
-        supabaseUrl: DEFAULT_SUPABASE_URL,
-        supabasePublishableKey: DEFAULT_SUPABASE_KEY,
+        ...currentSettings,
+        supabaseUrl: urlToUse,
+        supabasePublishableKey: keyToUse,
       })
       setPassword('')
       setCloudConnected(true)
       const settings = getEvoluteSettings()
       setEmail(settings.userEmail || email)
-      setCloudMessage('✅ Login realizado! Sincronização automática ativada.')
+
+      // Sincronização automática imediata ao autenticar
+      try {
+        const syncMsg = await syncJarvisAfterLogin(isMobileStandalone() ? 'mobile' : 'pc')
+        setCloudMessage(`✅ Login realizado com sucesso! ${syncMsg}`)
+      } catch (syncErr) {
+        setCloudMessage(`✅ Login realizado! (${syncErr instanceof Error ? syncErr.message : 'Pronto para sincronizar'})`)
+      }
     } catch (error) {
-      setCloudMessage(error instanceof Error ? error.message : 'Falha ao conectar à nuvem.')
+      const msg = error instanceof Error ? error.message : 'Falha ao conectar à nuvem.'
+      if (msg.toLowerCase().includes('failed to fetch')) {
+        setCloudMessage('❌ Erro de conexão (Failed to fetch): O domínio do Supabase não foi localizado na rede (DNS). Verifique se o projeto está ativo no painel supabase.com ou atualize a URL/Chave em "Opções de Conexão".')
+      } else {
+        setCloudMessage(msg)
+      }
     } finally {
       setCloudBusy(false)
     }
@@ -958,6 +978,47 @@ function EvoluteSyncSettings() {
             Senha
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Senha da nuvem" />
           </label>
+
+          <div style={{ marginTop: 8, marginBottom: 12 }}>
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(prev => !prev)}
+              style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: 11, cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              {showAdvanced ? '▲ Ocultar opções de conexão (Supabase URL/Key)' : '▼ Opções de conexão com a nuvem (Supabase URL/Key)'}
+            </button>
+            {showAdvanced && (
+              <div style={{ marginTop: 8, padding: 10, background: 'rgba(0,0,0,0.3)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+                <label className="field-label" style={{ fontSize: 11 }}>
+                  Supabase Project URL
+                  <input
+                    type="text"
+                    value={customUrl}
+                    onChange={e => {
+                      setCustomUrl(e.target.value)
+                      saveEvoluteSettings({ supabaseUrl: e.target.value.trim() })
+                    }}
+                    placeholder={DEFAULT_SUPABASE_URL}
+                    style={{ fontSize: 11, padding: '6px 8px' }}
+                  />
+                </label>
+                <label className="field-label" style={{ fontSize: 11, marginTop: 6 }}>
+                  Supabase Anon/Publishable Key
+                  <input
+                    type="password"
+                    value={customKey}
+                    onChange={e => {
+                      setCustomKey(e.target.value)
+                      saveEvoluteSettings({ supabasePublishableKey: e.target.value.trim() })
+                    }}
+                    placeholder="Chave publicável do projeto Supabase"
+                    style={{ fontSize: 11, padding: '6px 8px' }}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+
           <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             <button
               className="primary-button"

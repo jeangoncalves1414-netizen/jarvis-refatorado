@@ -243,7 +243,7 @@ def test_chat_session_voice_fallback() -> None:
     assert "voz" in reply["message"].lower()
 
 
-def test_orchestrator_llm_fallback_when_no_api_key() -> None:
+def test_orchestrator_llm_fallback_when_no_api_key(isolated_conversation_journal) -> None:
     settings = Settings()
     settings.gemini_api_key = ""
     settings.groq_api_key = ""

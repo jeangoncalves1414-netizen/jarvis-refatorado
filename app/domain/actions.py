@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 
 
@@ -12,21 +13,23 @@ class FileActionService:
 
     def _resolve_path(self, relative_path: str = "") -> Path:
         candidate = (self.base_folder / relative_path).resolve()
-        if not str(candidate).startswith(str(self.base_folder)):
+        if not candidate.is_relative_to(self.base_folder):
             raise ValueError("Acesso a caminho fora do diretório base não permitido.")
         return candidate
 
-    def _extract_path(self, request: str) -> str:
-        normalized = (request or "").strip().lower()
-        for marker in ("pasta ", "folder ", "diretório ", "diretoria "):
-            if marker in normalized:
-                candidate = normalized.split(marker, 1)[1].strip()
-                if candidate:
-                    return candidate.split()[0]
-        return ""
+    @staticmethod
+    def listing_target(request: str) -> str | None:
+        match = re.fullmatch(
+            r"(?:liste|listar|mostre|mostrar)\s+(?:(?:os|meus|o)\s+)?(?:arquivos|conteúdo|conteudo)"
+            r"(?:\s+(?:da|na|do|no|de)\s+(?:pasta|folder|diretório)(?:\s+(.+))?)?",
+            (request or "").strip(), re.I,
+        )
+        return (match[1] or "").strip().strip('"') if match else None
 
     def execute(self, request: str) -> dict[str, Any]:
-        path_fragment = self._extract_path(request)
+        path_fragment = self.listing_target(request)
+        if path_fragment is None:
+            raise ValueError("Pedido de listagem não reconhecido.")
         target_path = self._resolve_path(path_fragment)
 
         if not target_path.exists() or not target_path.is_dir():

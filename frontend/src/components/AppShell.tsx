@@ -1,193 +1,47 @@
-import type { ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
-import { AnimatedDock } from './AnimatedDock'
-import { BackgroundPattern } from './BackgroundPattern'
-import { JarvisOrb } from './JarvisOrb'
-import { TransitionPanel } from './TransitionPanel'
-
-export type NavItem = {
-  id: string
-  icon: string
-}
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ChevronDown, Command, Menu, PanelLeftClose, PanelLeftOpen, Search, SlidersHorizontal, Sparkles, SquarePen, X } from 'lucide-react'
+import { navigation } from '../navigation'
+import type { ChatSession } from '../types'
+import type { OperationalState } from '../hooks/useOperationalSnapshot'
 
 type AppShellProps = {
-  active: string
-  navItems: NavItem[]
-  sidebarCollapsed: boolean
-  onToggleSidebar: () => void
-  onNavigate: (id: string) => void
-  onOpenQuestLog?: () => void
-  onOpenToolForge?: () => void
-  activeQuestsCount?: number
-  headerExtra?: ReactNode
-  hero?: ReactNode
-  children: ReactNode
-  quickActions: ReactNode
+  active: string; sidebarCollapsed: boolean; onToggleSidebar: () => void; onNavigate: (id: string) => void
+  sessions: ChatSession[]; sessionId: string; onSelectSession: (id: string) => void; onNewChat: () => void
+  onOpenCommands: () => void; operational: OperationalState; controls: ReactNode
+  hero?: ReactNode; children: ReactNode; quickActions: ReactNode
 }
 
-export function AppShell({
-  active,
-  navItems,
-  sidebarCollapsed,
-  onToggleSidebar,
-  onNavigate,
-  onOpenQuestLog,
-  onOpenToolForge,
-  activeQuestsCount = 0,
-  headerExtra,
-  hero,
-  children,
-  quickActions,
-}: AppShellProps) {
-  const parallaxRef = useRef<HTMLDivElement>(null)
-  const [pingMs, setPingMs] = useState<number | null>(null)
-  const [isOnline, setIsOnline] = useState(true)
-
-  useEffect(() => {
-    if (typeof window !== 'undefined' && (window.location.hostname === 'appassets.androidplatform.net' || window.location.protocol === 'file:')) {
-      setIsOnline(true)
-      setPingMs(0)
-      return
-    }
-    let mounted = true
-    const checkPing = async () => {
-      const start = performance.now()
-      try {
-        const res = await fetch('/api/evolute/status', { method: 'GET' })
-        if (!mounted) return
-        const duration = Math.round(performance.now() - start)
-        if (res.ok) {
-          setPingMs(duration)
-          setIsOnline(true)
-        } else {
-          setIsOnline(false)
-        }
-      } catch {
-        if (mounted) setIsOnline(false)
-      }
-    }
-
-    checkPing()
-    const interval = setInterval(checkPing, 25000)
-    return () => {
-      mounted = false
-      clearInterval(interval)
-    }
-  }, [])
-
-  useEffect(() => {
-    const handleScroll = () => {
-      const scrollY = window.scrollY
-      if (parallaxRef.current) {
-        parallaxRef.current.style.transform = `translateY(${scrollY * 0.3}px)`
-      }
-    }
-
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    return () => window.removeEventListener('scroll', handleScroll)
-  }, [])
-
-  return (
-    <>
-      <BackgroundPattern variant="grid" mask="fade-edges" parallax ref={parallaxRef} />
-      <div className="app-bg-pattern" aria-hidden="true">
-        <BackgroundPattern variant="dots" mask="fade-center" />
-      </div>
-      <main className={`app-shell ${active === 'Chat' ? 'app-shell-chat' : ''} ${active === 'Evolução' ? 'app-shell-evolute' : ''}`}>
-        <aside className={`sidebar ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-          <div className="brand">
-            <JarvisOrb size={36} use3D={typeof window === 'undefined' || window.innerWidth > 768} />
-            {!sidebarCollapsed && <span>Jarvis</span>}
-            <button
-              className="sidebar-toggle-btn"
-              onClick={onToggleSidebar}
-              title={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
-            >
-              {sidebarCollapsed ? '»' : '«'}
-            </button>
-          </div>
-
-          <nav className="sidebar-nav">
-            {navItems.map(item => (
-              <button
-                className={active === item.id ? 'nav-active' : ''}
-                key={item.id}
-                onClick={() => onNavigate(item.id)}
-                title={sidebarCollapsed ? item.id : undefined}
-              >
-                <span className="nav-icon">{item.icon}</span>
-                {!sidebarCollapsed && item.id}
-              </button>
-            ))}
-          </nav>
-
-          <div className="sidebar-quick">
-            <p className="sidebar-section-label">AÇÕES RÁPIDAS</p>
-            {quickActions}
-          </div>
-
-          <div className="sidebar-bottom">
-            <p>SISTEMA LOCAL</p>
-            <strong><b /> ONLINE</strong>
-          </div>
-        </aside>
-
-        <section className={`workspace ${active === 'Chat' ? 'workspace-chat' : ''} ${active === 'Evolução' ? 'workspace-evolute' : ''}`}>
-          <header>
-            <div>
-              <p className="eyebrow">ASSISTENTE PESSOAL</p>
-              <h1>{active}</h1>
-            </div>
-            <div className="header-tools">
-              <div className="header-ping-badge" title={isOnline ? `Conexão Local: ${pingMs}ms` : 'Servidor Offline'}>
-                <span className={`ping-dot ${isOnline ? (pingMs && pingMs < 150 ? 'online' : 'slow') : 'offline'}`} />
-                <span className="ping-text">{isOnline ? `${pingMs ?? '—'}ms` : 'Offline'}</span>
-              </div>
-              {headerExtra}
-              {onOpenQuestLog && activeQuestsCount > 0 && (
-                <button className="quest-log-trigger-btn" onClick={onOpenQuestLog} title="Abrir Quests & Processos">
-                  📜 Quests <span className="quest-count-badge">{activeQuestsCount}</span>
-                </button>
-              )}
-              <div className="profile">M</div>
-            </div>
-          </header>
-          {hero}
-          <TransitionPanel activeKey={active}>{children}</TransitionPanel>
-        </section>
-      </main>
-
-      <AnimatedDock
-        items={navItems.map(item => ({
-          id: item.id,
-          label: item.id,
-          icon: item.icon,
-          active: active === item.id,
-          onClick: () => onNavigate(item.id),
-        }))}
-      />
-
-      {/* Dedicated Mobile Bottom Navbar for Moto E20 / Smartphones */}
-      <nav className="mobile-bottom-nav">
-        {[
-          { id: 'Chat', icon: '✦', label: 'Chat' },
-          { id: 'Dashboard', icon: '◈', label: 'Início' },
-          { id: 'Estudos', icon: '◎', label: 'Estudos' },
-          { id: 'Evolução', icon: '⚡', label: 'Evoluir' },
-          { id: 'Memórias', icon: '◇', label: 'Memórias' },
-          { id: 'Configurações', icon: '⚙', label: 'Config' },
-        ].map(tab => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => onNavigate(tab.id)}
-            className={`mobile-nav-item ${active === tab.id ? 'active' : ''}`}
-          >
-            <span>{tab.icon}</span>
-            {tab.label}
-          </button>
-        ))}
-      </nav>
-    </>
-  )
+export function AppShell({ active, sidebarCollapsed, onToggleSidebar, onNavigate, sessions, sessionId, onSelectSession, onNewChat, onOpenCommands, operational, controls, hero, children, quickActions }: AppShellProps) {
+  const [search, setSearch] = useState('')
+  const [controlsOpen, setControlsOpen] = useState(true)
+  const navDialog = useRef<HTMLDialogElement>(null)
+  const controlDialog = useRef<HTMLDialogElement>(null)
+  const route = navigation.find(item => item.id === active)
+  const { snapshot, error } = operational
+  const status = error ? 'offline' : snapshot ? 'connected' : 'unknown'
+  const statusLabel = error ? 'Sem conexão com a central' : snapshot ? 'Central conectada' : 'Conectando à central'
+  useEffect(() => { navDialog.current?.close(); controlDialog.current?.close() }, [active, sessionId])
+  const navigate = (id: string) => { onNavigate(id); navDialog.current?.close(); controlDialog.current?.close() }
+  const newChat = () => { onNewChat(); navDialog.current?.close() }
+  const navButton = (item: typeof navigation[number]) => <button key={item.id} className={`ws-nav-item ${active === item.id ? 'selected' : ''}`} aria-current={active === item.id ? 'page' : undefined} title={item.label} onClick={() => navigate(item.id)}><item.icon size={17} /><span>{item.label}</span>{item.id === 'Central' && !!snapshot?.pending_actions.length && <small>{snapshot.pending_actions.length}</small>}</button>
+  const sidebarContent = <>
+    <div className="ws-brand"><span className="ws-brand-mark"><Sparkles size={19} /></span><strong>Workspace<span>Seu agente pessoal</span></strong><button className="ws-icon-button ws-desktop-toggle" aria-label={sidebarCollapsed ? 'Expandir navegação' : 'Recolher navegação'} onClick={onToggleSidebar}>{sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button><button className="ws-icon-button ws-mobile-close" aria-label="Fechar navegação" onClick={() => navDialog.current?.close()}><X size={19} /></button></div>
+    <button className="ws-new-chat" onClick={newChat} aria-label="Nova conversa" title="Nova conversa"><SquarePen size={17} /><span>Nova conversa</span><small aria-hidden="true">＋</small></button>
+    <button className="ws-command-search" onClick={() => { navDialog.current?.close(); onOpenCommands() }} title="Buscar comandos"><Search size={16} /><span>Buscar no workspace</span><kbd>Ctrl K</kbd></button>
+    <nav aria-label="Navegação principal" className="ws-navigation">{navigation.filter(item => item.group === 'workspace').map(navButton)}</nav>
+    <details className="ws-modules"><summary><span>Módulos pessoais</span><ChevronDown size={14} /></summary><nav aria-label="Módulos pessoais">{navigation.filter(item => item.group === 'modules').map(navButton)}</nav></details>
+    <div className="ws-history"><div className="ws-section-heading"><span>CONVERSAS RECENTES</span><span>{sessions.length}</span></div><label className="ws-history-search"><Search size={13} /><input aria-label="Buscar conversas" placeholder="Filtrar conversas…" value={search} onChange={event => setSearch(event.target.value)} /></label><div className="ws-history-list">{sessions.filter(item => (item.title || 'Nova conversa').toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR'))).map(item => <button key={item.id} className={active === 'Chat' && item.id === sessionId ? 'selected' : ''} onClick={() => { onSelectSession(item.id); navigate('Chat') }} title={item.title || 'Nova conversa'}>{item.title || 'Nova conversa'}</button>)}{!sessions.length && <p>Suas conversas ficam aqui.</p>}</div></div>
+    <div className="ws-sidebar-footer">{navigation.filter(item => item.group === 'settings').map(navButton)}<div className="ws-local-status" title={statusLabel}><span className={`ws-dot ${status}`} /><span>{statusLabel}</span><Command size={13} /></div></div>
+  </>
+  return <div className={`agent-workspace ${sidebarCollapsed ? 'nav-collapsed' : ''} ${controlsOpen ? 'controls-open' : ''}`}>
+    <a className="ws-skip" href="#workspace-content">Ir para o conteúdo</a>
+    <aside className="ws-sidebar">{sidebarContent}</aside>
+    <dialog ref={navDialog} className="ws-drawer ws-nav-drawer" aria-label="Navegação" onClick={event => { if (event.target === event.currentTarget) navDialog.current?.close() }}><div className="ws-drawer-inner">{sidebarContent}</div></dialog>
+    <main className="ws-main" id="workspace-content" tabIndex={-1}>
+      <header className="ws-topbar"><div className="ws-topbar-title"><button className="ws-icon-button ws-mobile-menu" aria-label="Abrir navegação" onClick={() => navDialog.current?.showModal()}><Menu size={20} /></button><span className="ws-breadcrumb">Workspace <span>/</span></span><strong>{route?.label || active}</strong></div><div className="ws-topbar-actions"><span className={`ws-connection-label ${status}`}><i className={`ws-dot ${status}`} />{status === 'connected' ? 'Conectado' : status === 'offline' ? 'Desconectado' : 'Conectando'}</span><button className="ws-control-toggle" aria-label="Controle do agente" onClick={() => { if (window.innerWidth <= 1200) controlDialog.current?.showModal(); else setControlsOpen(value => !value) }}><SlidersHorizontal size={16} /><span>Controle do agente</span></button></div></header>
+      <div className={`ws-page ${active === 'Chat' ? 'ws-page-chat' : ''}`}>{hero}{children}</div>
+    </main>
+    {controlsOpen && <aside className="ws-control-rail"><div className="ws-control-heading"><strong>Controle do agente</strong><button className="ws-icon-button" aria-label="Recolher controles" onClick={() => setControlsOpen(false)}><X size={16} /></button></div>{controls}<details className="ws-extra-tools"><summary>Mais ferramentas</summary>{quickActions}</details></aside>}
+    <dialog ref={controlDialog} className="ws-drawer ws-control-drawer" aria-label="Controle do agente" onClick={event => { if (event.target === event.currentTarget) controlDialog.current?.close() }}><div className="ws-drawer-inner"><div className="ws-control-heading"><strong>Controle do agente</strong><button className="ws-icon-button" aria-label="Fechar controles" onClick={() => controlDialog.current?.close()}><X size={18} /></button></div>{controls}<details className="ws-extra-tools"><summary>Mais ferramentas</summary>{quickActions}</details></div></dialog>
+  </div>
 }

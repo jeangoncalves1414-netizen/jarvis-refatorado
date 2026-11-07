@@ -24,6 +24,7 @@ it and must never reset, clean, stash, or overwrite unrelated changes.
 || 013 | Substituir window.confirm() nativo por componente de diálogo customizado | P2 | M | — | TODO |
 || 014 | Corrigir race condition em ToolGuardrails (dicionários sem lock) | P1 | M | — | DONE |
 || 015 | Corrigir race condition em settings (estado de classe sem lock) | P1 | M | — | TODO |
+|| 016 | Transformar o produto em um painel neutro de controle de IA | P0 | L | 006, 007 | IN PROGRESS |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale).
 
@@ -36,6 +37,7 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - Plan 006 establishes isolated tests before Plan 007 moves high-churn modules.
 - Plan 002 was reviewed in the isolated worktree at `C:\\Users\\maria\\.codex\\worktrees\\f886\\Jarvis` and then integrated manually into the existing user worktree after explicit authorization. Its reference commits are `173061c` and `7242f4b`.
 - Security plans (008-011) are independent and can be executed in parallel, but 008 should precede 010 for consistent path handling patterns.
+- Plan 016 consolida a direção de produto após a análise de `D:\\Downloads\\Projeto AI` e vinte referências públicas. Ele depende do baseline de verificação (006) e não assume que a modularização parcial de 007 esteja concluída; cada fase deve preservar as alterações locais existentes.
 
 ## Findings considered and rejected
 

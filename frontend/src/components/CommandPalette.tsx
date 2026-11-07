@@ -1,11 +1,8 @@
+import { navigation } from '../navigation'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Search,
   MessageSquare,
-  LayoutDashboard,
-  GraduationCap,
-  Brain,
-  Settings,
   Zap,
   Droplets,
   Volume2,
@@ -14,12 +11,8 @@ import {
   Eye,
   Camera,
   CornerDownLeft,
-  X,
   Download,
   Flame,
-  ShieldCheck,
-  Cpu,
-  Activity
 } from 'lucide-react'
 import { playClick, playSuccess, playOpen, playToggle, toggleSfx, isSfxEnabled } from '../utils/sfx'
 
@@ -63,71 +56,18 @@ export function CommandPalette({
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLDialogElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
   const items: CommandItem[] = useMemo(() => [
-    // Navegação
-    {
-      id: 'nav-chat',
-      title: 'Abrir Chat',
-      subtitle: 'Conversar com o Jarvis',
-      icon: <MessageSquare size={16} />,
-      category: 'Navegação',
-      action: () => { onNavigate('Chat'); onClose() },
-      shortcut: '1',
-    },
-    {
-      id: 'nav-dashboard',
-      title: 'Abrir Dashboard',
-      subtitle: 'Visão geral do sistema e clima',
-      icon: <LayoutDashboard size={16} />,
-      category: 'Navegação',
-      action: () => { onNavigate('Dashboard'); onClose() },
-      shortcut: '2',
-    },
-    {
-      id: 'nav-estudos',
-      title: 'Abrir Estudos & ENEM',
-      subtitle: 'Simulados, flashcards e whiteboard',
-      icon: <GraduationCap size={16} />,
-      category: 'Navegação',
-      action: () => { onNavigate('Estudos'); onClose() },
-      shortcut: '3',
-    },
-    {
-      id: 'nav-memorias',
-      title: 'Abrir Memórias & Perfis',
-      subtitle: 'Fatos e contexto salvos pelo assistente',
-      icon: <Brain size={16} />,
-      category: 'Navegação',
-      action: () => { onNavigate('Memórias'); onClose() },
-      shortcut: '4',
-    },
-    {
-      id: 'nav-config',
-      title: 'Abrir Configurações',
-      subtitle: 'Provedores de IA, chaves e áudio',
-      icon: <Settings size={16} />,
-      category: 'Navegação',
-      action: () => { onNavigate('Configurações'); onClose() },
-      shortcut: '5',
-    },
-    {
-      id: 'nav-automacoes',
-      title: 'Abrir Automações & IoT',
-      subtitle: 'Controle de clima, ponte de dispositivos e lembretes',
-      icon: <Cpu size={16} />,
-      category: 'Navegação',
-      action: () => { onNavigate('Automações'); onClose() },
-    },
-    {
-      id: 'nav-analytics',
-      title: 'Abrir Métricas & Telemetria',
-      subtitle: 'Gráficos de uso, latência e logs em tempo real',
-      icon: <Activity size={16} />,
-      category: 'Navegação',
-      action: () => { onNavigate('Analytics'); onClose() },
-    },
+    ...navigation.map(item => ({
+      id: `nav-${item.id}`,
+      title: `Abrir ${item.label}`,
+      subtitle: item.description,
+      icon: <item.icon size={16} />,
+      category: 'Navegação' as const,
+      action: () => { onNavigate(item.id); onClose() },
+    })),
 
     // Life OS
     {
@@ -248,10 +188,13 @@ export function CommandPalette({
   // Focus input and play open sound when opened
   useEffect(() => {
     if (isOpen) {
+      dialogRef.current?.showModal()
       playOpen()
       setQuery('')
       setSelectedIndex(0)
-      setTimeout(() => inputRef.current?.focus(), 50)
+      inputRef.current?.focus()
+    } else {
+      dialogRef.current?.close()
     }
   }, [isOpen])
 
@@ -293,10 +236,8 @@ export function CommandPalette({
     }
   }, [selectedIndex])
 
-  if (!isOpen) return null
-
   return (
-    <div className="cmd-palette-backdrop" onClick={onClose}>
+    <dialog ref={dialogRef} className="cmd-palette-backdrop ws-command-dialog" aria-label="Buscar no workspace" onCancel={event => { event.preventDefault(); onClose() }} onClick={onClose}>
       <div className="cmd-palette-container" onClick={e => e.stopPropagation()}>
         {/* Search Header */}
         <div className="cmd-palette-header">
@@ -307,7 +248,7 @@ export function CommandPalette({
             className="cmd-palette-input"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="O que você deseja fazer no Jarvis? (ex: chat, água, life os, briefing…)"
+            placeholder="Buscar páginas e ações…"
           />
           <button type="button" className="cmd-close-btn" onClick={onClose} aria-label="Fechar">
             <kbd>ESC</kbd>
@@ -356,9 +297,9 @@ export function CommandPalette({
             <span><kbd>↵</kbd> Executar</span>
             <span><kbd>ESC</kbd> Fechar</span>
           </div>
-          <span className="cmd-footer-tag">Jarvis Command HUD</span>
+          <span className="cmd-footer-tag">Workspace · Comandos</span>
         </div>
       </div>
-    </div>
+    </dialog>
   )
 }

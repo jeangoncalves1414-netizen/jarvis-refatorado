@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from app.domain.actions import FileActionService
-from app.domain.productivity import ProductivityService
+from app.storage import task_store
 from app.agent.tools.registry import ToolRegistry
 from app.agent.modes.tutor import build_tutor_system
 from app.agent.tool_markers import parse_tool_markers, ToolStep
@@ -15,6 +16,10 @@ from app.agent.runtime_modes import AgentMode
 from app.agent.mode_resolver import ModeResolver
 from app.agent.tool_guardrails import ToolCallGuardrailController
 from app.agent.action_executor import ActionExecutor
+from app.agent.run_tracking import track_run
+from app.core.runs import RunCancelled, check_run_cancelled, current_run
+from app.core.actions import ToolMetadata
+from app.agent.tools.base import ToolResult
 from app.storage.session_store import get_session_history, save_session_history
 from app.storage.enem_store import EnemStore
 from app.storage.tutor_store import TutorStore
@@ -106,8 +111,8 @@ class AgentOrchestrator:
         self.settings = settings
         self.llm_service = llm_service
         self.memory_store = memory_store
-        self.file_action_service = file_action_service or FileActionService()
-        self.productivity_service = productivity_service or ProductivityService()
+        self.file_action_service = file_action_service or FileActionService(getattr(settings, "base_folder", None))
+        self.productivity_service = productivity_service if productivity_service is not None else task_store
         self.tutor_store = tutor_store or TutorStore()
         self.enem_store = enem_store or EnemStore()
         self.agent_manager = agent_manager or AgentManager()
@@ -344,6 +349,7 @@ class AgentOrchestrator:
                 return question
         return None
 
+    @track_run
     def _run_llm_with_tools(
         self,
         text: str,
@@ -356,8 +362,8 @@ class AgentOrchestrator:
         on_search: callable | None = None,
         profile_id: str | None = None,
     ) -> AgentPlan:
-        # Reset guardrails for new turn
-        self.tool_guardrails.reset_turn()
+        # A pending approval retains this turn's limits, even during another chat.
+        turn_guardrails = ToolCallGuardrailController()
         
         # Detect mode if not explicitly provided
         if mode == "general":
@@ -474,7 +480,7 @@ ter pesquisado se não pesquisou.
         }
         
         # Garantir que a mensagem atual do usuário está incluída na lista de mensagens
-        full_messages = list(history)
+        full_messages = [{k: v for k, v in msg.items() if k != "run_id"} for msg in history]
         if text and (not full_messages or full_messages[-1].get("content") != text):
             full_messages.append({"role": "user", "content": text})
 
@@ -483,14 +489,14 @@ ter pesquisado se não pesquisou.
             executed_tool_results: dict[str, dict] = {}
             native_tool_results: dict[str, Any] = {}
 
-            def native_legacy_execute(name: str, args: dict, _user_line: str) -> str:
+            def native_legacy_execute(name: str, args: dict, _user_line: str) -> ToolResult:
                 tool_result = self.registry.execute_tool(name, args or {}, context=tool_context)
                 native_tool_results[name] = tool_result
-                return getattr(tool_result, "message", "")
+                return tool_result
 
             native_executor = ActionExecutor(
                 allowed_tool_names=frozenset(self.registry.tools.keys()),
-                guardrails=self.tool_guardrails,
+                guardrails=turn_guardrails,
                 legacy_execute=native_legacy_execute,
                 metadata_for=self.registry.get_tool_metadata,
                 source=f"function:{session_id or 'default'}",
@@ -504,6 +510,8 @@ ter pesquisado se não pesquisou.
                 try:
                     message = native_executor.execute(name, args or {}, text)
                     tr = native_tool_results.pop(name, None)
+                except RunCancelled:
+                    raise
                 except Exception:
                     tr = None
                     message = "Não foi possível preparar a ação solicitada."
@@ -515,7 +523,7 @@ ter pesquisado se não pesquisou.
                 try:
                     if tr is not None:
                         executed_tool_results[name] = {
-                            'ok': getattr(tr, 'ok', False),
+                            'ok': bool(native_executor.last_action and native_executor.last_action.status == 'succeeded'),
                             'message': getattr(tr, 'message', ''),
                             'data': getattr(tr, 'data', None)
                         }
@@ -530,7 +538,7 @@ ter pesquisado se não pesquisou.
                                 on_search(payload)
                             except Exception:
                                 pass
-                        return getattr(tr, 'message', '')
+                        return message
                 except Exception:
                     pass
 
@@ -546,7 +554,6 @@ ter pesquisado se não pesquisou.
                 force_tool=False
             )
             raw = result or "Sem resposta."
-            from app.agent.tool_markers import parse_tool_markers
             summary, _ = parse_tool_markers(raw)
             # Aplicar filtros STM para remover preâmbulos robóticos e hesitações
             try:
@@ -582,6 +589,7 @@ ter pesquisado se não pesquisou.
             speakable, tool_steps = parse_tool_markers(summary)
             
             actions: list[str] = []
+            action_feedback: list[str] = []
             context_data: dict[str, Any] = {}
             whiteboard_updated = False
             
@@ -589,18 +597,18 @@ ter pesquisado se não pesquisou.
                 # Criar executor com proteções
                 legacy_tool_results: dict[str, dict[str, Any]] = {}
 
-                def legacy_execute(name: str, args: dict, user_line: str) -> str:
+                def legacy_execute(name: str, args: dict, user_line: str) -> ToolResult:
                     tool_result = self.registry.run_by_marker(name, args.get("command") if args else None, user_line)
                     legacy_tool_results[name] = {
                         "ok": getattr(tool_result, "ok", False),
                         "message": getattr(tool_result, "message", ""),
                         "data": getattr(tool_result, "data", None),
                     }
-                    return getattr(tool_result, "message", "")
+                    return tool_result
 
                 executor = ActionExecutor(
                     allowed_tool_names=frozenset(self.registry.tools.keys()),
-                    guardrails=self.tool_guardrails,
+                    guardrails=turn_guardrails,
                     legacy_execute=legacy_execute,
                     metadata_for=self.registry.get_tool_metadata,
                     source=f"marker:{session_id or 'default'}",
@@ -615,24 +623,29 @@ ter pesquisado se não pesquisou.
                         res = executor.execute(tool_name, {"command": tool_arg} if tool_arg else {}, text)
                         actions.append(f"executar_{tool_name}")
                         context_data[tool_name] = {"arg": tool_arg, "result": res}
+                        if not executor.last_action or executor.last_action.status != "succeeded":
+                            action_feedback.append(f"{tool_name}: {res}")
                         try:
                             from app.core.logger import logger
                             logger.record_tool_execution(tool_name)
-                            logger.info("ToolExecutor", f"Ferramenta {tool_name} executada com sucesso", {"arg": tool_arg, "result": str(res)[:100]})
+                            logger.info("ToolExecutor", f"Ferramenta {tool_name}: {executor.last_action.status if executor.last_action else 'bloqueada'}")
                         except Exception:
                             pass
-                        if tool_name.startswith("whiteboard_"):
+                        if tool_name.startswith("whiteboard_") and executor.last_action and executor.last_action.status == "succeeded":
                             whiteboard_updated = True
                         # Para system_control, adicionar o resultado ao speakable
                         if tool_name == "system_control" and res:
                             if speakable and not speakable.endswith("."):
                                 speakable += ". "
                             speakable += res
-                    except Exception as e:
-                        print(f"Erro ao executar ferramenta {tool_name}: {e}")
+                    except RunCancelled:
+                        raise
+                    except Exception:
+                        action_feedback.append(f"{tool_name}: não foi possível confirmar a execução. Consulte a Central.")
             
             # Se houver ferramentas executadas, usar o texto limpo (agora com resultados incluídos)
-            final_summary = speakable if tool_steps else summary
+            # The model's marker preamble precedes execution and is not a receipt.
+            final_summary = "\n\n".join(action_feedback) if action_feedback else speakable if tool_steps else summary
             search_marker = _build_search_marker(legacy_tool_results) if tool_steps else ""
             if search_marker:
                 final_summary = f"{final_summary.rstrip()}\n\n{search_marker}" if final_summary.strip() else search_marker
@@ -649,6 +662,66 @@ ter pesquisado se não pesquisou.
             )
 
 
+    def _run_local_shortcut(self, text: str, mode: str, session_id: str | None) -> AgentPlan | None:
+        if mode not in {"general", "chat", "files"}:
+            return None
+        task = re.fullmatch(r"(?:adicione|adicionar|crie|criar)\s+(?:uma\s+)?tarefa\s+(?:de\s+)?(.+)", text.strip(), re.I)
+        if not task and FileActionService.listing_target(text) is None:
+            return None
+        name = "create_local_task" if task else "list_local_directory"
+        result_data = {}
+
+        def execute(_name: str, args: dict, _user: str) -> ToolResult:
+            if task:
+                if self.productivity_service is None:
+                    return ToolResult(False, "O serviço de tarefas não está disponível.")
+                task_record = self.productivity_service.add_task(args["title"])
+                if task_record is None:
+                    return ToolResult(False, "O serviço de tarefas não confirmou a criação.")
+                if isinstance(task_record, dict) and task_record.get("id"):
+                    result_data["task_id"] = task_record["id"]
+                return ToolResult(True, "Tarefa adicionada à lista.")
+            if self.file_action_service is None:
+                return ToolResult(False, "O serviço de arquivos não está disponível.")
+            try:
+                result = self.file_action_service.execute(args["request"])
+            except FileNotFoundError:
+                return ToolResult(False, "Não foi possível listar os arquivos: a pasta não foi encontrada.")
+            except ValueError:
+                return ToolResult(False, "Não foi possível listar os arquivos: o caminho está fora da pasta permitida.")
+            if not isinstance(result, dict) or not isinstance(result.get("items"), list):
+                return ToolResult(False, "O serviço de arquivos não confirmou a listagem.")
+            result_data.update(result)
+            return ToolResult(True, f"Arquivos listados: {len(result['items'])} itens encontrados.", result)
+
+        executor = ActionExecutor(
+            frozenset({name}), ToolCallGuardrailController(), execute,
+            metadata_for=lambda _: ToolMetadata(("productivity",) if task else ("files",), "low" if task else "observe"),
+            source=f"shortcut:{session_id or 'default'}",
+        )
+        args = {"title": task[1].strip()} if task else {"request": text}
+        try:
+            message = executor.execute(name, args, text)
+        except RunCancelled:
+            raise
+        except Exception:
+            message = "A ação local falhou; conclusão não confirmada. Consulte a Central."
+        succeeded = executor.last_action and executor.last_action.status == "succeeded"
+        if succeeded and task:
+            destination = " no painel pessoal" if self.productivity_service is task_store else ""
+            message = f"Criei a tarefa “{args['title']}”{destination}."
+        elif succeeded and result_data.get("items"):
+            items = result_data["items"]
+            message += "\n" + "\n".join(f"• {item}" for item in items[:40])
+            if len(items) > 40:
+                message += f"\nMais {len(items) - 40} itens na pasta."
+        return AgentPlan(
+            intent=("productivity" if task else "file") if succeeded else "error",
+            summary=message, actions=[name],
+            context={"task_title": args["title"], **result_data} if task else {"action_result": result_data},
+        )
+
+    @track_run
     def handle_request(
         self,
         text: str,
@@ -662,6 +735,24 @@ ter pesquisado se não pesquisou.
         on_search: Any = None,
         profile_id: str | None = None,
         racing_mode: bool = False,
+        react_max_steps: int = 8,
+    ) -> AgentPlan:
+        if history is None:
+            history = get_session_history(session_id) if session_id else []
+        plan = self._dispatch_request(
+            text, session_id, mode, history, enem_context, enem_question_id,
+            on_chunk, on_reasoning, on_search, profile_id, racing_mode, react_max_steps,
+        )
+        check_run_cancelled()
+        if session_id and plan.intent != "error" and not is_technical_error_memory(plan.summary):
+            assistant_message = {"role": "assistant", "content": plan.summary, "run_id": current_run.get()[1]}
+            updated = [*history, {"role": "user", "content": text}, assistant_message]
+            save_session_history(session_id, updated[-40:])
+        return plan
+
+    def _dispatch_request(
+        self, text, session_id, mode, history, enem_context, enem_question_id,
+        on_chunk, on_reasoning, on_search, profile_id, racing_mode, react_max_steps,
     ) -> AgentPlan:
         try:
             from app.core.logger import logger
@@ -673,32 +764,40 @@ ter pesquisado se não pesquisou.
         # Se o modo ReAct estiver ativado
         if mode == "react":
             try:
-                trajectory = self.react_loop.run_loop(text, max_steps=8)
+                trajectory = self.react_loop.run_loop(text, max_steps=react_max_steps, context={"session_id": session_id})
                 plan = AgentPlan(
-                    intent="react_loop",
+                    intent="react_loop" if trajectory.success or trajectory.pending_action_id else "error",
                     summary=trajectory.final_output,
                     actions=[f"react_step_{s.step_number}" for s in trajectory.steps],
-                    context={"success": trajectory.success, "steps_count": len(trajectory.steps), "elapsed_sec": trajectory.total_elapsed_sec}
+                    context={"success": trajectory.success, "pending_action_id": trajectory.pending_action_id, "steps_count": len(trajectory.steps), "elapsed_sec": trajectory.total_elapsed_sec}
                 )
                 self.last_plan = plan
                 return plan
-            except Exception as exc:
-                print(f"[Orchestrator] Falha no modo ReAct: {exc}")
+            except RunCancelled:
+                raise
+            except Exception:
+                plan = AgentPlan(intent="error", summary="O modo ReAct falhou. Consulte as etapas na Central antes de tentar novamente.", actions=[])
+                self.last_plan = plan
+                return plan
 
         # Se o modo Swarm estiver ativado
         if mode == "swarm":
             try:
                 swarm_res = self.swarm.route_and_execute(text)
                 plan = AgentPlan(
-                    intent="swarm_execution",
+                    intent="swarm_execution" if swarm_res.get("ok") is True else "error",
                     summary=swarm_res.get("summary", swarm_res.get("synthesis", swarm_res.get("code", str(swarm_res)))),
                     actions=[f"agent_{swarm_res.get('agent', 'swarm')}"],
                     context=swarm_res
                 )
                 self.last_plan = plan
                 return plan
-            except Exception as exc:
-                print(f"[Orchestrator] Falha no modo Swarm: {exc}")
+            except RunCancelled:
+                raise
+            except Exception:
+                plan = AgentPlan(intent="error", summary="A execução do especialista falhou.", actions=[])
+                self.last_plan = plan
+                return plan
 
         # Se o modo Racing estiver ativado e for uma pergunta geral
         if racing_mode and mode not in {"tutor", "planning", "research"} and self.llm_service:
@@ -717,15 +816,18 @@ ter pesquisado se não pesquisou.
                     )
                     self.last_plan = plan
                     return plan
+            except RunCancelled:
+                raise
             except Exception as exc:
                 print(f"[Orchestrator] Falha no modo Racing: {exc}")
 
+        check_run_cancelled()
         normalized = (text or "").strip().lower()
+        plan = self._run_local_shortcut(text, mode, session_id)
+        if plan is not None:
+            self.last_plan = plan
+            return plan
         self._remember_preferences(text, normalized)
-
-        if session_id and history is None:
-            history = get_session_history(session_id)
-        history = history or []
 
         enem_question = self._resolve_enem_context(enem_context, enem_question_id)
         if enem_question and mode == "tutor":
@@ -736,47 +838,10 @@ ter pesquisado se não pesquisou.
             if not text.strip().startswith("[Questão ENEM"):
                 text = prefix + (text or "Vamos resolver esta questão juntos, passo a passo.")
 
-        api_key = ""
         if self.llm_service:
             provider = self.llm_service.get_active_provider()
             api_key = self.llm_service._api_key_for(provider)
-
-        if any(token in normalized for token in ["arquivo", "pasta", "folder", "documento"]) and mode != "tutor":
-            action_result = None
-            if self.file_action_service is not None:
-                try:
-                    action_result = self.file_action_service.execute(text)
-                except Exception:
-                    action_result = None
-            if self.llm_service and api_key:
-                prompt = f"O usuário solicitou: '{text}'. Resultado: {action_result}. Confirme de forma amigável."
-                summary = self.llm_service.ask(prompt)
-            else:
-                summary = "Listei os arquivos da pasta solicitada."
-            plan = AgentPlan(intent="file", summary=summary, actions=["listar arquivos"], context={"action_result": action_result})
-            self.last_plan = plan
-            return plan
-
-        if any(token in normalized for token in ["tarefa", "meta", "habito", "hábito", "progresso"]) and mode != "tutor":
-            task_title = normalized
-            for phrase in ("adicione", "crie", "uma tarefa", "um item", "tarefa de", "tarefa"):
-                task_title = task_title.replace(phrase, "")
-            task_title = task_title.strip()
-            if task_title.startswith("de "):
-                task_title = task_title[3:].strip()
-            if self.productivity_service and task_title:
-                self.productivity_service.add_task(task_title)
-            if self.llm_service and api_key:
-                summary = self.llm_service.ask(f"Tarefa '{task_title}' registrada. Confirme brevemente.")
-            else:
-                summary = f"Tarefa '{task_title}' registrada."
-            plan = AgentPlan(intent="productivity", summary=summary, actions=["criar item"], context={"task_title": task_title})
-            self.last_plan = plan
-            return plan
-
-        if self.llm_service:
             if not api_key:
-                provider = self.llm_service.get_active_provider()
                 key_name = "GROQ_API_KEY" if provider == "groq" else "GEMINI_API_KEY"
                 plan = AgentPlan(
                     intent="general",
@@ -785,6 +850,7 @@ ter pesquisado se não pesquisou.
                         f"Configure-a ou altere o provedor LLM em Configurações."
                     ),
                     actions=["configurar api key"],
+                    context={"success": False},
                 )
                 self.last_plan = plan
                 return plan
@@ -792,11 +858,7 @@ ter pesquisado se não pesquisou.
                 plan = self._run_llm_with_tools(
                     text, mode, session_id, history, enem_question=enem_question, on_chunk=on_chunk, on_reasoning=on_reasoning, on_search=on_search, profile_id=profile_id
                 )
-                if session_id and plan.intent != "error" and not is_technical_error_memory(plan.summary):
-                    updated = list(history)
-                    updated.append({"role": "user", "content": text})
-                    updated.append({"role": "assistant", "content": plan.summary})
-                    save_session_history(session_id, updated[-40:])
+                check_run_cancelled()
                 if profile_id and self.profile_memory and plan.intent != "error" and not is_technical_error_memory(plan.summary):
                     try:
                         self.profile_memory.add(
@@ -810,6 +872,8 @@ ter pesquisado se não pesquisou.
                         pass
                 self.last_plan = plan
                 return plan
+            except RunCancelled:
+                raise
             except Exception as e:
                 import traceback
                 print(f"[Orchestrator] Falha LLM: {e}")
@@ -839,6 +903,7 @@ ter pesquisado se não pesquisou.
             intent="general",
             summary="Ocorreu uma instabilidade. Tente novamente.",
             actions=[],  # Sem ações para erros
+            context={"success": False},
         )
         self.last_plan = plan
         return plan
@@ -853,38 +918,9 @@ ter pesquisado se não pesquisou.
         enem_question_id: str | None = None,
         profile_id: str | None = None,
     ):
-        normalized = (text or "").strip().lower()
-        self._remember_preferences(text, normalized)
-
-        if session_id and history is None:
-            history = get_session_history(session_id)
-        history = history or []
-
-        enem_question = self._resolve_enem_context(enem_context, enem_question_id)
-        if enem_question and mode == "tutor":
-            subject = enem_question.get("subject") or enem_question.get("area") or "ENEM"
-            year = enem_question.get("year")
-            year_label = f" ({year})" if year else ""
-            prefix = f"[Questão ENEM — {subject}{year_label}]\n{enem_question.get('text', '')}\n\n"
-            if not text.strip().startswith("[Questão ENEM"):
-                text = prefix + (text or "Vamos resolver esta questão juntos, passo a passo.")
-
-        api_key = ""
-        if self.llm_service:
-            provider = self.llm_service.get_active_provider()
-            api_key = self.llm_service._api_key_for(provider)
-
         import queue
         import threading
         q = queue.Queue()
-
-        if not api_key and self.llm_service:
-            key_name = "GROQ_API_KEY" if provider == "groq" else "GEMINI_API_KEY"
-            summary = (f"Chave {key_name} não encontrada no .env. Configure-a ou altere o provedor LLM em Configurações.")
-            plan = AgentPlan(intent="general", summary=summary, actions=["configurar api key"])
-            self.last_plan = plan
-            yield {"status": "complete", "plan": plan}
-            return
 
         def on_chunk(chunk_text: str):
             q.put({"type": "chunk", "text": chunk_text})
@@ -894,27 +930,13 @@ ter pesquisado se não pesquisou.
 
         def run_llm():
             try:
-                plan = self._run_llm_with_tools(
-                    text, mode, session_id, history, enem_question=enem_question, on_chunk=on_chunk, on_reasoning=on_reasoning, profile_id=profile_id
+                plan = self.handle_request(
+                    text, mode=mode, session_id=session_id, history=history,
+                    enem_context=enem_context, enem_question_id=enem_question_id,
+                    on_chunk=on_chunk, on_reasoning=on_reasoning, profile_id=profile_id,
                 )
-                if session_id and plan.intent != "error" and not is_technical_error_memory(plan.summary):
-                    updated = list(history)
-                    updated.append({"role": "user", "content": text})
-                    updated.append({"role": "assistant", "content": plan.summary})
-                    save_session_history(session_id, updated[-40:])
-                if profile_id and self.profile_memory and plan.intent != "error" and not is_technical_error_memory(plan.summary):
-                    try:
-                        self.profile_memory.add(
-                            profile_id,
-                            f"Usuário: {text}\nJarvis: {plan.summary}",
-                            kind="conversation",
-                            importance=0.25,
-                            source="chat",
-                        )
-                    except Exception:
-                        pass
                 self.last_plan = plan
-                q.put({"type": "done", "plan": plan})
+                q.put({"type": "error" if plan.intent == "error" else "done", "plan": plan})
             except Exception as e:
                 import traceback
                 print(f"[Orchestrator] Falha LLM Stream: {e}")

@@ -53,6 +53,20 @@ export function useChat() {
   const [liveReasoning, setLiveReasoning] = useState('')
   const [chatError, setChatError] = useState('')
   const [pendingScript, setPendingScript] = useState<ScriptRequest | null>(null)
+  const titledSessions = useRef(new Set<string>())
+  useEffect(() => {
+    const session = sessions.find(item => item.id === sessionId)
+    const firstMessage = messages.find(item => item.role === 'user')
+    if (!session || !firstMessage || titledSessions.current.has(sessionId) || (session.title && session.title !== 'Nova conversa')) return
+    const title = firstMessage.content.slice(0, 48).trim()
+    if (!title) return
+    titledSessions.current.add(sessionId)
+    void fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
+    }).then(response => {
+      if (response.ok) setSessions(previous => previous.map(item => item.id === sessionId ? { ...item, title } : item))
+    }).catch(() => undefined)
+  }, [messages, sessionId, sessions])
   const chatSocketRef = useRef<WebSocket | null>(null)
   const pendingHistoryRef = useRef<ChatMessage[]>([])
   const activeSessionRef = useRef('')
@@ -63,6 +77,7 @@ export function useChat() {
   const finalizePendingRef = useRef(false)
   const finalReasoningRef = useRef('')
   const finalReplyRef = useRef('')
+  const finalRunIdRef = useRef<string | undefined>(undefined)
   const waitForReplyRef = useRef<((reply: string) => void) | null>(null)
   const sessionMutationRef = useRef(0)
 
@@ -85,7 +100,8 @@ export function useChat() {
     finalReasoningRef.current = ''
     finalReplyRef.current = ''
     const content = buildAssistantContent(reasoning, visibleReply)
-    const history = [...pendingHistoryRef.current, { role: 'assistant' as const, content }]
+    const history = [...pendingHistoryRef.current, { role: 'assistant' as const, content, run_id: finalRunIdRef.current }]
+    finalRunIdRef.current = undefined
     setAnswer(visibleReply)
     setMessages(history)
     setStreamingReply('')
@@ -163,9 +179,10 @@ export function useChat() {
     try {
       const response = await fetch(`/api/sessions/${id}/history`)
       const data = await response.json()
-      const history = (data.history || []).map((item: { role?: string; content?: string; text?: string }) => ({
+      const history = (data.history || []).map((item: { role?: string; content?: string; text?: string; run_id?: string }) => ({
         role: item.role === 'user' ? 'user' as const : 'assistant' as const,
         content: item.content || item.text || '',
+        run_id: typeof item.run_id === 'string' ? item.run_id : undefined,
       }))
       setMessages(history)
       setAnswer(history.at(-1)?.content || 'Sessão carregada.')
@@ -205,8 +222,8 @@ export function useChat() {
     return data.id as string
   }
 
-  const deleteSession = async (id: string) => {
-    if (!window.confirm('Excluir esta conversa? Esta ação não pode ser desfeita.')) return
+  const deleteSession = async (id: string, confirmed = false) => {
+    if (!confirmed && !window.confirm('Excluir esta conversa? Esta ação não pode ser desfeita.')) return
     const response = await fetch(`/api/sessions/${id}`, { method: 'DELETE' })
     const data = await response.json().catch(() => ({}))
     if (!response.ok || !data.ok) {
@@ -294,11 +311,12 @@ export function useChat() {
       throw new Error(data.error || 'Não foi possível obter resposta do Jarvis.')
     }
     const reply = data.reply || data.summary || ''
-    commitRestReply(reply)
+    if (activeSessionRef.current === activeSessionId) commitRestReply(reply, data.context?.run_id)
     return reply
   }
 
-  const commitRestReply = (reply: string) => {
+  const commitRestReply = (reply: string, runId?: string) => {
+    finalRunIdRef.current = typeof runId === 'string' ? runId : undefined
     stopTyping()
     finalReasoningRef.current = ''
     const marker = '__SCRIPT_CONFIRM__'
@@ -456,13 +474,14 @@ export function useChat() {
         reconnectAttempts = 0
       }
       socket.onmessage = (event) => {
-        let data: { type?: string; text?: string; message?: string; summary?: string; payload?: SearchPayload } = {}
+        let data: { type?: string; text?: string; message?: string; summary?: string; payload?: SearchPayload; session_id?: string; context?: { run_id?: string } } = {}
         try {
           data = JSON.parse(String(event.data))
         } catch {
           return
         }
         const { type, text = '', message = '', summary = '' } = data
+        if (data.session_id && data.session_id !== activeSessionRef.current) return
         if (type === 'reasoning') {
           reasoningBufferRef.current += text || message
           pumpTyping()
@@ -473,6 +492,7 @@ export function useChat() {
           const payload = data.payload
           if (payload?.query && Array.isArray(payload.results)) setLiveSearch(payload)
         } else if (type === 'complete') {
+          finalRunIdRef.current = typeof data.context?.run_id === 'string' ? data.context.run_id : undefined
           finalReasoningRef.current = (liveReasoningRef.current + reasoningBufferRef.current).trim()
           finalReplyRef.current = summary || message || ''
           const script = getScriptRequest(summary)

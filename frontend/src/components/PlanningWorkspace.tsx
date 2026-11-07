@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatMessage } from '../types'
+import { isMobileStandalone } from '../hooks/useDirectChat'
 
 type Workspace = {
   session_id: string
@@ -58,11 +59,13 @@ export function PlanningWorkspace({ sessionId, messages }: Props) {
   }, [apply, sessionId])
 
   useEffect(() => {
+    if (isMobileStandalone()) return
     dirtyRef.current = false
     request().catch(() => undefined)
   }, [request])
 
   useEffect(() => {
+    if (isMobileStandalone()) return
     const interval = window.setInterval(() => request().catch(() => undefined), 3500)
     return () => window.clearInterval(interval)
   }, [request])

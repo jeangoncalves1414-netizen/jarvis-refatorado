@@ -67,10 +67,6 @@ export function useQuestLog() {
     )
   }, [])
 
-  const abortQuest = useCallback((questId: string) => {
-    completeQuest(questId, 'aborted')
-  }, [completeQuest])
-
   return {
     isOpen,
     openQuestLog,
@@ -81,6 +77,5 @@ export function useQuestLog() {
     addStep,
     updateStepStatus,
     completeQuest,
-    abortQuest,
   }
 }

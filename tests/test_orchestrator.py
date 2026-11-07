@@ -1,16 +1,21 @@
+import pytest
 from app.agent.orchestrator import AgentOrchestrator
 from app.config import Settings
 from app.domain.productivity import ProductivityService
+from app.domain.actions import FileActionService
 from app.services.llm import LLMService
 from app.storage.memory_store import MemoryStore
 
+pytestmark = pytest.mark.usefixtures("isolated_conversation_journal")
 
-def test_orchestrator_detects_file_intent() -> None:
+
+def test_orchestrator_detects_file_intent(tmp_path) -> None:
     settings = Settings()
     llm = LLMService(settings=settings)
-    orchestrator = AgentOrchestrator(settings=settings, llm_service=llm)
+    orchestrator = AgentOrchestrator(settings=settings, llm_service=llm, file_action_service=FileActionService(str(tmp_path)))
 
-    plan = orchestrator.handle_request("Quero abrir a pasta Downloads")
+    (tmp_path / "Downloads").mkdir()
+    plan = orchestrator.handle_request("Liste meus arquivos na pasta Downloads")
     assert plan.intent == "file"
     assert "arquivos" in plan.summary.lower()
     assert plan.actions
@@ -23,7 +28,7 @@ def test_orchestrator_detects_productivity_intent() -> None:
 
     plan = orchestrator.handle_request("Adicione uma tarefa de estudar python")
     assert plan.intent == "productivity"
-    assert any("tarefa" in action.lower() or "item" in action.lower() for action in plan.actions)
+    assert plan.actions == ["create_local_task"]
 
 
 def test_orchestrator_remembers_preferences(tmp_path) -> None:

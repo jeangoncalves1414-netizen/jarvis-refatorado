@@ -519,12 +519,40 @@ export async function collectJarvisVaultFromThisDevice(): Promise<JarvisVault> {
   
   // Coletar dados básicos
   vault.keys = getMobileApiKeys()
+  if (!isMobileStandalone()) {
+    try {
+      const [keysRes, settingsRes] = await Promise.all([
+        fetch('/api/settings/keys').then(r => r.json()).catch(() => null),
+        fetch('/api/settings').then(r => r.json()).catch(() => null),
+      ])
+      if (keysRes && keysRes.keys && keysHaveValue(keysRes.keys)) {
+        vault.keys = { ...vault.keys, ...keysRes.keys }
+        setMobileApiKeys(vault.keys)
+      }
+      if (settingsRes) {
+        if (settingsRes.llm_provider) {
+          vault.provider = settingsRes.llm_provider
+          setMobileProvider(settingsRes.llm_provider)
+        }
+        if (settingsRes.oxyy_models) {
+          vault.oxyyModels = { ...vault.oxyyModels, ...settingsRes.oxyy_models }
+          setMobileOxyyModels(vault.oxyyModels)
+        }
+      }
+    } catch (e) {
+      console.warn('[JarvisCloud] Falha ao coletar dados do backend local no PC:', e)
+    }
+  }
   vault.fieldTimestamps!.keys = now
   
-  vault.provider = getMobileProvider()
+  if (!vault.provider) {
+    vault.provider = getMobileProvider()
+  }
   vault.fieldTimestamps!.provider = now
   
-  vault.oxyyModels = getMobileOxyyModels()
+  if (!vault.oxyyModels || Object.keys(vault.oxyyModels).length === 0) {
+    vault.oxyyModels = getMobileOxyyModels()
+  }
   vault.fieldTimestamps!.oxyyModels = now
   
   // Coletar provider models do localStorage
@@ -1103,3 +1131,26 @@ export async function autoSyncOnOpen(): Promise<void> {
     // Não lançar erro em auto-sync
   }
 }
+
+export async function syncJarvisAfterLogin(role: 'pc' | 'mobile'): Promise<string> {
+  try {
+    if (role === 'mobile') {
+      const vault = await downloadJarvisVault()
+      const count = Object.values(vault.keys || {}).filter(value => value && typeof value === 'string' && value.trim()).length
+      return `Chaves e memórias baixadas (${count} provedor(es), ${vault.memories?.length || 0} memórias). Rotação por vírgula igual ao PC.`
+    }
+    const collected = await collectJarvisVaultFromThisDevice()
+    if (!keysHaveValue(collected.keys)) {
+      return 'Conta conectada. Este PC ainda não tem chaves para enviar.'
+    }
+    const vault = await pushJarvisVault(Promise.resolve(collected))
+    return `Jarvis do PC enviado à nuvem (${Object.values(vault.keys || {}).filter(value => value && typeof value === 'string' && value.trim()).length} provedor(es)). No celular, entre com a mesma conta.`
+  } catch (error) {
+    console.error('[JarvisCloud] Erro na sincronização:', error)
+    if (error instanceof Error) {
+      throw error
+    }
+    throw new Error('Erro desconhecido na sincronização.')
+  }
+}
+

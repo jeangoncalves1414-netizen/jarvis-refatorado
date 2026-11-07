@@ -7,9 +7,11 @@ from app.storage.action_store import action_store
 
 
 def build_mission_snapshot() -> dict[str, Any]:
-    actions = action_store.list(limit=100)
-    pending = [item for item in actions if item.status in {"awaiting_confirmation", "authorized", "running"}]
-    failed = [item for item in actions if item.status == "failed"]
+    actions = action_store.list(limit=20)
+    pending = action_store.pending(limit=10)
+    counts = action_store.status_counts()
+    awaiting = counts.get("awaiting_confirmation", 0)
+    running = counts.get("authorized", 0) + counts.get("running", 0)
     try:
         from app.storage.runtime_settings import resolve_ai_routes
         routes = resolve_ai_routes()
@@ -32,11 +34,11 @@ def build_mission_snapshot() -> dict[str, Any]:
     return {
         "version": 1,
         "components": [
-            {"id": "action_kernel", "label": "Ações", "status": "healthy", "reason": f"{len(pending)} em andamento/aguardando confirmação."},
+            {"id": "action_kernel", "label": "Ações", "status": "healthy", "reason": f"{awaiting + running} em andamento/aguardando confirmação."},
             {"id": "providers", "label": "IA e voz", "status": provider_status, "reason": provider_reason},
             {"id": "bridge", "label": "Dispositivos", "status": "healthy", "reason": f"{device_count} dispositivo(s) registrado(s)."},
         ],
-        "summary": {"pending_actions": len(pending), "failed_actions": len(failed), "devices": device_count, "active_goals": len(active_goals)},
+        "summary": {"pending_actions": awaiting + running, "awaiting_approvals": awaiting, "running_actions": running, "failed_actions": counts.get("failed", 0), "devices": device_count, "active_goals": len(active_goals)},
         "goals": active_goals[:10],
         "pending_actions": [item.public_dict() for item in pending[:10]],
         "recent_actions": [item.public_dict() for item in actions[:20]],

@@ -1,44 +1,41 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
+import { Activity, ArrowUpRight, Check, Clock3, RefreshCw, ShieldCheck, X } from 'lucide-react'
+import { type AgentAction, type AgentGoal, type OperationalState } from '../hooks/useOperationalSnapshot'
+import { panelRequest } from '../utils/panelApi'
+import { ActionHistory } from '../components/ActionHistory'
+import { RunHistory } from '../components/RunHistory'
 
-type Action = { id: string; tool_name: string; preview: string; risk: string; status: string; result_summary?: string | null; updated_at: number }
-type Goal = { id: string; title: string; next_action: string; status: string }
-type Snapshot = { components: { id: string; label: string; status: string; reason: string }[]; summary: { pending_actions: number; failed_actions: number; devices: number; active_goals?: number }; pending_actions: Action[]; recent_actions: Action[]; goals: Goal[] }
-
-const labels: Record<string, string> = { awaiting_confirmation: 'Aguardando confirmação', authorized: 'Confirmada', running: 'Em execução', succeeded: 'Concluída', failed: 'Falhou', cancelled: 'Cancelada', proposed: 'Proposta' }
-
-export function MissionControlPage() {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
-  const [error, setError] = useState('')
+export function MissionControlPage({ operational, sessionId, onOpenSession, initialRunId }: { operational: OperationalState; sessionId: string; onOpenSession: (id: string) => void; initialRunId?: string }) {
+  const { snapshot, error, updatedAt, refresh } = operational
+  const [mutationError, setMutationError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [busy, setBusy] = useState<string[]>([])
+  const locks = useRef(new Set<string>())
   const [goalTitle, setGoalTitle] = useState('')
   const [goalStep, setGoalStep] = useState('')
-  const refresh = useCallback(async () => {
-    try {
-      const response = await fetch('/api/mission-control')
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Não foi possível atualizar a central.')
-      setSnapshot(data); setError('')
-    } catch (err) { setError(err instanceof Error ? err.message : 'Falha ao atualizar.') }
-  }, [])
-  useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 8000); return () => window.clearInterval(timer) }, [refresh])
-  const decide = async (action: Action, command: 'approve' | 'reject') => {
-    await fetch(`/api/actions/${action.id}/${command}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-    await refresh()
+  const actions = [...new Map([...(snapshot?.pending_actions || []), ...(snapshot?.recent_actions || [])].map(item => [item.id, item])).values()]
+  const mutate = async (key: string, path: string, payload: object, success: () => void) => {
+    if (locks.current.has(key)) return
+    locks.current.add(key); setBusy([...locks.current]); setMutationError(''); setNotice('')
+    try { await panelRequest(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); success() }
+    catch (err) { setMutationError(err instanceof Error ? err.message : 'Não foi possível concluir a ação.') }
+    finally { locks.current.delete(key); setBusy([...locks.current]); refresh() }
   }
-  const createGoal = async (event: React.FormEvent) => {
+  const decide = (action: AgentAction, command: 'approve' | 'reject') => void mutate(action.id, `/api/actions/${encodeURIComponent(action.id)}/${command}`, {}, () => setNotice(command === 'approve' ? 'Solicitação processada. Confira o resultado no histórico.' : 'Proposta recusada.'))
+  const createGoal = (event: FormEvent) => {
     event.preventDefault()
-    if (!goalTitle.trim()) return
-    await fetch('/api/goals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create', title: goalTitle, next_action: goalStep }) })
-    setGoalTitle(''); setGoalStep(''); await refresh()
+    if (goalTitle.trim()) void mutate('goal', '/api/goals', { action: 'create', title: goalTitle.trim(), next_action: goalStep.trim() }, () => { setGoalTitle(''); setGoalStep(''); setNotice('Objetivo criado.') })
   }
-  const reviewGoal = async (goal: Goal) => { await fetch('/api/goals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'suggest', goal_id: goal.id }) }); await refresh() }
-  return <section className="mission-control">
-    <header><div><p className="eyebrow">MISSION CONTROL</p><h1>Central operacional</h1><p>Estado real do Jarvis — sem expor conversas, áudio ou credenciais.</p></div><button onClick={() => void refresh()}>Atualizar</button></header>
-    {error && <p className="mission-error">{error}</p>}
-    <div className="mission-stats"><article><b>{snapshot?.summary.pending_actions ?? 0}</b><span>ações pendentes</span></article><article><b>{snapshot?.summary.active_goals ?? 0}</b><span>metas ativas</span></article><article><b>{snapshot?.summary.devices ?? 0}</b><span>dispositivos</span></article></div>
-    <div className="mission-grid"><article className="mission-card"><h2>Sistemas</h2>{snapshot?.components.map(item => <div className="mission-row" key={item.id}><span className={`mission-dot ${item.status}`} /><div><strong>{item.label}</strong><small>{item.reason}</small></div></div>)}</article>
-      <article className="mission-card"><h2>Confirmações</h2>{snapshot?.pending_actions.length ? snapshot.pending_actions.map(action => <div className="mission-action" key={action.id}><strong>{action.preview}</strong><small>{labels[action.status] || action.status} · risco {action.risk}</small>{action.status === 'awaiting_confirmation' && <div><button onClick={() => void decide(action, 'approve')}>Confirmar</button><button className="secondary" onClick={() => void decide(action, 'reject')}>Cancelar</button></div>}</div>) : <p>Nenhuma ação exige sua atenção.</p>}</article>
-      <article className="mission-card mission-wide"><h2>Histórico recente</h2>{snapshot?.recent_actions.map(action => <div className="mission-action" key={action.id}><strong>{action.tool_name.replaceAll('_', ' ')}</strong><small>{labels[action.status] || action.status} · {action.result_summary || action.preview}</small></div>)}</article>
-      <article className="mission-card mission-wide"><h2>Objetivos</h2><form className="mission-goal-form" onSubmit={createGoal}><input value={goalTitle} onChange={event => setGoalTitle(event.target.value)} placeholder="Objetivo, por exemplo: estudar programação" /><input value={goalStep} onChange={event => setGoalStep(event.target.value)} placeholder="Próxima ação concreta" /><button>Criar objetivo</button></form>{snapshot?.goals.length ? snapshot.goals.map(goal => <div className="mission-action" key={goal.id}><strong>{goal.title}</strong><small>{goal.next_action || 'Defina o próximo passo na revisão.'}</small><div><button onClick={() => void reviewGoal(goal)}>Revisar plano</button></div></div>) : <p>Crie uma meta para o Jarvis acompanhar com intervenções consentidas.</p>}</article>
-    </div>
+  const reviewGoal = (goal: AgentGoal) => void mutate(goal.id, '/api/goals', { action: 'suggest', goal_id: goal.id }, () => setNotice('Revisão solicitada.'))
+  const pending = snapshot?.pending_actions.filter(item => item.status === 'awaiting_confirmation') || []
+  return <section className="ws-content-page">
+    <div className="ws-page-heading"><div><span className="ws-overline">CENTRAL DE CONTROLE</span><h1>Execuções</h1><p>Da proposta ao resultado. Acompanhe cada ação do agente.</p></div><button className="ws-button" onClick={refresh}><RefreshCw size={15} /> Atualizar</button></div>
+    {(error || mutationError) && <div className="ws-error" role="alert">{mutationError || error}{error && snapshot && ' Exibindo o último estado recebido.'}</div>}
+    {notice && <div className="ws-feedback" role="status">{notice}</div>}
+    <div className="ws-stats"><article><ShieldCheck size={19} /><strong>{snapshot ? snapshot.summary.awaiting_approvals ?? pending.length : '—'}</strong><span>Aprovações pendentes</span></article><article><Activity size={19} /><strong>{snapshot ? snapshot.summary.running_actions ?? actions.filter(item => ['running', 'authorized'].includes(item.status)).length : '—'}</strong><span>Ações em andamento</span></article><article><Clock3 size={19} /><strong>{snapshot?.summary.failed_actions ?? '—'}</strong><span>Falhas no histórico</span></article></div>
+    {!!pending.length && <section className="ws-approvals"><div className="ws-section-title"><h2>Precisam da sua atenção</h2><span className="ws-tag amber">{pending.length} pendentes</span></div>{pending.map(action => <article className="ws-approval" key={action.id}><div><span className="ws-overline">{action.tool_name.replaceAll('_', ' ')}</span><h3>{action.preview}</h3><span className="ws-tag">Risco: {action.risk}</span></div><div className="ws-approval-buttons"><button className="ws-button" disabled={busy.includes(action.id) || !!error} onClick={() => decide(action, 'reject')}><X size={15} /> Recusar</button><button className="ws-button primary" disabled={busy.includes(action.id) || !!error} onClick={() => decide(action, 'approve')}><Check size={15} />{busy.includes(action.id) ? 'Processando…' : 'Autorizar uma vez'}</button></div></article>)}</section>}
+    <RunHistory initialRunId={initialRunId} revision={`${updatedAt}:${operational.revision}`} sessionId={sessionId} onOpenSession={onOpenSession} onRefresh={refresh} onDecide={decide} busy={busy} unavailable={!!error || !snapshot} />
+    <ActionHistory revision={`${updatedAt}:${operational.revision}`} onDecide={decide} busy={busy} unavailable={!!error || !snapshot} />
+    <section className="ws-panel"><div className="ws-section-title"><h2>Objetivos</h2><span className="ws-muted">Próximos passos do agente</span></div><form className="ws-goal-form" onSubmit={createGoal}><input aria-label="Título do objetivo" placeholder="O que você quer alcançar?" value={goalTitle} onChange={event => setGoalTitle(event.target.value)} disabled={busy.includes('goal')} required /><input aria-label="Próximo passo" placeholder="Qual é o primeiro passo?" value={goalStep} onChange={event => setGoalStep(event.target.value)} disabled={busy.includes('goal')} /><button className="ws-button" disabled={busy.includes('goal') || !goalTitle.trim() || !!error}>{busy.includes('goal') ? 'Criando…' : 'Criar objetivo'}</button></form>{snapshot?.goals.map(goal => <div className="ws-goal" key={goal.id}><div><strong>{goal.title}</strong><p>{goal.next_action || 'Próximo passo a definir.'}</p></div><button className="ws-text-button" disabled={busy.includes(goal.id) || !!error} onClick={() => reviewGoal(goal)}>Revisar plano <ArrowUpRight size={14} /></button></div>)}</section>
   </section>
 }

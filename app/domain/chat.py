@@ -23,6 +23,8 @@ class ChatSession:
         return {"intent": plan.intent, "message": message}
 
     def _build_reply(self, plan: Any) -> str:
+        if isinstance(plan.summary, str) and plan.summary:
+            return plan.summary
         if plan.intent == "file":
             return "Entendi. Posso listar o conteúdo do diretório ou ajudar a navegar por pastas."
         if plan.intent == "productivity":
