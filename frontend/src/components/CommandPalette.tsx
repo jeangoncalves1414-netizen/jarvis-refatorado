@@ -13,6 +13,8 @@ import {
   CornerDownLeft,
   Download,
   Flame,
+  AudioLines,
+  Mic,
 } from 'lucide-react'
 import { playClick, playSuccess, playOpen, playToggle, toggleSfx, isSfxEnabled } from '../utils/sfx'
 
@@ -38,6 +40,9 @@ type CommandPaletteProps = {
   onCaptureVision?: () => void
   onOpenCameras?: () => void
   onTriggerBackup?: () => void
+  onOpenLiveCall?: () => void
+  onToggleDictation?: () => void
+  recording?: boolean
 }
 
 export function CommandPalette({
@@ -52,6 +57,9 @@ export function CommandPalette({
   onCaptureVision,
   onOpenCameras,
   onTriggerBackup,
+  onOpenLiveCall,
+  onToggleDictation,
+  recording = false,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -103,6 +111,22 @@ export function CommandPalette({
       icon: <MessageSquare size={16} />,
       category: 'Ações Rápidas',
       action: () => { onNewChat?.(); onNavigate('Chat'); onClose() },
+    },
+    {
+      id: 'action-live-call',
+      title: 'Abrir conversa por voz',
+      subtitle: 'Falar com o agente em uma ligação contínua',
+      icon: <AudioLines size={16} />,
+      category: 'Ações Rápidas',
+      action: () => { onOpenLiveCall?.(); onClose() },
+    },
+    {
+      id: 'action-dictation',
+      title: 'Ditado',
+      subtitle: recording ? 'Parar a gravação e transcrever para o chat' : 'Ditar uma mensagem para o chat',
+      icon: <Mic size={16} />,
+      category: 'Ações Rápidas',
+      action: () => { onToggleDictation?.(); onNavigate('Chat'); onClose() },
     },
     {
       id: 'action-briefing',
@@ -167,7 +191,7 @@ export function CommandPalette({
       category: 'Mídia & Ferramentas',
       action: () => { onOpenCameras?.(); onClose() },
     },
-  ], [onNavigate, onOpenEvolute, onNewChat, onAddWater, onTriggerBriefing, onOpenCinema, onCaptureVision, onOpenCameras, onTriggerBackup, onClose])
+  ], [onNavigate, onOpenEvolute, onNewChat, onAddWater, onTriggerBriefing, onOpenCinema, onCaptureVision, onOpenCameras, onTriggerBackup, onOpenLiveCall, onToggleDictation, recording, onClose])
 
   const filteredItems = useMemo(() => {
     const q = query.trim().toLowerCase()

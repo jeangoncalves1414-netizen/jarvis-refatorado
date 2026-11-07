@@ -2,9 +2,9 @@ import { FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } f
 import { AppShell } from './components/AppShell'
 import { AgentControls } from './components/AgentControls'
 import { useOperationalSnapshot } from './hooks/useOperationalSnapshot'
+import { panelRequest } from './utils/panelApi'
 import { resolveScreen } from './navigation'
 import { WorkspaceHome, IntegrationsPage } from './pages/WorkspaceOverview'
-import { useQuestLog } from './hooks/useQuestLog'
 import { CameraWorkspace, type CameraWorkspaceHandle } from './components/CameraWorkspace'
 import { type ChatMode } from './components/ChatComposer'
 import { CalendarSection } from './components/Calendar'
@@ -38,7 +38,6 @@ const EvoluteHubPage = lazy(() => import('./pages/EvoluteHubPage').then(module =
 const MissionControlPage = lazy(() => import('./pages/MissionControlPage').then(module => ({ default: module.MissionControlPage })))
 
 // Heavy modals loaded on demand
-const QuestLogPanel = lazy(() => import('./components/QuestLogPanel').then(module => ({ default: module.QuestLogPanel })))
 const ToolForgeModal = lazy(() => import('./components/ToolForgeModal').then(module => ({ default: module.ToolForgeModal })))
 const CinemaModal = lazy(() => import('./components/CinemaModal').then(module => ({ default: module.CinemaModal })))
 const LiveCallModal = lazy(() => import('./components/LiveCallModal').then(module => ({ default: module.LiveCallModal })))
@@ -65,7 +64,6 @@ export default function App() {
     return <FloatingCoreOverlay />
   }
 
-  const questLog = useQuestLog()
   const operational = useOperationalSnapshot()
   const [isToolForgeOpen, setIsToolForgeOpen] = useState(false)
   const [active, setActive] = useState(readActiveScreen)
@@ -454,6 +452,21 @@ export default function App() {
     setNotice(data.executed ? 'Comando recebido e executado pelo dispositivo.' : 'Comando recebido pela ponte.')
   }
 
+  const removeBridgeDevice = async (deviceId: string) => {
+    // Só o controle local guarda credencial própria; os demais são revogados pelo dono no PC.
+    const isLocalController = deviceId === 'jarvis-desktop'
+    const deviceToken = isLocalController ? localStorage.getItem('jarvis-bridge-desktop-token') || '' : ''
+    try {
+      await panelRequest('/api/bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', device_id: deviceId, ...(deviceToken ? { device_token: deviceToken } : {}) }) })
+    } catch (error) {
+      if (error instanceof TypeError) throw new Error('Sem conexão com a ponte. Verifique se o backend está ligado e tente de novo.')
+      throw error
+    }
+    if (isLocalController) localStorage.removeItem('jarvis-bridge-desktop-token')
+    setBridge(previous => previous ? { ...previous, devices: (previous.devices || []).filter(device => device.id !== deviceId) } : previous)
+    setNotice('Dispositivo removido da ponte.')
+  }
+
   const refreshProactive = async () => {
     const response = await fetch('/api/proactive')
     const data = await response.json()
@@ -593,6 +606,7 @@ export default function App() {
           onTriggerBriefing={triggerBriefing}
           onRegisterBridgeDemo={() => registerBridgeDemo().catch(() => setNotice('Falha ao registrar o dispositivo de teste.'))}
           onBridgeCommand={(targetId, command) => sendBridgeCommand(targetId, command).catch(() => setNotice('Falha ao enviar o comando para a ponte.'))}
+          onRemoveDevice={removeBridgeDevice}
         />
       )
     }
@@ -919,15 +933,6 @@ export default function App() {
           </Suspense>
         </div>
       )}
-      {questLog.isOpen && (
-        <Suspense fallback={null}>
-          <QuestLogPanel
-            isOpen={questLog.isOpen}
-            onClose={questLog.closeQuestLog}
-            quests={questLog.quests}
-          />
-        </Suspense>
-      )}
       {isToolForgeOpen && (
         <Suspense fallback={null}>
           <ToolForgeModal
@@ -957,6 +962,9 @@ export default function App() {
             onOpenCinema={() => setCinemaLauncherOpen(true)}
             onCaptureVision={captureVision}
             onOpenCameras={() => { setCameraQuestion(''); setCameraWorkspaceOpen(true) }}
+            onOpenLiveCall={() => setLiveCallOpen(true)}
+            onToggleDictation={toggleVoiceInput}
+            recording={recording}
           />
         </Suspense>
       )}

@@ -90,10 +90,10 @@ def panel_http_server(monkeypatch: pytest.MonkeyPatch):
         hacker_terminal.policy_mode = "ask_every_time"
 
 
-def _post(address: str, path: str, payload: dict) -> tuple[int, dict]:
+def _post(address: str, path: str, payload: dict, headers: dict | None = None) -> tuple[int, dict]:
     connection = http.client.HTTPConnection(address, timeout=3)
     try:
-        connection.request("POST", path, json.dumps(payload), {"Content-Type": "application/json"})
+        connection.request("POST", path, json.dumps(payload), {"Content-Type": "application/json", **(headers or {})})
         response = connection.getresponse()
         return response.status, json.loads(response.read().decode("utf-8"))
     finally:
@@ -162,3 +162,59 @@ def test_run_routes_keep_control_plane_boundary(panel_http_server, tmp_path, mon
     finally:
         connection.close()
         store._runtime_lock.close()
+
+
+@pytest.fixture
+def bridge(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    from app.services.device_bridge import DeviceBridgeService
+    state_path = tmp_path / "bridge.json"
+    original_init = DeviceBridgeService.__init__
+    monkeypatch.setattr(DeviceBridgeService, "__init__", lambda self, *_args, **_kwargs: original_init(self, state_path))
+    service = DeviceBridgeService()
+    code = service.get_pairing_code()
+    tokens = {device_id: service.register_device(device_id, kind="controller", pairing_code=code)["device_token"] for device_id in ("desktop", "phone")}
+    return service, tokens
+
+
+def _device_ids(service) -> list[str]:
+    return [device["id"] for device in service.get_status()["devices"]]
+
+
+def test_local_owner_removes_another_device_and_gains_nothing_else(panel_http_server, bridge) -> None:
+    address, _ = panel_http_server
+    service, tokens = bridge
+    status, body = _post(address, "/api/bridge", {"action": "command", "target_id": "phone", "command": "turn_on", "source": "desktop"})
+    assert status == 400 and not body["ok"]
+    status, body = _post(address, "/api/bridge", {"action": "remove", "device_id": "phone"}, {"Origin": f"http://{address}"})
+    assert status == 200 and body == {"ok": True, "removed": "phone"}
+    assert _device_ids(service) == ["desktop"]
+    assert not service.heartbeat("phone", tokens["phone"])["ok"]
+    status, body = _post(address, "/api/bridge", {"action": "remove", "device_id": "phone"})
+    assert status == 400 and "não encontrado" in body["error"]
+
+
+def test_loopback_removal_with_foreign_origin_is_refused(panel_http_server, bridge) -> None:
+    address, _ = panel_http_server
+    service, _ = bridge
+    status, body = _post(address, "/api/bridge", {"action": "remove", "device_id": "phone"}, {"Origin": "https://evil.example"})
+    assert status == 403 and body["error"] == "Origem não confiável."
+    assert _device_ids(service) == ["desktop", "phone"]
+
+
+def test_network_removal_still_requires_control_token_and_own_credential(panel_http_server, bridge) -> None:
+    address, _ = panel_http_server
+    service, tokens = bridge
+    port = int(address.rsplit(":", 1)[1])
+    # In LAN mode every request is a network principal, even from 127.0.0.1.
+    PanelHandler.settings = Settings(host="127.0.0.1", port=port, access_mode="lan", lan_enabled=True, control_token="test-token", trusted_origins=[f"http://{address}"])
+    status, body = _post(address, "/api/bridge", {"action": "remove", "device_id": "phone"})
+    assert status == 401 and body["error"] == "Autenticação obrigatória."
+    authorized = {"Authorization": "Bearer test-token"}
+    status, body = _post(address, "/api/bridge", {"action": "remove", "device_id": "phone"}, authorized)
+    assert status == 400 and "credencial do próprio dispositivo" in body["error"]
+    status, body = _post(address, "/api/bridge", {"action": "remove", "device_id": "phone", "device_token": tokens["desktop"]}, authorized)
+    assert status == 400 and "credencial do próprio dispositivo" in body["error"]
+    assert _device_ids(service) == ["desktop", "phone"]
+    status, body = _post(address, "/api/bridge", {"action": "remove", "device_id": "phone", "device_token": tokens["phone"]}, authorized)
+    assert status == 200 and body == {"ok": True, "removed": "phone"}
+    assert _device_ids(service) == ["desktop"]

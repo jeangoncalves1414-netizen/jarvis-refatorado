@@ -15,6 +15,9 @@ mkdirSync(output, { recursive: true })
     const errors = []
     page.on('pageerror', error => errors.push(error.message))
     let offline = false, historyOffline = false, approvals = 0, sent = null, deletions = 0, titles = 0
+    let bridgeDevices = [{ id: 'jarvis-desktop', name: 'Jarvis Desktop', kind: 'controller', platform: 'desktop', connected: true }, { id: 'sim-lamp', name: 'Lâmpada de teste', kind: 'light', platform: 'simulator', connected: true }]
+    let refuseRemoval = false, sttCalls = 0
+    const removals = []
     const histories = new Map()
     let sessions = [{ id: 'session-1', type: 'chat', title: 'Ideias para meu projeto' }, { id: 'session-2', type: 'chat', title: 'Planejamento da semana' }]
     const snapshot = { ok: true, components: [{ id: 'action_kernel', label: 'Ações', status: 'healthy', reason: 'Registro disponível.' }, { id: 'providers', label: 'IA e voz', status: 'healthy', reason: 'Provedor configurado.' }, { id: 'bridge', label: 'Dispositivos', status: 'degraded', reason: 'Nenhum dispositivo conectado.' }], summary: { pending_actions: 1, failed_actions: 1, devices: 0, active_goals: 0 }, goals: [], pending_actions: [{ id: 'action-1', tool_name: 'file_write', preview: 'Criar um arquivo na pasta autorizada', risk: 'medium', status: 'awaiting_confirmation', updated_at: 1793920000 }], recent_actions: [{ id: 'action-2', tool_name: 'web_search', preview: 'Pesquisar referências', result_summary: 'Pesquisa concluída.', risk: 'low', status: 'succeeded', updated_at: 1793920000 }] }
@@ -57,10 +60,23 @@ mkdirSync(output, { recursive: true })
       else if (url.pathname.endsWith('/approve')) { approvals++; status = 410; data = { ok: false, error: 'Ação expirou; solicite novamente pela conversa.' } }
       else if (url.pathname === '/api/goals') { status = 500; data = { ok: false, error: 'Não foi possível salvar o objetivo.' } }
       else if (url.pathname === '/api/planning') data = { ok: true, workspace: { session_id: '', title: 'Plano', content: '', is_open: false }, preferences: { auto_open_for_planning: false } }
+      else if (url.pathname === '/api/voice/stt' && method === 'POST') { sttCalls++; data = { ok: true, text: 'Texto ditado pela paleta' } }
+      else if (url.pathname === '/api/bridge') {
+        const body = method === 'POST' ? route.request().postDataJSON() : {}
+        if (method === 'GET') data = { ok: true, protocol: 'jarvis-bridge-v1', devices: bridgeDevices, events: [] }
+        else if (body.action === 'pairing_code') data = { ok: true, pairing_code: 'TESTE-123' }
+        else if (body.action === 'remove') {
+          removals.push(body)
+          if (refuseRemoval) { status = 400; data = { ok: false, error: 'A ponte recusou a remoção. Sem a credencial do próprio dispositivo, só o painel local do PC, no modo de acesso loopback, pode removê-lo.' } }
+          else { bridgeDevices = bridgeDevices.filter(device => device.id !== body.device_id); data = { ok: true, removed: body.device_id } }
+        }
+      }
       await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) })
     })
     // Force the existing REST fallback instead of contacting a real chat socket.
     await page.routeWebSocket('**/ws/chat', socket => socket.close())
+    // Simulated silent microphone: no real audio device is opened.
+    await page.addInitScript(() => { navigator.mediaDevices.getUserMedia = async () => new AudioContext().createMediaStreamDestination().stream })
     await page.goto(process.env.PANEL_TEST_URL || 'http://127.0.0.1:5173')
     await page.getByRole('heading', { name: 'O que vamos fazer hoje?' }).waitFor()
     await page.getByText('Modelo de demonstração').first().waitFor()
@@ -167,6 +183,88 @@ mkdirSync(output, { recursive: true })
     await confirmation.getByRole('button', { name: 'Excluir conversa', exact: true }).click()
     await page.getByRole('heading', { name: 'O que vamos fazer hoje?' }).waitFor()
     assert.equal(deletions, 1)
+
+    await page.setViewportSize({ width: 1536, height: 960 })
+    await page.locator('.ws-sidebar').getByRole('button', { name: 'Configurações', exact: true }).click()
+    await page.getByRole('button', { name: /Métricas & Logs/ }).click()
+    await page.locator('.ws-topbar strong').filter({ hasText: 'Métricas' }).waitFor()
+    await page.getByText('LOGS AO VIVO', { exact: true }).waitFor()
+    assert.equal(await page.getByText('MIGRAÇÃO GRADUAL').count(), 0)
+    await page.screenshot({ path: path.join(output, 'desktop-metrics-from-settings.png') })
+    console.log('PASS: Configurações → Métricas & Logs abre Métricas')
+
+    await page.locator('.ws-sidebar').getByRole('button', { name: 'Conversas', exact: true }).click()
+    const palette = page.getByRole('dialog', { name: 'Buscar no workspace' })
+    await page.keyboard.press('Control+k')
+    await palette.getByPlaceholder('Buscar páginas e ações…').fill('conversa por voz')
+    assert.equal(await palette.locator('.cmd-item').count(), 1)
+    await palette.locator('.cmd-item').filter({ hasText: 'Abrir conversa por voz' }).waitFor()
+    await page.screenshot({ path: path.join(output, 'desktop-palette-voice.png') })
+    await page.keyboard.press('Enter')
+    const call = page.getByRole('dialog', { name: 'Chamada com Jarvis' })
+    await call.getByText('Ouvindo continuamente', { exact: false }).waitFor()
+    await call.getByRole('button', { name: 'Encerrar', exact: true }).click()
+    await call.waitFor({ state: 'detached' })
+    await page.keyboard.press('Control+k')
+    await palette.getByPlaceholder('Buscar páginas e ações…').fill('Ditado')
+    await palette.locator('.cmd-item').filter({ hasText: 'Ditar uma mensagem para o chat' }).waitFor()
+    await page.keyboard.press('Enter')
+    const mic = page.locator('.ws-composer').getByRole('button', { name: 'Parar gravação', exact: true })
+    await mic.waitFor()
+    assert.equal(await mic.getAttribute('aria-pressed'), 'true')
+    await page.keyboard.press('Control+k')
+    await palette.getByPlaceholder('Buscar páginas e ações…').fill('Ditado')
+    await palette.locator('.cmd-item').filter({ hasText: 'Parar a gravação e transcrever para o chat' }).waitFor()
+    await page.keyboard.press('Enter')
+    await page.waitForFunction(() => document.querySelector('.ws-composer textarea')?.value === 'Texto ditado pela paleta')
+    assert.equal(sttCalls, 1)
+    await page.locator('.ws-composer').getByRole('button', { name: 'Ditar mensagem', exact: true }).waitFor()
+    await page.getByLabel('Mensagem para o agente').fill('')
+    console.log('PASS: paleta abre a conversa por voz e liga/desliga o ditado com transcrição')
+
+    await page.locator('.ws-sidebar').getByRole('button', { name: 'Automações', exact: true }).click()
+    const bridgeCard = page.locator('.bridge-card')
+    const lamp = bridgeCard.locator('.bridge-device').filter({ hasText: 'Lâmpada de teste' })
+    await lamp.waitFor()
+    const removeLamp = bridgeCard.getByRole('button', { name: 'Remover Lâmpada de teste', exact: true })
+    const lampDialog = page.getByRole('dialog', { name: 'Remover Lâmpada de teste?' })
+    await removeLamp.click()
+    await lampDialog.getByRole('button', { name: 'Manter dispositivo' }).click()
+    await lampDialog.waitFor({ state: 'hidden' })
+    assert.equal(removals.length, 0)
+    refuseRemoval = true
+    await removeLamp.click()
+    await lampDialog.getByRole('button', { name: 'Remover dispositivo', exact: true }).click()
+    await bridgeCard.getByRole('alert').filter({ hasText: 'A ponte recusou a remoção' }).waitFor()
+    assert.equal(removals.length, 1)
+    assert.equal(removals[0].device_id, 'sim-lamp')
+    assert.equal(removals[0].device_token, undefined)
+    await lamp.waitFor()
+    await bridgeCard.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: path.join(output, 'desktop-device-remove-error.png') })
+    await page.setViewportSize({ width: 360, height: 844 })
+    await bridgeCard.getByRole('alert').scrollIntoViewIfNeeded()
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+    await page.screenshot({ path: path.join(output, 'mobile-device-remove-error-360.png') })
+    refuseRemoval = false
+    await removeLamp.click()
+    await lampDialog.waitFor()
+    const dialogBox = await page.locator('.bridge-card dialog').boundingBox()
+    assert(dialogBox.x >= 0 && dialogBox.x + dialogBox.width <= 360)
+    await page.screenshot({ path: path.join(output, 'mobile-device-remove-confirm-360.png') })
+    await lampDialog.getByRole('button', { name: 'Remover dispositivo', exact: true }).click()
+    await lamp.waitFor({ state: 'detached' })
+    assert.equal(await bridgeCard.getByRole('alert').count(), 0)
+    assert.equal(removals.length, 2)
+    assert.equal(removals[1].device_token, undefined)
+    await page.evaluate(() => localStorage.setItem('jarvis-bridge-desktop-token', 'credencial-de-teste'))
+    await bridgeCard.getByRole('button', { name: 'Remover Jarvis Desktop', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Remover Jarvis Desktop?' }).getByRole('button', { name: 'Remover dispositivo', exact: true }).click()
+    await bridgeCard.getByText('Nenhum cliente conectado.').waitFor()
+    assert.equal(removals[2].device_id, 'jarvis-desktop')
+    assert.equal(removals[2].device_token, 'credencial-de-teste')
+    assert.equal(await page.evaluate(() => localStorage.getItem('jarvis-bridge-desktop-token')), null)
+    console.log('PASS: remoção de dispositivo com confirmação, erro visível, 360 px e limpeza da credencial local')
     assert.deepEqual(errors, [])
     console.log('PASS: chat/mode, navigation, approvals 410, goal 500 draft, filters/details, disconnect/recovery, palette, mobile drawers/layout. Screenshots: ' + output)
   } finally { await browser.close() }

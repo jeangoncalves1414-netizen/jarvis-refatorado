@@ -943,7 +943,10 @@ class PanelHandler(BaseHTTPRequestHandler):
                 elif action == "command":
                     result = service.command(payload.get("target_id"), payload.get("command"), payload.get("payload"), payload.get("source", "desktop"), payload.get("device_token"))
                 elif action == "remove":
-                    result = {"ok": service.remove_device(payload.get("device_id"), payload.get("device_token"))}
+                    # Revogar reduz privilégio. Sem a credencial do próprio
+                    # dispositivo, só o controle local remove, pela mesma regra
+                    # que protege o código de pareamento.
+                    result = service.remove_device(payload.get("device_id"), payload.get("device_token"), local_owner=principal.mode == "loopback")
                 else:
                     result = {"ok": False, "error": "Ação de ponte inválida."}
                 self._send_json(200 if result.get("ok") else 400, result)

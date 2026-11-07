@@ -209,7 +209,7 @@ export function SettingsPage({
             <button
               type="button"
               className="outline-button"
-              onClick={() => onNavigate('Analytics')}
+              onClick={() => onNavigate('Análises')}
               style={{ flex: 1, minWidth: 140, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
             >
               📊 Métricas & Logs

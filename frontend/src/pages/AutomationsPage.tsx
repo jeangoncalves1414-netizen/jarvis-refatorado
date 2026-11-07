@@ -1,5 +1,6 @@
-import { FormEvent } from 'react'
-import type { BridgeStatus, Climate, Proactive } from '../types'
+import { FormEvent, useRef, useState } from 'react'
+import { X } from 'lucide-react'
+import type { BridgeDevice, BridgeStatus, Climate, Proactive } from '../types'
 import { StatusBadge } from '../components/StatusBadge'
 
 type AutomationsPageProps = {
@@ -15,6 +16,7 @@ type AutomationsPageProps = {
   onTriggerBriefing: () => void
   onRegisterBridgeDemo: () => void
   onBridgeCommand: (targetId: string, command: 'turn_on' | 'turn_off') => void
+  onRemoveDevice: (deviceId: string) => Promise<void>
 }
 
 export function AutomationsPage({
@@ -30,7 +32,25 @@ export function AutomationsPage({
   onTriggerBriefing,
   onRegisterBridgeDemo,
   onBridgeCommand,
+  onRemoveDevice,
 }: AutomationsPageProps) {
+  const removeDialog = useRef<HTMLDialogElement>(null)
+  const [removeTarget, setRemoveTarget] = useState<BridgeDevice | null>(null)
+  const [removing, setRemoving] = useState(false)
+  const [removeError, setRemoveError] = useState('')
+  const askRemoval = (device: BridgeDevice) => { setRemoveTarget(device); setRemoveError(''); removeDialog.current?.showModal() }
+  const confirmRemoval = async () => {
+    if (!removeTarget) return
+    setRemoving(true)
+    try {
+      await onRemoveDevice(removeTarget.id)
+    } catch (error) {
+      setRemoveError(error instanceof Error ? error.message : 'Não foi possível remover o dispositivo.')
+    } finally {
+      setRemoving(false)
+      removeDialog.current?.close()
+    }
+  }
   return (
     <section className="automation-grid">
       <article className="automation-card">
@@ -90,16 +110,20 @@ export function AutomationsPage({
                   {device.connected ? '● conectado' : '○ offline'} · {device.platform || 'cliente'}
                 </StatusBadge>
               </div>
-              {device.kind === 'light' ? (
-                <div className="bridge-device-actions">
-                  <button type="button" onClick={() => onBridgeCommand(device.id, 'turn_on')}>Ligar</button>
-                  <button type="button" className="secondary" onClick={() => onBridgeCommand(device.id, 'turn_off')}>Desligar</button>
-                </div>
-              ) : null}
+              <div className="bridge-device-actions">
+                {device.kind === 'light' ? (
+                  <>
+                    <button type="button" onClick={() => onBridgeCommand(device.id, 'turn_on')}>Ligar</button>
+                    <button type="button" className="secondary" onClick={() => onBridgeCommand(device.id, 'turn_off')}>Desligar</button>
+                  </>
+                ) : null}
+                <button type="button" className="secondary" aria-label={`Remover ${device.name || device.id}`} disabled={removing} onClick={() => askRemoval(device)}>Remover</button>
+              </div>
             </div>
           ))}
           {!bridge?.devices?.length ? <span className="empty-state">Nenhum cliente conectado.</span> : null}
         </div>
+        {removeError && <div className="ws-error" role="alert"><span>{removeError}</span><button type="button" className="ws-icon-button" aria-label="Fechar erro" onClick={() => setRemoveError('')}><X size={16} /></button></div>}
         {bridge?.events?.length ? (
           <div className="bridge-event-list">
             {bridge.events.slice(-5).reverse().map(event => (
@@ -108,6 +132,14 @@ export function AutomationsPage({
           </div>
         ) : null}
         <button className="outline-button" type="button" onClick={onRegisterBridgeDemo}>Adicionar lâmpada de teste</button>
+        <dialog ref={removeDialog} className="ws-confirm-dialog" aria-labelledby="remove-device-title" onCancel={event => { if (removing) event.preventDefault() }}>
+          <h2 id="remove-device-title">Remover {removeTarget?.name || removeTarget?.id || 'dispositivo'}?</h2>
+          <p>O dispositivo perde o acesso à ponte. Para voltar, ele precisa ser pareado de novo com o código de pareamento.</p>
+          <div>
+            <button type="button" className="ws-button" disabled={removing} onClick={() => removeDialog.current?.close()}>Manter dispositivo</button>
+            <button type="button" className="ws-button danger" disabled={removing} onClick={() => void confirmRemoval()}>{removing ? 'Removendo…' : 'Remover dispositivo'}</button>
+          </div>
+        </dialog>
       </article>
       <article className="automation-card">
         <p className="eyebrow">ROTINA PROATIVA</p>

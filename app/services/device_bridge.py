@@ -186,20 +186,28 @@ class DeviceBridgeService:
             self._write(state)
             return {"ok": True, "accepted": True, "executed": True, "device": self._public_device(device), "event": self._public_event(event)}
 
-    def remove_device(self, device_id: Any, device_token: Any = None) -> bool:
+    def remove_device(self, device_id: Any, device_token: Any = None, *, local_owner: bool = False) -> dict[str, Any]:
+        """Revoke a device. Without its own credential, only the local owner may do it.
+
+        ``local_owner`` must come from the control-plane principal (the same
+        rule that protects the pairing code). It only allows revocation; it
+        grants no other operation.
+        """
         device_id = str(device_id or "").strip()
+        if not device_id:
+            return {"ok": False, "error": "device_id é obrigatório."}
         with self._lock:
             state = self._read()
             current = next((item for item in state["devices"] if item.get("id") == device_id), None)
-            if current is None or not self._valid_token(current, device_token):
-                return False
-            before = len(state["devices"])
+            if current is None:
+                return {"ok": False, "error": "Dispositivo não encontrado na ponte."}
+            own_credential = self._valid_token(current, device_token)
+            if not own_credential and not local_owner:
+                return {"ok": False, "error": "A ponte recusou a remoção. Sem a credencial do próprio dispositivo, só o painel local do PC, no modo de acesso loopback, pode removê-lo."}
             state["devices"] = [item for item in state["devices"] if item.get("id") != device_id]
-            changed = len(state["devices"]) != before
-            if changed:
-                self._append_event(state, "device.removed", device_id, {})
-                self._write(state)
-            return changed
+            self._append_event(state, "device.removed", device_id, {"revoked_by": "device" if own_credential else "local_owner"})
+            self._write(state)
+            return {"ok": True, "removed": device_id}
 
     @staticmethod
     def _append_event(state: dict[str, Any], event_type: str, device_id: str, payload: dict[str, Any]) -> dict[str, Any]:
