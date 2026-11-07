@@ -38,11 +38,12 @@ jarvis-rebuild = "app.main:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not integration and not live and not network and not hardware'"
+addopts = "-m 'not integration and not live and not network and not hardware and not mobile_release'"
 markers = [
     "unit: teste local, determinístico e sem efeitos externos",
     "integration: integra múltiplos componentes; execução explícita",
     "live: requer o Jarvis já iniciado e dados locais reais",
     "network: acessa rede externa",
     "hardware: acessa clipboard, mídia, microfone, registro ou hardware",
+    "mobile_release: confere os assets Android; rodar com -m mobile_release só ao gerar o APK, depois de npm run build:mobile",
 ]

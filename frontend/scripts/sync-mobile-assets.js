@@ -7,35 +7,14 @@ const __dirname = path.dirname(__filename);
 
 const frontendDir = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(frontendDir, '..');
-const orbComponentPath = path.resolve(frontendDir, 'src', 'components', 'JarvisOrb3D.tsx');
 const distDir = path.resolve(frontendDir, 'dist');
 const mobileAssetsDir = path.resolve(repoRoot, 'mobile_app', 'app', 'src', 'main', 'assets');
 
 // Executado somente por `npm run build:mobile`. O build web (`npm run build`)
-// gera apenas frontend/dist e não verifica a Orbe nem altera mobile_app/.
-console.log('--- [SINCRONIZAÇÃO MOBILE E VERIFICAÇÃO DA ORBE] ---');
+// gera apenas frontend/dist e não altera mobile_app/.
+// A verificação da Orbe foi retirada por decisão da usuária em 2026-11-07.
+console.log('--- [SINCRONIZAÇÃO MOBILE] ---');
 
-// 1. Verificação de integridade da Orbe Oficial
-if (fs.existsSync(orbComponentPath)) {
-  const content = fs.readFileSync(orbComponentPath, 'utf8');
-  
-  if (content.includes('SphereGeometry') || content.includes('MeshStandardMaterial')) {
-    console.error('❌ ERRO CRÍTICO: Tentativa de reintroduzir esfera 3D Three.js indesejada detectada em JarvisOrb3D.tsx!');
-    process.exit(1);
-  }
-  
-  if (!content.includes('QUANTUM ARC') && !content.includes('QUANTUM')) {
-    console.error('❌ ERRO CRÍTICO: JarvisOrb3D.tsx não contém o Quantum Arc Reactor Core canônico!');
-    process.exit(1);
-  }
-  
-  console.log('✅ Verificação da Orbe: Quantum Arc Reactor Core canônico 100% válido.');
-} else {
-  console.error('❌ JarvisOrb3D.tsx não encontrado!');
-  process.exit(1);
-}
-
-// 2. Sincronização automática para mobile_app
 if (fs.existsSync(distDir) && fs.existsSync(mobileAssetsDir)) {
   const mobileSubAssets = path.join(mobileAssetsDir, 'assets');
   if (fs.existsSync(mobileSubAssets)) {

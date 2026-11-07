@@ -250,7 +250,7 @@ Os exports misturam diálogos com logs extensos e conteúdo de ferramentas. As c
 ## Regras de continuidade
 
 - Não sobrescrever alterações locais existentes sem identificar o dono e o escopo.
-- Não executar `npm run build` no checkout principal enquanto o script pós-build continuar alterando assets móveis rastreados; usar as verificações seguras definidas no plano.
+- `npm run build` gera só `frontend/dist` e pode rodar no checkout principal. `npm run build:mobile` substitui os assets Android rastreados; rodar só quando a intenção for atualizar o APK.
 - Não dizer que um recurso funciona apenas porque foi implementado em um chat passado; confirmar em código e teste atual.
 - Não transformar o dashboard em um produto dependente da identidade "Jarvis". A usuária planeja trocar a personalidade.
 - Quando houver conflito entre esta nota e uma conversa nova, a conversa nova vence.

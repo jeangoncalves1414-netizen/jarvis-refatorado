@@ -82,12 +82,13 @@ ou dispositivos sem identidade, limites, cancelamento e histórico verificável.
 
 | Objetivo | Comando | Resultado esperado |
 |---|---|---|
-| Verificar UI sem postbuild mutável | `Set-Location frontend; node .\node_modules\typescript\bin\tsc --noEmit -p tsconfig.json` | exit 0 |
+| Verificar tipos da UI | `Set-Location frontend; node .\node_modules\typescript\bin\tsc --noEmit -p tsconfig.json` | exit 0 |
 | Testes isolados de núcleo | `python -B -m pytest -q -p no:cacheprovider tests/test_conversation_runtime.py tests/test_runs.py tests/test_action_history.py tests/test_orchestrator_action_results.py tests/test_action_kernel.py tests/test_actions.py tests/test_mission_control.py tests/test_native_action_boundary.py tests/test_guardrails_thread_safety.py tests/test_control_plane_security.py tests/test_tool_catalog.py` | 88 de núcleo. Com os 10 casos de integração e compatibilidade do orquestrador, 98 passaram. |
 | Estado das alterações | `git status --short` | só mudanças planejadas mais as alterações preexistentes |
 
-Não rodar `npm run build` como verificação desta fase até que
-`frontend/scripts/postbuild.js` deixe de remover/copiar assets móveis rastreados.
+`npm run build` gera só `frontend/dist` e pode ser usado como verificação.
+`npm run build:mobile` remove e recopia os assets móveis rastreados; não usá-lo
+como verificação.
 
 ## Navegação alvo
 
@@ -270,5 +271,6 @@ criar um adapter com armazenamento de teste.
 - Não adicione framework de orquestração, fila distribuída ou multiagente só
 porque uma referência os usa. Adote-os apenas após os contratos das Fases 1–3
 não cobrirem uma necessidade observada.
-- Não execute builds mutáveis contra o worktree atual. Ajuste o postbuild ou use
-um worktree isolado antes de produzir APK/web empacotado.
+- Não execute `npm run build:mobile` nem os scripts de APK contra o worktree atual
+sem intenção de atualizar os assets Android rastreados. O build web
+(`npm run build`) não altera `mobile_app/`.

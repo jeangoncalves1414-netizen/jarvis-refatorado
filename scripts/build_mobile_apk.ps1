@@ -15,7 +15,7 @@ Write-Host "`n[1/3] Compilando frontend e sincronizando assets protegidos..." -F
 Set-Location $frontendDir
 npm run build:mobile
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Falha no build do frontend ou violação de integridade da Orbe!"
+    Write-Error "Falha no build do frontend ou na sincronização dos assets Android!"
 }
 
 Write-Host "`n[2/3] Compilando APK Android com Gradle..." -ForegroundColor Yellow

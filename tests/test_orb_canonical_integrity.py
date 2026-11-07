@@ -25,6 +25,8 @@ def test_no_raphael_yellow_runes():
     assert "VOICE OF THE WORLD" not in content, "Runas amarelas do Raphael não devem estar presentes na Orbe"
     assert "buildRuneRingTexture" not in content, "Não deve haver texturas de runas amarelas"
 
+# O build web não toca mobile_app/. A igualdade só vale depois de `npm run build:mobile`.
+@pytest.mark.mobile_release
 def test_mobile_assets_match_frontend_dist():
     if DIST_HTML.exists() and MOBILE_HTML.exists():
         dist_text = DIST_HTML.read_text(encoding="utf-8")

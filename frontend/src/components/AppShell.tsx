@@ -13,8 +13,9 @@ type AppShellProps = {
 
 const build = __PANEL_BUILD__
 const builtAt = new Date(build.builtAt)
-const panelVersion = [`v${build.version}`, build.commit, import.meta.env.DEV ? 'dev' : builtAt.toLocaleDateString('pt-BR')].filter(Boolean).join(' · ')
-const panelVersionTitle = `Versão do painel ${build.version}${build.commit ? `, commit ${build.commit}` : ''}, ${import.meta.env.DEV ? 'servidor de desenvolvimento iniciado' : 'gerada'} em ${builtAt.toLocaleString('pt-BR')}`
+const commitLabel = build.commit && `${build.commit}${build.dirty ? '*' : ''}`
+const panelVersion = [`v${build.version}`, commitLabel, import.meta.env.DEV ? 'dev' : builtAt.toLocaleDateString('pt-BR')].filter(Boolean).join(' · ')
+const panelVersionTitle = `Versão do painel ${build.version}${build.commit ? `, commit ${build.commit}${build.dirty ? ' com alterações não commitadas' : ''}` : ''}, ${import.meta.env.DEV ? 'servidor de desenvolvimento iniciado' : 'gerada'} em ${builtAt.toLocaleString('pt-BR')}`
 
 export function AppShell({ active, sidebarCollapsed, onToggleSidebar, onNavigate, sessions, sessionId, onSelectSession, onNewChat, onOpenCommands, operational, controls, hero, children, quickActions }: AppShellProps) {
   const [search, setSearch] = useState('')
