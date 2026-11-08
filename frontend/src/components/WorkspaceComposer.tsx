@@ -51,7 +51,7 @@ export function WorkspaceComposer(props: Props) {
   }
   return <div className="ws-composer-wrap">
     {menuOpen && <div className="ws-slash-menu" ref={menu} role="listbox" id="ws-slash-menu" aria-label="Comandos" onMouseDown={event => event.preventDefault()}>
-      {matches.map((command, index) => <div key={command.id} role="option" id={`ws-slash-${command.id}`} aria-selected={index === menuIndex} className={`ws-slash-item${index === menuIndex ? ' selected' : ''}`} onMouseEnter={() => setMenuIndex(index)} onClick={() => runSlash(command, '')}>
+      {matches.map((command, index) => <div key={command.id} role="option" id={`ws-slash-${command.id}`} aria-selected={index === menuIndex} className={`ws-slash-item${index === menuIndex ? ' selected' : ''}`} onMouseMove={() => { if (index !== menuIndex) setMenuIndex(index) }} onClick={() => runSlash(command, '')}>
         <command.icon size={15} /><span className="ws-slash-text"><strong>{command.label}</strong><span>{command.description}</span></span><code>/{command.slash}{command.argHint ? ` ${command.argHint}` : ''}</code>
       </div>)}
     </div>}
