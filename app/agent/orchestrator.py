@@ -472,6 +472,9 @@ ter pesquisado se não pesquisou.
 
         # Preparar ferramentas para function calling nativo
         tools_decl = self.registry.get_tool_declarations(mode=mode, provider=active_provider, user_text=text)
+        # C3: o executor do turno aceita só a lista de ferramentas do modo e do turno,
+        # a mesma que o modelo enxerga; o catálogo completo não vale mais aqui.
+        turn_tool_names = self.registry.allowed_tool_names(mode=mode, provider=active_provider, user_text=text)
         tool_context = {
             "session_id": session_id,
             "vision": self.vision_service,
@@ -495,7 +498,7 @@ ter pesquisado se não pesquisou.
                 return tool_result
 
             native_executor = ActionExecutor(
-                allowed_tool_names=frozenset(self.registry.tools.keys()),
+                allowed_tool_names=turn_tool_names,
                 guardrails=turn_guardrails,
                 legacy_execute=native_legacy_execute,
                 metadata_for=self.registry.get_tool_metadata,
@@ -607,7 +610,7 @@ ter pesquisado se não pesquisou.
                     return tool_result
 
                 executor = ActionExecutor(
-                    allowed_tool_names=frozenset(self.registry.tools.keys()),
+                    allowed_tool_names=turn_tool_names,
                     guardrails=turn_guardrails,
                     legacy_execute=legacy_execute,
                     metadata_for=self.registry.get_tool_metadata,

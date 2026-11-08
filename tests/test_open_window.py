@@ -97,6 +97,7 @@ def agent(tmp_path, monkeypatch):
     obj.pattern_learner = SimpleNamespace(record_action=lambda *_: None)
     obj.registry = SimpleNamespace(
         tools={"open_window": tool}, get_tool_declarations=lambda **_: [],
+        allowed_tool_names=lambda **_: frozenset({"open_window"}),
         get_tool_metadata=lambda _: ToolMetadata(("ui", "window"), "observe"),
         execute_tool=lambda name, args, context=None: tool.execute(args),
         run_by_marker=lambda kind, arg, line: tool.execute({"command": arg}),

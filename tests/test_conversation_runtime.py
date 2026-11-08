@@ -43,6 +43,7 @@ def runtime(tmp_path, monkeypatch):
     calls = []
     agent.registry = SimpleNamespace(
         tools={"calendar": object()}, get_tool_declarations=lambda **k: [],
+        allowed_tool_names=lambda **k: frozenset({"calendar"}),
         get_tool_metadata=lambda _: ToolMetadata(("calendar",), "observe"),
         execute_tool=lambda name, args, **k: calls.append((name, args)) or ToolResult(True, "feito"),
     )

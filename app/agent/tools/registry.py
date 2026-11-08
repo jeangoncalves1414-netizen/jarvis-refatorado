@@ -204,12 +204,18 @@ class ToolRegistry:
     def list_tools(self) -> list[BaseTool]:
         return list(self.tools.values())
 
-    def get_tool_declarations(
+    def allowed_tool_names(
         self,
         mode: str = "general",
         provider: str | None = None,
         user_text: str = "",
-    ) -> list[dict[str, Any]]:
+    ) -> frozenset[str]:
+        """Ferramentas registradas permitidas neste modo e turno.
+
+        É a mesma lista que o modelo enxerga (`get_tool_declarations`) e que o
+        executor do turno aplica, para que o servidor não aceite uma ferramenta
+        que o modelo não recebeu.
+        """
         allowed = TUTOR_TOOL_NAMES if mode == "tutor" else GENERAL_TOOL_NAMES
 
         # Otimização de TPM para provedores com limite estrito de taxa (ex: Groq)
@@ -226,6 +232,15 @@ class ToolRegistry:
                     dynamic_tools.add(t_name)
             allowed = allowed.intersection(dynamic_tools)
 
+        return frozenset(name for name in allowed if name in self.tools)
+
+    def get_tool_declarations(
+        self,
+        mode: str = "general",
+        provider: str | None = None,
+        user_text: str = "",
+    ) -> list[dict[str, Any]]:
+        allowed = self.allowed_tool_names(mode, provider, user_text)
         declarations = []
         for tool in self.list_tools():
             if tool.name not in allowed:

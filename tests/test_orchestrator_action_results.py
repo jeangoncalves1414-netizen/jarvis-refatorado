@@ -27,6 +27,7 @@ def agent(tmp_path, monkeypatch):
     obj.pattern_learner = SimpleNamespace(record_action=lambda *_: None)
     obj.registry = SimpleNamespace(
         tools={"fixture": object()}, get_tool_declarations=lambda **_: [],
+        allowed_tool_names=lambda **_: frozenset({"fixture"}),
         get_tool_metadata=lambda _: ToolMetadata(),
         execute_tool=lambda *_args, **_kwargs: ToolResult(False, "Arquivo não encontrado."),
         run_by_marker=lambda *_args: ToolResult(False, "Arquivo não encontrado."),
