@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { DayPicker } from 'react-day-picker'
 import { ptBR } from 'react-day-picker/locale'
+import '../styles/calendar.css'
 
 export type CalendarEvent = {
   id: string
@@ -82,8 +83,8 @@ export function CalendarSection({ onNotice }: CalendarSectionProps) {
     await loadEvents()
   }
 
-  return <section className="calendar-focus">
-    <div className="calendar-focus-board">
+  return <section className="cal-page">
+    <div className="cal-card"><p className="cal-eyebrow">Calendário</p>
       <DayPicker
         mode="single"
         selected={selectedDay}
@@ -94,18 +95,18 @@ export function CalendarSection({ onNotice }: CalendarSectionProps) {
         formatters={{ formatCaption: value => `${MONTHS_PT[value.getMonth()]} ${value.getFullYear()}` }}
       />
     </div>
-    {selectedDay && <div className="calendar-day-actions">
-      <button type="button" onClick={openNewEvent}>＋ Agendar lembrete para {selectedDay.toLocaleDateString('pt-BR')}</button>
-      {selectedEvents.map(event => <div className="calendar-event-chip" key={event.id}><span>{eventDate(event).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · {event.title}</span>{event.reminder_status !== 'cancelled' && <button type="button" onClick={() => cancelReminder(event.id)} title="Parar lembrete">×</button>}</div>)}
-    </div>}
-    {modalOpen && <div className="calendar-reminder-modal" role="dialog" aria-modal="true" aria-label="Agendar lembrete"><form onSubmit={saveEvent}>
-      <button type="button" className="calendar-modal-close" onClick={() => setModalOpen(false)} aria-label="Fechar">×</button>
+    <div className="cal-card cal-side"><p className="cal-eyebrow">{selectedDay ? selectedDay.toLocaleDateString('pt-BR') : 'Dia'}</p>{!selectedDay && <p className="cal-empty">Selecione um dia para ver ou agendar lembretes.</p>}{selectedDay && <>
+      <button type="button" className="cal-btn primary" onClick={openNewEvent}>＋ Agendar lembrete para {selectedDay.toLocaleDateString('pt-BR')}</button>
+      {selectedEvents.map(event => <div className="cal-event" key={event.id}><span>{eventDate(event).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · {event.title}</span>{event.reminder_status !== 'cancelled' && <button type="button" onClick={() => cancelReminder(event.id)} title="Parar lembrete">×</button>}</div>)}
+    </>}</div>
+    {modalOpen && <div className="cal-modal" role="dialog" aria-modal="true" aria-label="Agendar lembrete"><form onSubmit={saveEvent}>
+      <button type="button" className="cal-close" onClick={() => setModalOpen(false)} aria-label="Fechar">×</button>
       <input autoFocus value={title} onChange={event => setTitle(event.target.value)} placeholder="Ex.: Festa da Ana" />
       <div><input type="date" value={date} onChange={event => setDate(event.target.value)} /><input type="time" value={time} onChange={event => setTime(event.target.value)} /></div>
       <select value={reminder} onChange={event => setReminder(event.target.value)}>{reminderOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
       {reminder === 'custom' && <input type="time" value={reminderTime} onChange={event => setReminderTime(event.target.value)} />}
       <select value={policy} onChange={event => setPolicy(event.target.value as CalendarEvent['reminder_policy'])}><option value="once">Avisar uma única vez</option><option value="until_confirmed">Repetir até eu confirmar</option><option value="next_conversation">Avisar na próxima conversa</option></select>
-      <button type="submit" disabled={saving}>{saving ? 'Salvando…' : 'Salvar lembrete'}</button>
+      <button type="submit" className="cal-btn primary" disabled={saving}>{saving ? 'Salvando…' : 'Salvar lembrete'}</button>
     </form></div>}
   </section>
 }

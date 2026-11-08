@@ -1,0 +1,35 @@
+/* Calendário no tema do workspace (tokens de ws-tokens.css, componentes no padrão lifeos.css). */
+.cal-page { display: grid; grid-template-columns: minmax(320px, 420px) minmax(0, 1fr); gap: 16px; align-items: start; padding: 20px; max-width: 980px; margin: 0 auto; color: var(--ws-text); font-family: 'Geist', system-ui, sans-serif; }
+@media (max-width: 760px) { .cal-page { grid-template-columns: 1fr; padding: 12px; } }
+.cal-card { background: var(--ws-panel); border: 1px solid var(--ws-border); border-radius: var(--ws-radius, 12px); padding: 16px; }
+.cal-eyebrow { margin: 0 0 12px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ws-muted); }
+.cal-side { display: grid; gap: 12px; }
+.cal-empty { margin: 0; font-size: 13px; color: var(--ws-muted); }
+.cal-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--ws-accent-line); background: var(--ws-accent-soft); color: var(--ws-accent); border-radius: 9px; padding: 9px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.cal-btn:hover { background: var(--ws-hover); }
+.cal-btn.primary { background: var(--ws-accent); color: var(--ws-accent-ink); border-color: var(--ws-accent); }
+.cal-btn:disabled { opacity: .6; cursor: default; }
+.cal-event { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; border: 1px solid var(--ws-border); border-radius: 9px; background: var(--ws-field); font-size: 13px; }
+.cal-event button { border: 0; background: transparent; color: var(--ws-muted); font-size: 16px; line-height: 1; cursor: pointer; }
+.cal-event button:hover { color: var(--ws-danger); }
+.cal-modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(0, 0, 0, .55); }
+.cal-modal form { position: relative; display: grid; gap: 10px; width: min(92vw, 380px); padding: 20px; background: var(--ws-panel); border: 1px solid var(--ws-border); border-radius: 14px; }
+.cal-modal form > div { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cal-modal input, .cal-modal select { width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid var(--ws-border); border-radius: 9px; background: var(--ws-field); color: var(--ws-text); font: inherit; font-size: 13px; }
+.cal-modal input:focus, .cal-modal select:focus { outline: none; border-color: var(--ws-accent-line); }
+.cal-close { position: absolute; top: 8px; right: 10px; border: 0; background: transparent; color: var(--ws-muted); font-size: 20px; cursor: pointer; }
+.cal-close:hover { color: var(--ws-text); }
+
+.cal-card .rdp-root { --rdp-accent-color: var(--ws-accent); --rdp-accent-background-color: var(--ws-accent-soft); --rdp-day-height: 40px; --rdp-day-width: 40px; margin: 0; color: var(--ws-text); }
+.cal-card .rdp-month_caption { color: var(--ws-text); font-weight: 600; }
+.cal-card .rdp-weekday { color: var(--ws-muted); font-size: 11px; text-transform: uppercase; }
+.cal-card .rdp-chevron { fill: var(--ws-muted); }
+.cal-card .rdp-button_previous:hover .rdp-chevron, .cal-card .rdp-button_next:hover .rdp-chevron { fill: var(--ws-accent); }
+.cal-card .rdp-day_button { border-radius: 9px; color: var(--ws-text); }
+.cal-card .rdp-day_button:hover { background: var(--ws-hover); }
+.cal-card .rdp-outside { opacity: .35; }
+.cal-card .rdp-today:not(.rdp-selected) .rdp-day_button { color: var(--ws-accent); border: 1px solid var(--ws-accent-line); }
+.cal-card .rdp-selected .rdp-day_button { background: var(--ws-accent); color: var(--ws-accent-ink); border-color: var(--ws-accent); font-weight: 700; }
+.cal-card .rdp-day--has-event .rdp-day_button { position: relative; }
+.cal-card .rdp-day--has-event .rdp-day_button::after { content: ''; position: absolute; bottom: 4px; left: 50%; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--ws-accent); }
+.cal-card .rdp-day--has-event.rdp-selected .rdp-day_button::after { background: var(--ws-accent-ink); }
