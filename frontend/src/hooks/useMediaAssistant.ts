@@ -102,9 +102,15 @@ type MediaAssistantOptions = {
   setAnswer: (answer: string) => void
   setQuery: (query: string) => void
   sessionId?: string
+  appendExchange?: (userText: string, assistantText: string) => Promise<void>
 }
 
-export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, setQuery, sessionId }: MediaAssistantOptions) {
+export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, setQuery, sessionId, appendExchange }: MediaAssistantOptions) {
+  const appendExchangeRef = useRef(appendExchange)
+  appendExchangeRef.current = appendExchange
+  const sessionIdRef = useRef(sessionId)
+  sessionIdRef.current = sessionId
+  const [liveTurns, setLiveTurns] = useState<{ id: string; user: string; jarvis: string }[]>([])
   // Pedidos falados chegam ao servidor com origem "voice": as ações entram na Central como voz (C10).
   const sendText = useCallback((message: string) => sendChatText(message, 'general', false, 'voice'), [sendChatText])
   const [speakEnabled, setSpeakEnabledState] = useState(readSpeakEnabled)
@@ -258,6 +264,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     audioRef.current = null
     audioUrlRef.current = null
     setLiveCallRecording(false)
+    setLiveTurns([])
     setLiveCallOpen(false)
   }
 
@@ -434,12 +441,13 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     }
 
     let sentenceBuffer = ''
+    let fullReply = ''
 
     try {
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userText, mode: 'general', origin: 'voice' }),
+        body: JSON.stringify({ message: userText, mode: 'general', origin: 'voice', session_id: sessionIdRef.current || undefined }),
         signal: abortController.signal,
       })
 
@@ -473,6 +481,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
             const data = JSON.parse(jsonStr)
             if (data.status === 'streaming' && data.chunk) {
               sentenceBuffer += data.chunk
+              fullReply += data.chunk
 
               let match: RegExpExecArray | null = null
               const sentenceRegex = /([.!?\n]+|[,;:]\s+)/g
@@ -509,6 +518,14 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         setLiveCallStatus(err?.message || 'Falha durante a ligação.')
       }
     } finally {
+      // Cada fala vira um turno novo (fala + resposta), preservando os anteriores no chat e na ligação.
+      const turnReply = fullReply.trim()
+      if (turnReply) {
+        const turnUser = (displayText ?? userText).trim()
+        const turnId = `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+        setLiveTurns((previous) => [...previous, { id: turnId, user: turnUser, jarvis: turnReply }].slice(-30))
+        void appendExchangeRef.current?.(turnUser, turnReply)
+      }
       isSpeakingRef.current = false
       // Só restaura 'listening' aqui se playNextInQueue ainda não o fez
       if (liveCallActiveRef.current && !abortController.signal.aborted && !listeningRestoredRef.current) {
@@ -1221,6 +1238,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     liveAudioDiagnostics,
     liveUserTranscript,
     liveJarvisTranscript,
+    liveTurns,
     liveOrbState,
     recording,
     speakerIdentificationEnabled,

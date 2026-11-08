@@ -95,6 +95,11 @@ export function useChat(options: UseChatOptions = {}) {
   const finalRunIdRef = useRef<string | undefined>(undefined)
   const waitForReplyRef = useRef<((reply: string) => void) | null>(null)
   const sessionMutationRef = useRef(0)
+  // Segurança contra turno sem evento final: início do turno e último sinal recebido do servidor.
+  const messagesRef = useRef<ChatMessage[]>([])
+  messagesRef.current = messages
+  const turnStartRef = useRef(0)
+  const lastActivityRef = useRef(0)
 
   const stopTyping = () => {
     if (typingTimerRef.current !== undefined && typingTimerRef.current !== null) {
@@ -376,6 +381,8 @@ export function useChat(options: UseChatOptions = {}) {
 
   const sendText = async (message: string, mode = 'general', racingMode = false, origin?: RequestOrigin): Promise<string> => {
     if (!message || loading) return ''
+    turnStartRef.current = Date.now()
+    lastActivityRef.current = Date.now()
     setLoading(true)
     setLiveSearch(null)
     setChatError('')
@@ -415,6 +422,8 @@ export function useChat(options: UseChatOptions = {}) {
 
   const sendVisionQuestion = async (prompt: string, image: string, label = 'Imagem') => {
     if (!prompt || loading) return
+    turnStartRef.current = Date.now()
+    lastActivityRef.current = Date.now()
     setLoading(true)
     setLiveSearch(null)
     setChatError('')
@@ -502,6 +511,7 @@ export function useChat(options: UseChatOptions = {}) {
         // Evento do detector local: vale para o aparelho todo, não para uma conversa.
         if (type === 'wake_word') { wakeWordRef.current?.(typeof data.phrase === 'string' ? data.phrase : ''); return }
         if (data.session_id && data.session_id !== activeSessionRef.current) return
+        lastActivityRef.current = Date.now()
         if (type === 'reasoning') {
           reasoningBufferRef.current += text || message
           pumpTyping()
@@ -570,6 +580,83 @@ export function useChat(options: UseChatOptions = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Reconciliação: se o turno ficou sem evento final (aprovação feita fora do chat, socket mudo,
+  // aba em segundo plano), consulta o Run real da conversa e encerra o "pensando".
+  useEffect(() => {
+    if (!loading) return
+    let disposed = false
+    let checking = false
+    const HARD_LIMIT_MS = 10 * 60 * 1000
+    const IDLE_MS = 15 * 1000
+    const check = async () => {
+      if (disposed || checking) return
+      if (finalizePendingRef.current || typingTimerRef.current !== null) return
+      const now = Date.now()
+      const sid = activeSessionRef.current
+      if (now - turnStartRef.current > HARD_LIMIT_MS) {
+        failReply('O Jarvis não respondeu a tempo. Confira o resultado na Central de Execuções.')
+        return
+      }
+      if (!sid || now - lastActivityRef.current < IDLE_MS) return
+      checking = true
+      try {
+        const query = new URLSearchParams({ session_id: sid, limit: '1', include_reads: '1' })
+        const response = await fetch(`/api/runs?${query}`)
+        const data = await response.json().catch(() => null)
+        const run = data?.runs?.[0] as { status?: string; created_at?: number; result_summary?: string | null } | undefined
+        if (disposed || !run || activeSessionRef.current !== sid) return
+        if ((run.created_at || 0) * 1000 < turnStartRef.current - 5000) return
+        if (run.status === 'awaiting_confirmation') {
+          setStreamingReply('Aguardando aprovação na Central de Execuções…')
+          lastActivityRef.current = Date.now() - IDLE_MS + 4000
+          return
+        }
+        if (run.status && ['succeeded', 'failed', 'cancelled', 'interrupted'].includes(run.status)) {
+          const labels: Record<string, string> = { failed: 'falhou', cancelled: 'foi cancelado', interrupted: 'foi interrompido' }
+          const reply = (run.result_summary || '').trim()
+            || (run.status === 'succeeded' ? 'Pedido concluído. Confira o resultado na Central de Execuções.' : `O pedido ${labels[run.status]}. Confira os detalhes na Central de Execuções.`)
+          finalReasoningRef.current = ''
+          finalReplyRef.current = reply
+          finalizePendingRef.current = false
+          doFinalize()
+          if (waitForReplyRef.current) { waitForReplyRef.current(reply); waitForReplyRef.current = null }
+        }
+      } catch {
+        /* tenta de novo no próximo ciclo */
+      } finally {
+        checking = false
+      }
+    }
+    const timer = window.setInterval(() => { void check() }, 4000)
+    const onVisible = () => { if (!document.hidden) void check() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading])
+
+  // Chamadas por voz: acrescenta o turno (fala + resposta) ao histórico sem substituir mensagens anteriores.
+  const appendExchange = async (userText: string, assistantText: string) => {
+    const user = userText.trim()
+    const reply = assistantText.trim()
+    if (!user || !reply) return
+    let sid = activeSessionRef.current
+    if (!sid) sid = await createSession(user.slice(0, 32))
+    const history: ChatMessage[] = [...messagesRef.current, { role: 'user', content: user }, { role: 'assistant', content: reply }]
+    messagesRef.current = history
+    pendingHistoryRef.current = history
+    setMessages(history)
+    fetch(`/api/sessions/${sid}/history`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ history }),
+    }).catch(() => undefined)
+    refreshSessions().catch(() => undefined)
+  }
+
   const runPendingScript = async () => {
     if (!pendingScript) return
     const script = pendingScript
@@ -625,6 +712,7 @@ export function useChat(options: UseChatOptions = {}) {
 
   return {
     answer,
+    appendExchange,
     chatError,
     copySession,
     createSession,
