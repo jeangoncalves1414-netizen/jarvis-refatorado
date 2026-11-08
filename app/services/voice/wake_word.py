@@ -153,6 +153,7 @@ class WakeWordDetector:
         self._thread: Optional[threading.Thread] = None
         self._model: Optional[vosk.Model] = None if VOSK_AVAILABLE else None
         self._enabled = True
+        self._mic_paused = False
 
     def _load_model(self) -> bool:
         if not VOSK_AVAILABLE or not PYAUDIO_AVAILABLE:
@@ -187,17 +188,36 @@ class WakeWordDetector:
         pa = pyaudio.PyAudio()
         chunk = 4096
         stream = None
-        try:
-            stream = pa.open(
+
+        def open_stream():
+            return pa.open(
                 format=pyaudio.paInt16,
                 channels=1,
                 rate=self.sample_rate,
                 input=True,
                 frames_per_buffer=chunk,
             )
+
+        try:
+            stream = open_stream()
             logger.info(f"🎤 Wake word ativo — ouvindo por: {self.wake_words}")
 
             while self._running:
+                if self._mic_paused:
+                    # Ligação por voz no backend usa o microfone: solta o dispositivo até retomar.
+                    if stream is not None:
+                        stream.stop_stream()
+                        stream.close()
+                        stream = None
+                    import time; time.sleep(0.2)
+                    continue
+                if stream is None:
+                    try:
+                        stream = open_stream()
+                        recognizer.Reset()
+                    except Exception:
+                        import time; time.sleep(0.5)
+                        continue
                 if not self._enabled:
                     import time; time.sleep(0.2)
                     continue
@@ -228,7 +248,7 @@ class WakeWordDetector:
                             except Exception as e:
                                 logger.error(f"Erro no callback de wake word: {e}")
         finally:
-            if stream:
+            if stream is not None:
                 stream.stop_stream()
                 stream.close()
             pa.terminate()
@@ -257,6 +277,11 @@ class WakeWordDetector:
         """Pausa/retoma o listener sem matar a thread."""
         self._enabled = enabled
         logger.info(f"Wake word {'ativado' if enabled else 'pausado'}.")
+
+    def set_mic_paused(self, paused: bool) -> None:
+        """Libera/retoma o dispositivo de microfone (usado pela ligação por voz no backend)."""
+        self._mic_paused = bool(paused)
+        logger.info(f"Wake word microfone {'liberado' if paused else 'retomado'}.")
 
     def is_available(self) -> bool:
         return VOSK_AVAILABLE and PYAUDIO_AVAILABLE

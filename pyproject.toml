@@ -14,7 +14,6 @@ dependencies = [
     "edge-tts>=6.1",
     "SpeechRecognition>=3.10",
     "groq>=0.4",
-    "faster-whisper>=1.0",
     "pyaudio>=0.2.14; platform_system=='Windows'",
     "pyperclip>=1.8",
     "feedparser>=6.0",
@@ -33,6 +32,9 @@ dependencies = [
     "onnxruntime>=1.26,<2",
     "kaldi-native-fbank>=1.22,<2",
 ]
+
+[project.optional-dependencies]
+local-stt = ["faster-whisper>=1.0"]
 
 [project.scripts]
 jarvis-rebuild = "app.main:main"

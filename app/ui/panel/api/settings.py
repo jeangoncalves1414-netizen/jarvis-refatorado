@@ -96,7 +96,7 @@ def handle_settings_get(parts: list[str], handler: Any) -> tuple[int, dict[str, 
         defaults = {
             "llm_provider": getattr(handler.settings, "llm_provider", "gemini"),
             "tts_provider": getattr(handler.settings, "tts_provider", "fish"),
-            "stt_provider": getattr(handler.settings, "stt_provider", "local"),
+            "stt_provider": getattr(handler.settings, "stt_provider", "groq"),
         }
         return 200, get_ai_settings(defaults)
     if len(parts) >= 3 and parts[1] == "settings" and parts[2] == "llm":
@@ -123,7 +123,7 @@ def handle_settings_get(parts: list[str], handler: Any) -> tuple[int, dict[str, 
     if len(parts) >= 3 and parts[1] == "settings" and parts[2] == "mic":
         return 200, {"ok": True, **get_mic_settings()}
     if len(parts) >= 3 and parts[1] == "settings" and parts[2] == "stt":
-        default = getattr(handler.settings, "stt_provider", "local")
+        default = getattr(handler.settings, "stt_provider", "groq")
         return 200, get_stt_settings(default)
     if len(parts) >= 3 and parts[1] == "settings" and parts[2] == "oxyy":
         defaults = {

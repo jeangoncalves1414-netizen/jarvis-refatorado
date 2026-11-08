@@ -44,7 +44,7 @@ class Settings:
     fish_tts_model: str = "s2.1-pro-free"
     fish_auto_emotions: bool = True
     stt_language: str = "pt-BR"
-    stt_provider: str = "local"
+    stt_provider: str = "groq"
     # Local control-plane boundary. LAN is opt-in and its secret never leaves
     # process memory through an API response.
     access_mode: str = "loopback"
@@ -115,7 +115,7 @@ def load_settings() -> Settings:
         fish_tts_model=os.getenv("FISH_TTS_MODEL", "s2.1-pro-free"),
         fish_auto_emotions=os.getenv("FISH_AUTO_EMOTIONS", "1").lower() in {"1", "true", "yes", "on"},
         stt_language=os.getenv("STT_LANGUAGE", "pt-BR"),
-        stt_provider=os.getenv("STT_PROVIDER", "local"),
+        stt_provider=os.getenv("STT_PROVIDER", "groq"),
         access_mode=os.getenv("APP_ACCESS_MODE", "loopback").lower().strip(),
         lan_enabled=os.getenv("APP_LAN_ENABLED", "0").lower() in {"1", "true", "yes", "on"},
         control_token=os.getenv("JARVIS_CONTROL_TOKEN", ""),

@@ -475,7 +475,7 @@ def set_tts_voices(values: dict[str, Any]) -> None:
     _write(data)
 
 
-def get_stt_provider(default: str = "local") -> str:
+def get_stt_provider(default: str = "groq") -> str:
     data = _read()
     value = data.get("stt_provider", os.getenv("STT_PROVIDER", default))
     value = str(value).lower()
@@ -493,7 +493,7 @@ def set_stt_provider(provider: str) -> str:
     return normalized
 
 
-def get_stt_settings(default_provider: str = "local") -> dict[str, Any]:
+def get_stt_settings(default_provider: str = "groq") -> dict[str, Any]:
     from app.services.voice.stt import local_whisper
 
     available = local_whisper.is_available()
@@ -540,9 +540,10 @@ def set_stt_local(model: str | None = None, device: str | None = None) -> dict[s
 # Padroes baseados no Projeto AI (energy 1100, pausa 0.8s), um pouco mais sensiveis.
 MIC_DEFAULTS: dict[str, Any] = {
     "sensitivity": 75,      # 1-100: quanto maior, mais facil detectar fala
-    "silence_ms": 700,      # silencio para encerrar a fala
+    "silence_ms": 800,      # silencio para encerrar a fala (pause_threshold 0.8 do projeto antigo)
     "gain": 1.0,            # ganho aplicado ao nivel medido (0.5-4)
 }
+MIC_ENGINES = ("auto", "backend", "browser")  # auto = SpeechRecognition no PC quando possível
 _MIC_LIMITS = {"sensitivity": (1, 100), "silence_ms": (300, 3000), "gain": (0.5, 4.0)}
 
 
@@ -558,6 +559,9 @@ def get_mic_settings() -> dict[str, Any]:
             value = float(default)
         value = max(low, min(high, value))
         result[key] = round(value, 2) if key == "gain" else int(round(value))
+    engine = str(saved.get("engine", "auto")).lower()
+    result["engine"] = engine if engine in MIC_ENGINES else "auto"
+    result["device_name"] = str(saved.get("device_name") or "")[:200]
     return result
 
 
@@ -573,6 +577,13 @@ def set_mic_settings(values: dict[str, Any]) -> dict[str, Any]:
             except (TypeError, ValueError):
                 raise ValueError(f"Valor inválido para {key}.")
             current[key] = values[key]
+    if "engine" in values:
+        engine = str(values["engine"]).lower()
+        if engine not in MIC_ENGINES:
+            raise ValueError("Motor de detecção inválido.")
+        current["engine"] = engine
+    if "device_name" in values:
+        current["device_name"] = str(values["device_name"] or "")[:200]
     data["mic"] = current
     _write(data)
     return get_mic_settings()
@@ -588,7 +599,7 @@ _CAPABILITIES = ("chat", "tts", "stt", "image", "video", "embedding")
 _CAPABILITY_PROVIDERS = {
     "chat": ("gemini", "groq", "oxyy"),
     "tts": ("fish", "gemini", "edge", "oxyy"),
-    "stt": ("local", "groq", "oxyy", "google"),
+    "stt": ("groq", "google", "oxyy", "local"),
     "image": ("oxyy", "gemini"),
     "video": ("oxyy",),
     "embedding": ("oxyy", "gemini"),
@@ -704,7 +715,7 @@ def resolve_ai_routes(defaults: dict[str, Any] | None = None) -> dict[str, dict[
     providers = {
         "chat": get_llm_provider(str(defaults.get("llm_provider", os.getenv("LLM_PROVIDER", "gemini")))),
         "tts": get_tts_provider(str(defaults.get("tts_provider", os.getenv("TTS_PROVIDER", "fish")))),
-        "stt": get_stt_provider(str(defaults.get("stt_provider", os.getenv("STT_PROVIDER", "local")))),
+        "stt": get_stt_provider(str(defaults.get("stt_provider", os.getenv("STT_PROVIDER", "groq")))),
         "image": str(saved.get("image", {}).get("provider", os.getenv("IMAGE_PROVIDER", "oxyy"))).lower(),
         "video": str(saved.get("video", {}).get("provider", os.getenv("VIDEO_PROVIDER", "oxyy"))).lower(),
         "embedding": str(saved.get("embedding", {}).get("provider", os.getenv("EMBEDDING_PROVIDER", "oxyy"))).lower(),

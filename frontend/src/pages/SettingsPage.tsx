@@ -403,10 +403,10 @@ export function SettingsPage({
                 <label className="field-label" style={{ flex: 1 }}>
                   STT Fallback Principal
                   <select
-                    value={sttSettings?.stt_provider || 'local'}
+                    value={sttSettings?.stt_provider || 'groq'}
                     onChange={event => onSetSttProvider(event.target.value as 'local' | 'groq' | 'oxyy' | 'google')}
                   >
-                    <option value="local">STT local (faster-whisper) · recomendado</option>
+                    <option value="local">STT local (faster-whisper, opcional)</option>
                     <option value="groq">Groq Whisper ° Oficial</option>
                     <option value="oxyy">Oxyy Whisper ° Oxyy</option>
                     <option value="google">Google Speech ° Oficial (Fallback)</option>
@@ -418,16 +418,18 @@ export function SettingsPage({
                     value={sttSettings?.local_model || 'base'}
                     onChange={async event => {
                       await fetch('/api/settings/stt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ local_model: event.target.value }) })
-                      onSetSttProvider(sttSettings?.stt_provider || 'local')
+                      onSetSttProvider(sttSettings?.stt_provider || 'groq')
                     }}
                   >
                     {(sttSettings?.local_models || ['tiny', 'base', 'small', 'medium']).map(model => <option key={model} value={model}>{model}</option>)}
                   </select>
                 </label>
                 <span className="settings-muted">
-                  {sttSettings?.local_available === false
-                    ? (sttSettings.local_reason || 'STT local desligado: faster-whisper não instalado.')
-                    : (sttSettings?.local_download_hint || 'STT local pronto (modelo já baixado).')}
+                  {sttSettings?.stt_provider !== 'local'
+                    ? 'Padrão: Groq whisper-large-v3-turbo, com Google como reserva. O STT local é opcional.'
+                    : sttSettings?.local_available === false
+                      ? (sttSettings.local_reason || 'STT local desligado: faster-whisper não instalado.')
+                      : (sttSettings?.local_download_hint || 'STT local pronto (modelo já baixado).')}
                 </span>
                 <span className="settings-muted">
                   As chaves ficam salvas no backend com criptografia local e são alternadas de forma transparente em caso de limite ou falha.

@@ -9,7 +9,7 @@ type LiveCallModalProps = {
   status: string
   userTranscript?: string
   jarvisTranscript?: string
-  turns?: { id: string; user: string; jarvis: string }[]
+  turns?: { id: string; user: string; jarvis: string; pending?: boolean }[]
   orbState?: 'idle' | 'listening' | 'thinking' | 'speaking'
   emotionLabel?: string
   audioDiagnostics?: LiveAudioDiagnostics | null
@@ -30,7 +30,6 @@ export function LiveCallModal({
   recording,
   status,
   userTranscript = '',
-  jarvisTranscript = '',
   turns = [],
   orbState = 'idle',
   emotionLabel,
@@ -173,7 +172,13 @@ export function LiveCallModal({
                 lineHeight: 1.65,
               }}
             >
-              <span>DIAGNÓSTICO · {audioDiagnostics.mode === 'fallback-vad' ? 'VAD LOCAL' : 'RECONHECIMENTO DO NAVEGADOR'}</span>
+              <span>DIAGNÓSTICO · {audioDiagnostics.mode === 'backend-sr' ? 'MICROFONE DO PC (SPEECHRECOGNITION)' : audioDiagnostics.mode === 'fallback-vad' ? 'VAD DO NAVEGADOR' : 'RECONHECIMENTO DO NAVEGADOR'}</span>
+              {audioDiagnostics.note && <div>Motor do PC desligado: {audioDiagnostics.note}</div>}
+              {audioDiagnostics.mode === 'backend-sr' && (
+                <div>
+                  Entrada {Math.round(audioDiagnostics.rms || 0)} · Limiar {Math.round(audioDiagnostics.threshold || 0)}{audioDiagnostics.sttMs !== undefined ? ` · Transcrição ${audioDiagnostics.sttMs} ms` : ''}
+                </div>
+              )}
               {audioDiagnostics.mode === 'fallback-vad' && (
                 <div>
                   Entrada {(audioDiagnostics.rms || 0).toFixed(3)} · Ruído {(audioDiagnostics.noiseFloor || 0).toFixed(3)} · Limiar {(audioDiagnostics.threshold || 0).toFixed(3)}
@@ -198,24 +203,18 @@ export function LiveCallModal({
           )
         })()}
 
-        {(turns.length > 0 || userTranscript || jarvisTranscript) && (
+        {(turns.length > 0 || userTranscript) && (
           <div className="live-call-subtitles">
             {turns.map(turn => (
               <div key={turn.id}>
                 <p style={{ color: '#e2e8f0' }}><strong style={{ color: '#00daf8' }}>Você: </strong>{turn.user}</p>
-                <p style={{ color: '#f8fafc' }}><strong style={{ color: '#f59e0b' }}>Jarvis: </strong>{turn.jarvis}</p>
+                <p style={{ color: '#f8fafc' }}><strong style={{ color: '#f59e0b' }}>Jarvis: </strong>{turn.jarvis || (turn.pending ? '…' : '')}</p>
               </div>
             ))}
             {turns.at(-1)?.user !== userTranscript && userTranscript && (
               <p style={{ color: '#e2e8f0' }}>
                 <strong style={{ color: '#00daf8' }}>Você: </strong>
                 {userTranscript}
-              </p>
-            )}
-            {turns.at(-1)?.user !== userTranscript && jarvisTranscript && (
-              <p style={{ color: '#f8fafc' }}>
-                <strong style={{ color: '#f59e0b' }}>Jarvis: </strong>
-                {jarvisTranscript}
               </p>
             )}
           </div>

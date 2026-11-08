@@ -12,8 +12,12 @@ type Props = {
   onSaveOxyy: (models: OxyySettings['models']) => void
 }
 
-type Mic = { sensitivity: number; silence_ms: number; gain: number }
-const MIC_DEFAULT: Mic = { sensitivity: 75, silence_ms: 700, gain: 1 }
+type Mic = { sensitivity: number; silence_ms: number; gain: number; engine: 'auto' | 'backend' | 'browser'; device_name: string }
+const MIC_DEFAULT: Mic = { sensitivity: 75, silence_ms: 800, gain: 1, engine: 'auto', device_name: '' }
+const MIC_NUMERIC_DEFAULT = { sensitivity: 75, silence_ms: 800, gain: 1 }
+type PcMicState = { loaded: boolean; available: boolean; reason: string; devices: { index: number; name: string; default: boolean }[] }
+// Mesma conta do backend (mic_capture.energy_threshold_for): 75 = 1100, cada -25 dobra o limiar.
+const pcThreshold = (sensitivity: number, gain: number) => Math.round(Math.max(150, Math.min(8000, 1100 * 2 ** ((75 - sensitivity) / 25) / Math.max(0.5, gain))))
 const METER_FULL_SCALE = 0.12
 const TEST_RECORD_MS = 4000
 const TEST_PHRASE = 'Olá, este é um teste de voz do assistente.'
@@ -39,6 +43,7 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
   const saveTimer = useRef<number | undefined>(undefined)
   const micRef = useRef<Mic>(MIC_DEFAULT)
 
+  const [pcMic, setPcMic] = useState<PcMicState>({ loaded: false, available: false, reason: '', devices: [] })
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const [deviceId, setDeviceId] = useState(getPreferredMicDevice)
 
@@ -57,6 +62,8 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
   const [fishRef, setFishRef] = useState('')
   const tts = { ...ttsSettings, ...voiceOverride }
   const provider = tts.tts_provider || 'fish'
+  const isLoopback = ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(window.location.hostname)
+  const pcEngineActive = mic.engine !== 'browser' && pcMic.available && isLoopback
 
   useEffect(() => { setFishRef(tts.fish_reference_id || '') }, [tts.fish_reference_id])
 
@@ -65,12 +72,16 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
       .then(response => response.json())
       .then(data => {
         if (!data?.ok) return
-        const next = { sensitivity: data.sensitivity, silence_ms: data.silence_ms, gain: data.gain }
+        const next: Mic = { sensitivity: data.sensitivity, silence_ms: data.silence_ms, gain: data.gain, engine: data.engine || 'auto', device_name: data.device_name || '' }
         micRef.current = next
         setMic(next)
       })
       .catch(() => setMicMessage('Não foi possível ler os ajustes do microfone. Verifique se o backend está ligado.'))
       .finally(() => setMicLoaded(true))
+    fetch('/api/voice/capture/devices')
+      .then(response => response.json())
+      .then(data => setPcMic({ loaded: true, available: Boolean(data?.available), reason: data?.reason || '', devices: Array.isArray(data?.devices) ? data.devices : [] }))
+      .catch(() => setPcMic({ loaded: true, available: false, reason: 'Não foi possível consultar o microfone do PC no backend.', devices: [] }))
   }, [])
 
   const refreshDevices = useCallback(async () => {
@@ -166,6 +177,25 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
 
   const runMicTest = async () => {
     if (micTest.busy) return
+    if (pcEngineActive) {
+      setMicTest({ busy: true, lines: ['Calibrando o microfone do PC e aguardando sua fala (até 15 s)…'] })
+      try {
+        const response = await fetch('/api/voice/capture/test', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sensitivity: mic.sensitivity, silence_ms: mic.silence_ms, gain: mic.gain, device_name: mic.device_name }),
+        })
+        const data = await response.json().catch(() => ({}))
+        const lines = [
+          `Motor: PC (SpeechRecognition)`,
+          ...(data.threshold ? [`Limiar: ${data.threshold} (base ${data.base_threshold ?? '?'}) · pico ouvido: ${data.peak ?? 0}`] : []),
+          ...(data.ok ? [`Transcrição: “${data.text}”`, `Tempo de transcrição: ${data.stt_ms} ms`] : []),
+        ]
+        setMicTest({ busy: false, lines, error: data.ok ? undefined : (data.error || 'Falha no teste do microfone do PC.') })
+      } catch {
+        setMicTest({ busy: false, lines: [], error: 'Não foi possível falar com o backend para testar o microfone do PC.' })
+      }
+      return
+    }
     setMicTest({ busy: true, lines: [`Gravando ${TEST_RECORD_MS / 1000} s… fale agora.`] })
     let stream: MediaStream | null = null
     try {
@@ -264,8 +294,8 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
 
   const threshold = 0.03 - 0.026 * (mic.sensitivity / 100)
   const thresholdPct = Math.min(100, (threshold / METER_FULL_SCALE) * 100)
-  const localOff = sttSettings?.local_available === false
-  const sttProvider = sttSettings?.stt_provider || 'local'
+  const sttProvider = sttSettings?.stt_provider || 'groq'
+  const localOff = sttSettings?.local_available === false && sttProvider === 'local'
 
   const result = (state: TestState) => (
     <>
@@ -281,22 +311,46 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
         <h2>Detecção de fala</h2>
         <p>Valem para a ligação por voz e o ditado. Mudanças são salvas sozinhas.</p>
 
+        <label className="field-label">Motor de detecção da ligação
+          <select value={mic.engine} disabled={!micLoaded} onChange={event => saveMic({ engine: event.target.value as Mic['engine'] })}>
+            <option value="auto">Automático (PC com SpeechRecognition; navegador se não der)</option>
+            <option value="backend">PC (SpeechRecognition + PyAudio)</option>
+            <option value="browser">Navegador</option>
+          </select>
+          <span className="settings-muted">
+            {!pcMic.loaded ? 'Consultando o microfone do PC…'
+              : !pcMic.available ? `Desligado: ${pcMic.reason || 'microfone do PC indisponível'}`
+              : !isLoopback ? 'Esta tela não está no PC do Jarvis: a ligação usa o detector do navegador.'
+              : mic.engine === 'browser' ? 'Ligação usando o detector do navegador (VAD em JavaScript).'
+              : `Ligação usando o microfone do PC. Limiar de energia ≈ ${pcThreshold(mic.sensitivity, mic.gain)} (ajusta ao ruído; padrão do projeto antigo = 1100).`}
+          </span>
+        </label>
+        {pcMic.available && (
+          <label className="field-label">Microfone do PC
+            <select value={mic.device_name} disabled={!micLoaded} onChange={event => saveMic({ device_name: event.target.value })}>
+              <option value="">Padrão do sistema</option>
+              {withCurrent(pcMic.devices.map(device => device.name), mic.device_name).map(name => <option key={name} value={name}>{name}</option>)}
+            </select>
+            <span className="settings-muted">Usado pelo motor do PC na ligação e no teste de microfone.</span>
+          </label>
+        )}
+
         <label className="field-label st-range">
           <span>Sensibilidade <b>{mic.sensitivity}</b></span>
           <input type="range" min={1} max={100} step={1} value={mic.sensitivity} disabled={!micLoaded} onChange={event => saveMic({ sensitivity: Number(event.target.value) })} />
-          <small className="settings-muted">Mais alto detecta falas baixas, mas também mais ruído. Padrão 75.</small>
+          <small className="settings-muted">Mais alto detecta falas baixas, mas também mais ruído. Padrão 75 (no PC: limiar 1100, como no projeto antigo).</small>
         </label>
         <label className="field-label st-range">
           <span>Silêncio para encerrar a fala <b>{mic.silence_ms} ms</b></span>
           <input type="range" min={300} max={3000} step={50} value={mic.silence_ms} disabled={!micLoaded} onChange={event => saveMic({ silence_ms: Number(event.target.value) })} />
-          <small className="settings-muted">Quanto menor, mais rápido o envio, com risco de cortar pausas. Padrão 700 ms.</small>
+          <small className="settings-muted">Quanto menor, mais rápido o envio, com risco de cortar pausas. Padrão 800 ms (no PC vira a pausa do SpeechRecognition).</small>
         </label>
         <label className="field-label st-range">
           <span>Ganho <b>{mic.gain.toFixed(1)}×</b></span>
           <input type="range" min={0.5} max={4} step={0.1} value={mic.gain} disabled={!micLoaded} onChange={event => saveMic({ gain: Number(event.target.value) })} />
-          <small className="settings-muted">Multiplica o nível medido antes de comparar com o limiar. Padrão 1,0×.</small>
+          <small className="settings-muted">Multiplica o nível medido antes de comparar com o limiar (no PC divide o limiar). Padrão 1,0×.</small>
         </label>
-        <button className="outline-button" type="button" onClick={() => saveMic(MIC_DEFAULT)} disabled={!micLoaded}>Restaurar padrões</button>
+        <button className="outline-button" type="button" onClick={() => saveMic(MIC_NUMERIC_DEFAULT)} disabled={!micLoaded}>Restaurar padrões</button>
 
         <label className="field-label">Dispositivo de entrada
           <select value={deviceId} onChange={event => changeDevice(event.target.value)}>
@@ -328,10 +382,10 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
         <h2>Provedor e modelo</h2>
         <label className="field-label">Provedor de STT
           <select value={sttProvider} onChange={event => onSetSttProvider(event.target.value as 'local' | 'groq' | 'oxyy' | 'google')}>
-            <option value="local">STT local (faster-whisper) · recomendado</option>
-            <option value="groq">Groq Whisper</option>
+            <option value="groq">Groq Whisper (whisper-large-v3-turbo) · padrão</option>
+            <option value="google">Google Speech (reserva)</option>
             <option value="oxyy">Oxyy Whisper</option>
-            <option value="google">Google Speech</option>
+            <option value="local">STT local (faster-whisper, opcional)</option>
           </select>
         </label>
         <label className="field-label">Modelo do STT local

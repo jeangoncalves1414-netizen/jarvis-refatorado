@@ -36,6 +36,11 @@ def build_mission_snapshot() -> dict[str, Any]:
         device_error = f"Não foi possível ler a ponte de dispositivos ({type(exc).__name__})."
         bridge_status, bridge_reason = "unavailable", device_error
     try:
+        from app.ui.panel.api.voice_capture import capture_component_status
+        capture_status = capture_component_status()
+    except Exception:
+        capture_status = {"status": "unavailable", "reason": "Estado da escuta do PC indisponível."}
+    try:
         from app.ui.panel.api.capabilities import build_capabilities, capabilities_meta
         capabilities, capability_meta = build_capabilities(), capabilities_meta()
     except Exception:
@@ -52,6 +57,7 @@ def build_mission_snapshot() -> dict[str, Any]:
             {"id": "action_kernel", "label": "Ações", "status": "healthy", "reason": f"{awaiting + running} em andamento/aguardando confirmação."},
             {"id": "providers", "label": "IA e voz", "status": provider_status, "reason": provider_reason},
             {"id": "bridge", "label": "Dispositivos", "status": bridge_status, "reason": bridge_reason},
+            {"id": "voice_capture", "label": "Escuta do PC", **capture_status},
         ],
         "capabilities": capabilities,
         **capability_meta,

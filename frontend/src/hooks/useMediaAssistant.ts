@@ -17,7 +17,9 @@ const SPEAK_STORAGE_KEY = 'jarvis_speak_responses'
 const SPEAKER_IDENTIFICATION_STORAGE_KEY = 'jarvis_speaker_identification'
 
 export type LiveAudioDiagnostics = {
-  mode: 'browser-speech' | 'fallback-vad' | 'native-speech'
+  mode: 'browser-speech' | 'fallback-vad' | 'native-speech' | 'backend-sr'
+  note?: string
+  sttMs?: number
   rms?: number
   threshold?: number
   noiseFloor?: number
@@ -25,6 +27,15 @@ export type LiveAudioDiagnostics = {
   speakerName?: string
   speakerConfidence?: number
   speakerUnknown?: boolean
+}
+
+type BackendCapture = { cancelled: boolean; abort: AbortController; playbackTimer: number; lastPlayback: boolean; lastLevelAt: number }
+
+const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '[::1]', '::1']
+
+async function postCapture(action: string, body: Record<string, unknown> = {}) {
+  const response = await fetch(`/api/voice/capture/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: action === 'stop' })
+  return response.json().catch(() => ({})) as Promise<Record<string, any>>
 }
 
 function newVoiceTurnId() {
@@ -111,7 +122,34 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   appendExchangeRef.current = appendExchange
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
-  const [liveTurns, setLiveTurns] = useState<{ id: string; user: string; jarvis: string }[]>([])
+  const [liveTurns, setLiveTurns] = useState<{ id: string; user: string; jarvis: string; pending?: boolean }[]>([])
+  // Cada fala vira um turno próprio na tela da ligação (balão da usuária + balão do assistente), em todos os modos.
+  const beginLiveTurn = (user: string) => {
+    const id = `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+    setLiveTurns(previous => [...previous, { id, user, jarvis: '', pending: true }].slice(-30))
+    return id
+  }
+  const updateLiveTurn = (id: string, patch: { user?: string; jarvis?: string; append?: string; pending?: boolean }) => {
+    setLiveTurns(previous => previous.map(turn => turn.id !== id ? turn : {
+      ...turn,
+      user: patch.user ?? turn.user,
+      jarvis: patch.append !== undefined ? (turn.jarvis ? `${turn.jarvis} ${patch.append}` : patch.append) : (patch.jarvis ?? turn.jarvis),
+      pending: patch.pending ?? turn.pending,
+    }))
+  }
+  const removeLiveTurn = (id: string) => setLiveTurns(previous => previous.filter(turn => turn.id !== id))
+  // Fala enviada pelo chat normal (modos VAD do navegador e nativo): o balão da usuária aparece já, o do assistente quando a resposta chega.
+  const sendTextAsTurn = async (text: string) => {
+    const liveTurnId = beginLiveTurn(text)
+    let reply = ''
+    try {
+      reply = await sendText(text)
+      return reply
+    } finally {
+      if (reply) updateLiveTurn(liveTurnId, { jarvis: reply, pending: false })
+      else removeLiveTurn(liveTurnId)
+    }
+  }
   // Pedidos falados chegam ao servidor com origem "voice": as ações entram na Central como voz (C10).
   const sendText = useCallback((message: string) => sendChatText(message, 'general', false, 'voice'), [sendChatText])
   const [speakEnabled, setSpeakEnabledState] = useState(readSpeakEnabled)
@@ -162,6 +200,10 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   const nativeVoiceModeRef = useRef<'idle' | 'call' | 'composer'>('idle')
   const nativeCallActiveRef = useRef(false)
   const ttsDoneResolverRef = useRef<(() => void) | null>(null)
+  // Captura de fala pelo backend (SpeechRecognition no PC): handle da sessão ativa e motivo de cair no navegador.
+  const backendCaptureRef = useRef<BackendCapture | null>(null)
+  const captureNoteRef = useRef('')
+  const backendDispatchAbortRef = useRef<AbortController | null>(null)
 
   const toggleVoiceInput = async () => {
     if (nativeVoiceModeRef.current === 'composer') {
@@ -224,6 +266,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   }
 
   const closeLiveCall = () => {
+    stopBackendCapture()
+    captureNoteRef.current = ''
     liveCallActiveRef.current = false
     liveCallProcessingRef.current = false
     nativeCallActiveRef.current = false
@@ -326,6 +370,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     // Mostra apenas o texto limpo (sem o prompt de contexto interno)
     if (displayText !== undefined) setLiveUserTranscript(displayText)
     setLiveJarvisTranscript('')
+    const liveTurnId = beginLiveTurn((displayText ?? userText).trim())
+    let handledByChat = false
     setLiveOrbState('thinking')
     setLiveCallStatus('⚡ Processando fala (sub-segundo)…')
 
@@ -335,7 +381,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
 
     // Propaga cancelamento externo (dispatch especulativo) para o AbortController interno
     if (externalAbort) {
-      if (externalAbort.signal.aborted) { return }
+      if (externalAbort.signal.aborted) { removeLiveTurn(liveTurnId); return }
       externalAbort.signal.addEventListener('abort', () => abortController.abort(), { once: true })
     }
 
@@ -385,6 +431,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       setLiveOrbState('speaking')
       setLiveCallStatus('⚡ Transmitindo resposta em tempo real…')
       setLiveJarvisTranscript((prev) => (prev ? prev + ' ' + item.text : item.text))
+      updateLiveTurn(liveTurnId, { append: item.text })
 
       try {
         // Race contra abort para não ficar preso aguardando TTS
@@ -465,6 +512,11 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
 
       if (!response.ok || !response.body) {
         const reply = await sendText(userText)
+        if (reply) {
+          // O chat já gravou a troca no histórico; aqui só falta mostrá-la na ligação.
+          handledByChat = true
+          fullReply = reply
+        }
         if (reply && liveCallActiveRef.current) {
           setLiveJarvisTranscript(reply)
           await speakText(reply)
@@ -534,9 +586,10 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       const turnReply = fullReply.trim()
       if (turnReply) {
         const turnUser = (displayText ?? userText).trim()
-        const turnId = `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-        setLiveTurns((previous) => [...previous, { id: turnId, user: turnUser, jarvis: turnReply }].slice(-30))
-        void appendExchangeRef.current?.(turnUser, turnReply)
+        updateLiveTurn(liveTurnId, { jarvis: turnReply, pending: false })
+        if (!handledByChat) void appendExchangeRef.current?.(turnUser, turnReply)
+      } else {
+        removeLiveTurn(liveTurnId)
       }
       isSpeakingRef.current = false
       // Só restaura 'listening' aqui se playNextInQueue ainda não o fez
@@ -887,10 +940,10 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       setLiveOrbState('listening')
       setLiveCallStatus('Ouvindo continuamente… fale normalmente.')
       recordDiagnostic('fallback_vad_started')
-      setLiveAudioDiagnostics({ mode: 'fallback-vad', rms: 0, threshold: 0.012, noiseFloor: fallbackNoiseFloorRef.current })
+      setLiveAudioDiagnostics({ mode: 'fallback-vad', rms: 0, threshold: 0.012, noiseFloor: fallbackNoiseFloorRef.current, note: captureNoteRef.current || undefined })
 
       // Sensibilidade, silêncio para encerrar a fala e ganho vêm de Configurações (/api/settings/mic).
-      let mic = { sensitivity: 75, silence_ms: 700, gain: 1 }
+      let mic = { sensitivity: 75, silence_ms: 800, gain: 1 }
       try {
         const micResponse = await fetch('/api/settings/mic')
         if (micResponse.ok) mic = { ...mic, ...(await micResponse.json()) }
@@ -925,7 +978,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
               setLiveUserTranscript(text)
               setLiveOrbState('thinking')
               setLiveCallStatus('Jarvis está processando…')
-              const reply = await sendText(text)
+              const reply = await sendTextAsTurn(text)
               if (reply && liveCallActiveRef.current) {
                 isSpeakingRef.current = true
                 setLiveOrbState('speaking')
@@ -955,7 +1008,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
             setLiveOrbState('thinking')
             setLiveCallStatus('Jarvis está processando…')
             recordDiagnostic('voice_turn_llm_started', 'INFO', { turn_id: turnId })
-            const reply = await sendText(transcription.text.trim())
+            const reply = await sendTextAsTurn(transcription.text.trim())
             recordDiagnostic('voice_turn_llm_completed', 'INFO', { turn_id: turnId, elapsed_ms: Math.round(performance.now() - turnStartedAt), reply_received: Boolean(reply) })
             if (reply && liveCallActiveRef.current) {
               isSpeakingRef.current = true
@@ -996,7 +1049,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         const threshold = Math.max(thresholdFloor, fallbackNoiseFloorRef.current * noiseMultiplier)
         if (performance.now() - fallbackLastDiagnosticsUpdateRef.current >= 180) {
           fallbackLastDiagnosticsUpdateRef.current = performance.now()
-          setLiveAudioDiagnostics({ mode: 'fallback-vad', rms, threshold, noiseFloor: fallbackNoiseFloorRef.current, turnId: voiceTurnIdRef.current || undefined, speakerName: liveSpeakerRef.current.name, speakerConfidence: liveSpeakerRef.current.confidence, speakerUnknown: liveSpeakerRef.current.unknown })
+          setLiveAudioDiagnostics({ mode: 'fallback-vad', rms, threshold, noiseFloor: fallbackNoiseFloorRef.current, note: captureNoteRef.current || undefined, turnId: voiceTurnIdRef.current || undefined, speakerName: liveSpeakerRef.current.name, speakerConfidence: liveSpeakerRef.current.confidence, speakerUnknown: liveSpeakerRef.current.unknown })
         }
         const recordingNow = liveCallRecorderRef.current?.state === 'recording'
         if (!isSpeakingRef.current && !liveCallProcessingRef.current && rms >= threshold) {
@@ -1016,6 +1069,178 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     }
   }
 
+  // ── Captura de fala pelo backend (SpeechRecognition + PyAudio no PC) ─────────────────────────
+  const stopBackendCapture = () => {
+    const handle = backendCaptureRef.current
+    if (!handle) return
+    handle.cancelled = true
+    handle.abort.abort()
+    window.clearInterval(handle.playbackTimer)
+    backendCaptureRef.current = null
+    backendDispatchAbortRef.current?.abort()
+    backendDispatchAbortRef.current = null
+    void postCapture('stop').catch(() => undefined)
+  }
+
+  const handleBackendLost = (reason: string) => {
+    if (!backendCaptureRef.current) return
+    stopBackendCapture()
+    recordDiagnostic('backend_capture_lost', 'WARN', { reason })
+    if (!liveCallActiveRef.current) return
+    captureNoteRef.current = reason
+    setLiveCallStatus(`${reason} Usando o microfone do navegador.`)
+    void startFallbackContinuousCapture()
+  }
+
+  const dispatchBackendSpeech = (text: string) => {
+    if (!text || !liveCallActiveRef.current) return
+    const wasBargedIn = bargedInRef.current
+    bargedInRef.current = false
+    // Uma fala nova substitui qualquer resposta ainda em andamento.
+    if (backendDispatchAbortRef.current) backendDispatchAbortRef.current.abort()
+    if (liveCallProcessingRef.current && !wasBargedIn) {
+      speechAbortRef.current?.abort()
+      isSpeakingRef.current = false
+      recordDiagnostic('speech_replaced_while_processing', 'WARN')
+    }
+    liveCallProcessingRef.current = true
+    const dispatchAbort = new AbortController()
+    backendDispatchAbortRef.current = dispatchAbort
+    setLiveCallRecording(false)
+    setLiveUserTranscript(text)
+    void (async () => {
+      try {
+        let prompt = text
+        if (lastInterruptionRef.current?.text) {
+          const cutOff = lastInterruptionRef.current.text
+          lastInterruptionRef.current = null
+          prompt = `[Contexto: você estava falando e foi interrompido exatamente após dizer: "${cutOff}". Responda de forma ágil ao que ele disse agora:] ${text}`
+        }
+        await sendTextStreamAndPlay(prompt, text, dispatchAbort)
+      } catch (error) {
+        if (!dispatchAbort.signal.aborted) setLiveCallStatus(error instanceof Error ? error.message : 'Falha durante a ligação.')
+      } finally {
+        if (!dispatchAbort.signal.aborted) {
+          liveCallProcessingRef.current = false
+          isSpeakingRef.current = false
+          bargedInRef.current = false
+          if (backendDispatchAbortRef.current === dispatchAbort) backendDispatchAbortRef.current = null
+        }
+      }
+    })()
+  }
+
+  const handleBackendEvent = (handle: BackendCapture, event: Record<string, any>) => {
+    if (handle.cancelled || !liveCallActiveRef.current) return
+    switch (event.type) {
+      case 'level': {
+        const now = performance.now()
+        if (now - handle.lastLevelAt < 150) return
+        handle.lastLevelAt = now
+        setLiveAudioDiagnostics(previous => ({ ...(previous?.mode === 'backend-sr' ? previous : {}), mode: 'backend-sr', rms: event.level, threshold: event.threshold }))
+        return
+      }
+      case 'calibrated':
+        setLiveCallStatus(`Microfone do PC calibrado (limiar ${event.threshold}).`)
+        return
+      case 'state':
+        if (event.state === 'speaking' && !isSpeakingRef.current) {
+          setLiveCallStatus('Ouvindo sua fala…')
+        } else if (event.state === 'listening' && !isSpeakingRef.current && !liveCallProcessingRef.current) {
+          setLiveOrbState('listening')
+          setLiveCallRecording(true)
+          setLiveCallStatus('Ouvindo continuamente… fale normalmente.')
+        }
+        return
+      case 'processing':
+        if (!isSpeakingRef.current) setLiveCallStatus('Transcrevendo…')
+        return
+      case 'barge_in':
+        if (isSpeakingRef.current || audioRef.current) triggerBargeIn()
+        return
+      case 'transcript':
+        setLiveAudioDiagnostics(previous => previous ? { ...previous, sttMs: event.stt_ms, turnId: event.turn_id } : previous)
+        recordDiagnostic('backend_turn_transcribed', 'INFO', { turn_id: event.turn_id, stt_ms: event.stt_ms })
+        dispatchBackendSpeech(String(event.text || '').trim())
+        return
+      case 'empty':
+        if (event.error && !/descartad/i.test(String(event.error))) setLiveCallStatus(String(event.error))
+        return
+      case 'error':
+        if (event.fatal) handleBackendLost(String(event.message || 'Falha no microfone do PC.'))
+        return
+    }
+  }
+
+  const runBackendEvents = async (handle: BackendCapture, startSeq: number) => {
+    let after = startSeq
+    let failures = 0
+    while (!handle.cancelled) {
+      try {
+        const response = await fetch(`/api/voice/capture/events?after=${after}&wait=1`, { signal: handle.abort.signal })
+        if (!response.ok) throw new Error(String(response.status))
+        const data = await response.json()
+        failures = 0
+        after = Number(data.seq) || after
+        for (const event of data.events || []) handleBackendEvent(handle, event)
+        if (!data.active && !handle.cancelled) { handleBackendLost('O microfone do PC foi encerrado.'); return }
+      } catch {
+        if (handle.cancelled) return
+        failures += 1
+        if (failures >= 5) { handleBackendLost('Perdi a conexão com a captura do PC.'); return }
+        await new Promise(resolve => window.setTimeout(resolve, 400))
+      }
+    }
+  }
+
+  // Tenta o motor do PC. ok=false com reason => cai no navegador e mostra o motivo.
+  const startBackendCapture = async (): Promise<{ ok: boolean; reason?: string }> => {
+    if (isMobileStandalone() || !LOOPBACK_HOSTS.includes(window.location.hostname)) return { ok: false }
+    let engine = 'auto'
+    try {
+      const micResponse = await fetch('/api/settings/mic')
+      if (micResponse.ok) engine = (await micResponse.json()).engine || 'auto'
+    } catch { /* usa automático */ }
+    if (engine === 'browser') return { ok: false }
+    try {
+      const status = await (await fetch('/api/voice/capture/status')).json()
+      if (!status.available) return { ok: false, reason: status.reason || 'Captura do PC indisponível.' }
+    } catch {
+      return { ok: false, reason: 'O backend não respondeu sobre o microfone do PC.' }
+    }
+    setLiveCallStatus('Abrindo e calibrando o microfone do PC…')
+    let started: Record<string, any> = {}
+    try { started = await postCapture('start') } catch { return { ok: false, reason: 'Não foi possível iniciar a captura do PC.' } }
+    if (!started.ok) return { ok: false, reason: started.error || 'Não foi possível abrir o microfone do PC.' }
+    if (!liveCallActiveRef.current) { void postCapture('stop').catch(() => undefined); return { ok: true } }
+    const handle: BackendCapture = { cancelled: false, abort: new AbortController(), playbackTimer: 0, lastPlayback: false, lastLevelAt: 0 }
+    // O microfone do Python não cancela eco: o backend sobe o limiar enquanto o Jarvis fala (barge-in só com voz alta e contínua).
+    handle.playbackTimer = window.setInterval(() => {
+      const speaking = Boolean(isSpeakingRef.current || (audioRef.current && !audioRef.current.paused))
+      if (speaking !== handle.lastPlayback) {
+        handle.lastPlayback = speaking
+        void postCapture('playback', { active: speaking }).catch(() => undefined)
+      }
+    }, 80)
+    backendCaptureRef.current = handle
+    captureNoteRef.current = ''
+    setLiveAudioDiagnostics({ mode: 'backend-sr', rms: 0, threshold: started.threshold })
+    setLiveCallRecording(true)
+    setLiveOrbState('listening')
+    setLiveCallStatus('Ouvindo continuamente… fale normalmente.')
+    recordDiagnostic('backend_capture_started', 'INFO', { threshold: started.threshold })
+    void runBackendEvents(handle, Number(started.seq) || 0)
+    return { ok: true }
+  }
+
+  useEffect(() => {
+    const onPageHide = () => {
+      if (backendCaptureRef.current) navigator.sendBeacon?.('/api/voice/capture/stop', new Blob(['{}'], { type: 'application/json' }))
+    }
+    window.addEventListener('pagehide', onPageHide)
+    return () => { window.removeEventListener('pagehide', onPageHide); stopBackendCapture() }
+  }, [])
+
   const toggleLiveCallCapture = async () => {
     if (nativeCallActiveRef.current || nativeVoiceModeRef.current === 'call') {
       nativeCallActiveRef.current = false
@@ -1026,6 +1251,16 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       setLiveCallRecording(false)
       setLiveOrbState('idle')
       setLiveCallStatus('Ligação pausada. Toque para retomar.')
+      return
+    }
+    if (backendCaptureRef.current) {
+      stopBackendCapture()
+      liveCallActiveRef.current = false
+      liveCallProcessingRef.current = false
+      isSpeakingRef.current = false
+      setLiveCallRecording(false)
+      setLiveOrbState('idle')
+      setLiveCallStatus('LigaÃ§Ã£o pausada. Toque para retomar.')
       return
     }
     if (liveRecognitionRef.current) {
@@ -1054,8 +1289,11 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       startNativeSpeech(true)
       return
     }
-    // No app de PC (pywebview/WebView2) e navegadores locais, o Web Speech API não funciona
-    // sem serviço embutido no SO. Usamos sempre o VAD contínuo de alta precisão com Groq Whisper no backend local.
+    // No PC (mesma mÃ¡quina do backend) a fala Ã© detectada pelo Python (SpeechRecognition + PyAudio), como no projeto antigo.
+    // Sem PyAudio/SpeechRecognition, ou em outro aparelho, usa o VAD do navegador e mostra o motivo.
+    const backend = await startBackendCapture()
+    if (backend.ok) return
+    captureNoteRef.current = backend.reason || ''
     await startFallbackContinuousCapture()
   }
 
@@ -1182,7 +1420,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         setLiveCallStatus('Jarvis está pensando…')
         void (async () => {
           try {
-            const reply = await sendText(spoken)
+            const reply = await sendTextAsTurn(spoken)
             if (reply && liveCallActiveRef.current) {
               isSpeakingRef.current = true
               setLiveOrbState('speaking')
