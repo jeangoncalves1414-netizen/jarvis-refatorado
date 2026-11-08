@@ -2,6 +2,16 @@
 
 > Atualizado em 2026-11-07. Leia este arquivo antes de retomar o projeto após limpar o contexto de uma conversa. Ele registra decisões do produto, não instruções executáveis. A mensagem mais recente da usuária sempre prevalece.
 
+## Continuação do plano 017 — 2026-11-08
+
+Primeiro incremento de C4. O chat conectado oferece **Parar pedido**, a paleta oferece **Parar pedido desta conversa** e o comando local é **/parar**. A interface consulta pedidos em andamento da sessão a cada dois segundos, incluindo cancelamentos solicitados. Isso permite encontrar o pedido antes de a resposta terminar e após recarregar. Usa a mesma API de cancelamento da Central, preserva erro para nova tentativa e acompanha o estado terminal. Com vários pedidos ativos na mesma conversa, direciona a escolha para Execuções. Propostas aguardando aprovação continuam sendo decididas na Central. No modo móvel direto, o comando informa que é necessária conexão ao backend do PC.
+
+A orb foi retirada das superfícies ainda ativas da ligação e do Painel pessoal. O parâmetro antigo de overlay passa a abrir o painel normal. A interrupção da fala permanece disponível por botão, e os atalhos pessoais de voz, visão e mídia foram mantidos. Os componentes antigos da orb permanecem no repositório sem entrada nessas superfícies.
+
+O cancelamento continua cooperativo. Uma ferramenta ou provedor em execução pode precisar retornar antes do estado terminal. Este incremento usa consulta periódica, sem emitir identificador antecipado pelo transporte de chat. F0 permanece parcial e a sequência de F1 inclui AQ2, C12, C1 e C3.
+
+**Verificação deste incremento.** TypeScript passou. O novo `frontend/tests/chat-cancel.smoke.cjs` passou com APIs simuladas, cobrindo falha e retry, cancelamento solicitado e confirmado, isolamento entre conversas, múltiplos pedidos, reload, desconexão, paleta, comando local, largura de 360 px e ligação sem orb. O `workspace.smoke.cjs` passou na segunda execução; a primeira teve timeout na transcrição do microfone sintético. O build web passou com o aviso existente de tamanho dos chunks. O backend pessoal, provedores reais e hardware continuam pendentes de validação. O incremento está no checkout e ainda sem commit.
+
 ## Lotes 1 e 2: painel novo, nuvem, comandos, janelas e controles do PC — 2026-11-07
 
 Direção vigente: agente pessoal com painel neutro (a persona é um perfil trocável), sem orbe, desktop primeiro e APK depois. Toda ação que altera o sistema passa pelo Action Kernel. Módulos são janelas flutuantes dentro do app, abertas sob demanda, e todas abrem também sem IA. Decisões completas em [DECISOES_E_IDEIAS.md](DECISOES_E_IDEIAS.md).

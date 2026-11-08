@@ -25,6 +25,7 @@ it and must never reset, clean, stash, or overwrite unrelated changes.
 || 014 | Corrigir race condition em ToolGuardrails (dicionários sem lock) | P1 | M | — | DONE |
 || 015 | Corrigir race condition em settings (estado de classe sem lock) | P1 | M | — | TODO |
 || 016 | Transformar o produto em um painel neutro de controle de IA | P0 | L | 006, 007 | IN PROGRESS |
+|| 017 | Plano mestre do aplicativo: peças-base, mapa por área, fluxos-alvo, inventário e fases ([017-plano-mestre-do-aplicativo.md](017-plano-mestre-do-aplicativo.md)) | P0 | L | 016 | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale).
 
