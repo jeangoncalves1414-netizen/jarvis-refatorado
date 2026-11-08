@@ -12,6 +12,7 @@ from app.agent.tools.base import ToolResult
 from app.core.action_proposals import build_proposal_preview
 from app.core.actions import ActionRecord, ToolMetadata, arguments_digest, pending_action_broker, summarize_result
 from app.storage.action_store import ActionStore, action_store
+from app.storage.auto_approvals import auto_approvals
 from app.core.runs import current_origin, current_run
 from app.core.capability_health import record_tool_result
 
@@ -68,8 +69,27 @@ class ActionExecutor:
         except BaseException:
             pending_action_broker.discard(proposal.id)
             raise
+        if action.status == "awaiting_confirmation":
+            action = self._auto_approve(action, name, args or {}, metadata)
         self.last_action = action
         return action
+
+    def _auto_approve(self, action: ActionRecord, name: str, args: dict[str, Any], metadata: ToolMetadata) -> ActionRecord:
+        """Modo liberado ou regra ativa aprovam sem perguntar; o motivo e a origem ficam na Central."""
+        operation, target = metadata.operation_for(args), metadata.target_for(args)
+        if auto_approvals.liberated():
+            reason = f"Aprovada pelo modo liberado (origem: {self.source})."
+        else:
+            rule = auto_approvals.match(name, operation, target)
+            if rule is None:
+                auto_approvals.remember_scope(action.id, name, operation, target)
+                return action
+            reason = f"Auto-aprovada pela regra {rule['id']} ({rule['label']}; origem: {self.source})."
+        try:
+            approved = self.store.transition(action.id, "authorized", result_summary=reason, expected_status="awaiting_confirmation")
+        finally:
+            pending_action_broker.discard(action.id)
+        return approved
 
     def execute(self, name: str, args: dict | None, user_text: str) -> str:
         self.last_action = None

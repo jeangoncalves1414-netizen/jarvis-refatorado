@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Switch } from '../components/Switch'
+import { AutoApprovalsManager } from '../components/AutoApprovals'
 import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download } from 'lucide-react'
 import type { AiSettings, LlmSettings, OxyyCatalog, OxyySettings, Proactive, SttSettings, TtsSettings, Tray, WakeWord } from '../types'
 import { isMobileStandalone, getMobileProvider, getMobileApiKeys, setMobileProvider, setMobileApiKeys, getMobileOxyyModels, setMobileOxyyModels, DEFAULT_MOBILE_KEYS, DEFAULT_OXXY_MODELS, type DirectChatProvider, countKeys, nativeDirectPost } from '../hooks/useDirectChat'
@@ -148,6 +149,8 @@ export function SettingsPage({
   return (
     <section className="settings-grid">
       <AgentProfileSettings />
+
+      <AutoApprovalsManager />
 
       {/* 2. Leitura Automática Switch Card */}
       <article className="settings-card">

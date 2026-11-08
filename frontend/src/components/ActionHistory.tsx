@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Activity, ArrowUpRight, Check, ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
 import { actionLabels, type AgentAction } from '../hooks/useOperationalSnapshot'
 import { panelRequest } from '../utils/panelApi'
+import { AlwaysAllowButton } from './AutoApprovals'
 
 type ActionEvent = { id: number; kind: string; status: string; timestamp: number; summary?: string | null }
 type ActionDetail = { action: AgentAction; events: ActionEvent[] }
@@ -39,6 +40,7 @@ export function ActionDetails({ id, revision, onClose, onDecide, busy, unavailab
       <ol className="ws-action-timeline">{detail.events.map(event => <li key={event.id}><span className={`ws-dot ${event.status}`} /><div><strong>{event.kind === 'legacy_import' ? 'Registro anterior importado' : actionLabels[event.status] || event.status}</strong><time dateTime={new Date(event.timestamp * 1000).toISOString()}>{when(event.timestamp)}</time>{event.summary && <p>{event.summary}</p>}</div></li>)}</ol>
       {!detail.events.length && <p className="ws-muted">Nenhum evento disponível para esta ação.</p>}
       {action.status === 'awaiting_confirmation' && <div className="ws-approval-buttons"><button className="ws-button" disabled={busy.includes(id) || unavailable || !!error} onClick={() => onDecide(action, 'reject')}><X size={15} /> Recusar</button><button className="ws-button primary" disabled={busy.includes(id) || unavailable || !!error} onClick={() => onDecide(action, 'approve')}><Check size={15} />{busy.includes(id) ? 'Processando…' : 'Autorizar uma vez'}</button></div>}
+      {action.status === 'awaiting_confirmation' && <AlwaysAllowButton actionId={action.id} disabled={busy.includes(id) || unavailable || !!error} onAllowed={() => onDecide(action, 'approve')} />}
       {action.run_id && <p className="ws-footnote">Pedido: {action.run_id}</p>}
       {action.status === 'running' && <p className="ws-warning">Uma etapa já iniciada pode precisar terminar antes que o cancelamento do pedido seja confirmado.</p>}
     </>}

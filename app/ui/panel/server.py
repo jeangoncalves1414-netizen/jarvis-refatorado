@@ -21,6 +21,7 @@ from app.ui.panel.api.tutor import handle_tutor_get, handle_tutor_post
 from app.ui.panel.api.voice import handle_voice_post, handle_voice_stream, handle_voice_realtime_stream
 from app.ui.panel.api.planning import handle_planning_get, handle_planning_post
 from app.ui.panel.api.actions import handle_actions_get, handle_actions_post
+from app.ui.panel.api.approvals import handle_approvals_get, handle_approvals_post
 from app.ui.panel.api.runs import handle_runs_get, handle_runs_post
 from app.ui.panel.api.controls import handle_controls_post
 from app.ui.panel.api.mission_control import handle_mission_control_get
@@ -682,6 +683,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 handle_settings_get,
                 handle_planning_get,
                 handle_actions_get,
+                handle_approvals_get,
                 handle_runs_get,
                 handle_mission_control_get,
                 handle_goals_get,
@@ -1950,6 +1952,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             handle_voice_post,
             handle_planning_post,
             handle_actions_post,
+            handle_approvals_post,
             handle_runs_post,
             handle_controls_post,
             handle_goals_post,

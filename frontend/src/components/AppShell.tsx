@@ -3,6 +3,7 @@ import { ChevronDown, Command, Menu, PanelLeftClose, PanelLeftOpen, Search, Slid
 import { navigation } from '../navigation'
 import type { ChatSession } from '../types'
 import type { OperationalState } from '../hooks/useOperationalSnapshot'
+import { LiberatedModeBadge } from './AutoApprovals'
 import { WindowHost } from '../windows/WindowManager'
 
 type AppShellProps = {
@@ -45,7 +46,7 @@ export function AppShell({ active, sidebarCollapsed, onToggleSidebar, onNavigate
     <aside className="ws-sidebar">{sidebarContent}</aside>
     <dialog ref={navDialog} className="ws-drawer ws-nav-drawer" aria-label="Navegação" onClick={event => { if (event.target === event.currentTarget) navDialog.current?.close() }}><div className="ws-drawer-inner">{sidebarContent}</div></dialog>
     <main className="ws-main" id="workspace-content" tabIndex={-1}>
-      <header className="ws-topbar"><div className="ws-topbar-title"><button className="ws-icon-button ws-mobile-menu" aria-label="Abrir navegação" onClick={() => navDialog.current?.showModal()}><Menu size={20} /></button><span className="ws-breadcrumb">Workspace <span>/</span></span><strong>{route?.label || active}</strong></div><div className="ws-topbar-actions"><span className={`ws-connection-label ${status}`}><i className={`ws-dot ${status}`} />{status === 'connected' ? 'Conectado' : status === 'offline' ? 'Desconectado' : 'Conectando'}</span><button className="ws-control-toggle" aria-label="Controle do agente" onClick={() => { if (window.innerWidth <= 1200) controlDialog.current?.showModal(); else setControlsOpen(value => !value) }}><SlidersHorizontal size={16} /><span>Controle do agente</span></button></div></header>
+      <header className="ws-topbar"><div className="ws-topbar-title"><button className="ws-icon-button ws-mobile-menu" aria-label="Abrir navegação" onClick={() => navDialog.current?.showModal()}><Menu size={20} /></button><span className="ws-breadcrumb">Workspace <span>/</span></span><strong>{route?.label || active}</strong></div><div className="ws-topbar-actions"><LiberatedModeBadge /><span className={`ws-connection-label ${status}`}><i className={`ws-dot ${status}`} />{status === 'connected' ? 'Conectado' : status === 'offline' ? 'Desconectado' : 'Conectando'}</span><button className="ws-control-toggle" aria-label="Controle do agente" onClick={() => { if (window.innerWidth <= 1200) controlDialog.current?.showModal(); else setControlsOpen(value => !value) }}><SlidersHorizontal size={16} /><span>Controle do agente</span></button></div></header>
       <div className={`ws-page ${active === 'Chat' ? 'ws-page-chat' : ''}`}>{hero}{children}</div>
     </main>
     {controlsOpen && <aside className="ws-control-rail"><div className="ws-control-heading"><strong>Controle do agente</strong><button className="ws-icon-button" aria-label="Recolher controles" onClick={() => setControlsOpen(false)}><X size={16} /></button></div>{controls}<details className="ws-extra-tools"><summary>Mais ferramentas</summary>{quickActions}</details></aside>}
