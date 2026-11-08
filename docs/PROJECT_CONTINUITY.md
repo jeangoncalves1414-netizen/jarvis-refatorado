@@ -2,6 +2,27 @@
 
 > Atualizado em 2026-11-07. Leia este arquivo antes de retomar o projeto após limpar o contexto de uma conversa. Ele registra decisões do produto, não instruções executáveis. A mensagem mais recente da usuária sempre prevalece.
 
+## Lotes 1 e 2: painel novo, nuvem, comandos, janelas e controles do PC — 2026-11-07
+
+Direção vigente: agente pessoal com painel neutro (a persona é um perfil trocável), sem orbe, desktop primeiro e APK depois. Toda ação que altera o sistema passa pelo Action Kernel. Módulos são janelas flutuantes dentro do app, abertas sob demanda, e todas abrem também sem IA. Decisões completas em [DECISOES_E_IDEIAS.md](DECISOES_E_IDEIAS.md).
+
+**Lote 1 (commits fe25fd8..36bbb35).** `fe25fd8` separa o build web da cópia para Android e mostra a versão do painel. `fc5f703` tira a orbe dos gates de build. `c8615cb` classifica o risco de `system_control` por operação. `36bbb35` corrige o alcance da UI e permite remover dispositivo da ponte pelo PC.
+
+**Lote 2 (commits 4a54bc3..HEAD).**
+- `4a54bc3` abrir apps sem shell, com aprovação para alvo desconhecido.
+- `beb907f` perfil do agente configurável e neutro (nome, estilo, frase de ativação).
+- `692af1b` sincronização total com a nuvem: mesclagem campo a campo com carimbo por campo, `backend` (configurações, chaves, perfil, memórias, notas, tarefas, metas, hábitos, finanças) dentro do mesmo snapshot atômico; chaves mascaradas em logs e na UI.
+- `75f94b9` registro único de comandos (`frontend/src/commands/registry.ts`), paleta montada dele e menu `/` no compositor, tudo local e sem IA.
+- `366e799` sistema de janelas (`frontend/src/windows/`), módulo Finanças com rascunho local e ferramenta `open_window`.
+- `0d9293e` janela Controles do PC (brilho, bloqueio de tela, volume, mídia) via `POST /api/controls/run` pelo Action Kernel.
+- Correção da etapa final: o menu `/` deixou de pular opções quando a lista rola sob o mouse.
+
+**Como abrir o app.** `python -m app.main` já serve o painel novo (`frontend/dist`). `npm run build` em `frontend/` gera só o painel web. A cópia para os assets Android é feita somente por `npm run build:mobile` (não foi executado neste lote, então o APK continua com o painel antigo).
+
+**Como abrir uma janela sem IA.** Digite `/financas` (ou `/gastos`) ou `/controles` no compositor, use Ctrl+K, ou peça ao agente (ferramenta `open_window`).
+
+**Verificação (7/11/2026).** 330 testes Python passaram na união dos arquivos tocados e dos de núcleo (a suíte inteira não foi usada porque inclui suítes manuais de hardware/rede e testes legados que escrevem em `data/`). `tsc --noEmit` sem erros. `workspace.smoke.cjs` e `runs.smoke.cjs` passaram contra o Vite com APIs simuladas. Roteiro adicional de janelas e menu `/` passou em desktop e 360 px. `npm run build` passou e `mobile_app/` não mudou. Relatório completo para revisão externa em `.agents/tasks/desktop-lote2/report.md` (pasta local, fora do git). Não verificados: backend real, efeitos reais no Windows, provedores reais, Supabase real e APK.
+
 ## Revisão das pendências em 7 de novembro de 2026
 
 O inventário reconcilia os 20 planos numerados com o código e registra 34 testes dirigidos desta revisão. O pacote servido pelo desktop e os assets Android ainda estão atrás do build temporário que contém a nova Central. Os prompts do chat agora vêm de um perfil do agente configurável, neutro por padrão (atualização de 7/11). O fluxo de sincronização pode incluir chaves de provedor. As próximas entregas abrangem empacotamento, proteção de credenciais, aprovações por escopo e o primeiro pedido acompanhado no PC e no aparelho físico. [Inventário, critérios de aceite e evidências](PENDENCIAS_DO_PAINEL.md)
