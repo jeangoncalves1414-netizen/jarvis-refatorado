@@ -22,6 +22,8 @@ import { useMediaAssistant } from './hooks/useMediaAssistant'
 import { useStudy } from './hooks/useStudy'
 import { playToggle, playSuccess, toggleSfx } from './utils/sfx'
 import { WINDOW_CAMERAS, WINDOW_CINEMA, WINDOW_LIFE_OS, WINDOW_LIVE_CALL, type CommandHandlers } from './commands/registry'
+import { isManagedWindow } from './windows/registry'
+import { useWindows } from './windows/WindowManager'
 import { broadcastSyncEvent } from './utils/syncChannel'
 import { requestNotificationPermission } from './utils/notifications'
 import { autoSyncOnOpen } from './utils/jarvisCloud'
@@ -190,7 +192,9 @@ export default function App() {
   }
   const cameraWorkspaceRef = useRef<CameraWorkspaceHandle>(null)
   const taskInputRef = useRef<HTMLInputElement>(null)
-  const pcChat = useChat()
+  const windows = useWindows()
+  // Pedido de janela vindo da ferramenta open_window do agente: o id e os parâmetros são validados de novo aqui.
+  const pcChat = useChat({ onOpenWindow: request => { if (!windows.open(request.windowId, request.params)) setNotice('O agente pediu uma janela que não existe ou com parâmetros inválidos.') } })
   const mobileChat = useDirectChat()
   const { answer, chatError, copySession, createSession, deleteSession, exportSession, loading, liveReasoning, liveSearch, messages, pendingScript, query, runPendingScript, selectSession, sendText, sendVisionQuestion, sessionId, sessions, setAnswer, setChatError, setPendingScript, setQuery, streamingReply } = IS_MOBILE ? mobileChat : pcChat
   const { captureVision, closeLiveCall, liveCallOpen, liveCallRecording, liveCallStatus, liveAudioDiagnostics, liveUserTranscript, liveJarvisTranscript, liveOrbState, recording, setLiveCallOpen, setSpeakEnabled, setVisionResult, speakEnabled, speakText, toggleLiveCallCapture, toggleVoiceInput, triggerBargeIn, visionResult } = useMediaAssistant({ query, sendText, setAnswer, setQuery, sessionId })
@@ -512,7 +516,8 @@ export default function App() {
   const commandHandlers: CommandHandlers = {
     navigate: screen => { playToggle(); setActive(screen) },
     openWindow: windowId => {
-      if (windowId === WINDOW_LIFE_OS) openEvoluteWindow()
+      if (isManagedWindow(windowId)) { if (!windows.open(windowId)) setNotice('Não foi possível abrir a janela.') }
+      else if (windowId === WINDOW_LIFE_OS) openEvoluteWindow()
       else if (windowId === WINDOW_CINEMA) setCinemaLauncherOpen(true)
       else if (windowId === WINDOW_CAMERAS) { setCameraQuestion(''); setCameraWorkspaceOpen(true) }
       else if (windowId === WINDOW_LIVE_CALL) setLiveCallOpen(true)

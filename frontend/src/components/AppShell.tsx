@@ -3,6 +3,7 @@ import { ChevronDown, Command, Menu, PanelLeftClose, PanelLeftOpen, Search, Slid
 import { navigation } from '../navigation'
 import type { ChatSession } from '../types'
 import type { OperationalState } from '../hooks/useOperationalSnapshot'
+import { WindowHost } from '../windows/WindowManager'
 
 type AppShellProps = {
   active: string; sidebarCollapsed: boolean; onToggleSidebar: () => void; onNavigate: (id: string) => void
@@ -49,5 +50,6 @@ export function AppShell({ active, sidebarCollapsed, onToggleSidebar, onNavigate
     </main>
     {controlsOpen && <aside className="ws-control-rail"><div className="ws-control-heading"><strong>Controle do agente</strong><button className="ws-icon-button" aria-label="Recolher controles" onClick={() => setControlsOpen(false)}><X size={16} /></button></div>{controls}<details className="ws-extra-tools"><summary>Mais ferramentas</summary>{quickActions}</details></aside>}
     <dialog ref={controlDialog} className="ws-drawer ws-control-drawer" aria-label="Controle do agente" onClick={event => { if (event.target === event.currentTarget) controlDialog.current?.close() }}><div className="ws-drawer-inner"><div className="ws-control-heading"><strong>Controle do agente</strong><button className="ws-icon-button" aria-label="Fechar controles" onClick={() => controlDialog.current?.close()}><X size={18} /></button></div>{controls}<details className="ws-extra-tools"><summary>Mais ferramentas</summary>{quickActions}</details></div></dialog>
+    <WindowHost operational={operational} />
   </div>
 }

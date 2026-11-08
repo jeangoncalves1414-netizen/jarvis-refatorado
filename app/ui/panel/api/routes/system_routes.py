@@ -4,8 +4,12 @@ System & Intelligence Domain REST Endpoints (LLM Route, Command Inspect, Diagram
 from __future__ import annotations
 
 import json
+import re
 import uuid
+from datetime import date
 from typing import Any, Callable
+
+_FINANCE_ID_RE = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 
 
 def handle_system_routes(path: str, body: bytes, send_json_fn: Callable[[int, dict[str, Any]], None]) -> bool:
@@ -192,22 +196,59 @@ def handle_system_routes(path: str, body: bytes, send_json_fn: Callable[[int, di
             import uuid
             payload = json.loads(body.decode("utf-8") or "{}") if body else {}
             action = payload.get("action", "summary")
+            trans_id = str(payload.get("id") or payload.get("trans_id") or "")
+            if action in ("add", "create", "update") and trans_id and not _FINANCE_ID_RE.fullmatch(trans_id):
+                send_json_fn(400, {"ok": False, "error": "Identificador do lançamento inválido."})
+                return True
             if action in ("add", "create"):
-                summary = FinanceService.add_transaction(
-                    trans_id=payload.get("id") or f"fin_{uuid.uuid4().hex[:8]}",
-                    type_=str(payload.get("type", "expense")),
-                    amount=float(payload.get("amount", 0.0)),
-                    category=str(payload.get("category", "Outros")),
-                    description=str(payload.get("description", "")),
+                # Registro manual: nunca chama o modelo. O id enviado pelo cliente torna o reenvio idempotente.
+                entry = FinanceService.normalize_entry(
+                    payload.get("type", "expense"), payload.get("amount"), payload.get("category", ""),
+                    payload.get("description", ""), payload.get("date") or payload.get("date_str") or "",
                 )
-                send_json_fn(200, {"ok": True, "summary": summary})
+                summary = FinanceService.add_transaction(
+                    trans_id=trans_id or f"fin_{uuid.uuid4().hex[:8]}",
+                    type_=entry["type"], amount=entry["amount"], category=entry["category"],
+                    description=entry["description"], date_str=entry["date_str"],
+                )
+                send_json_fn(200, {"ok": True, "summary": summary, "transaction": FinanceService.get_transaction(trans_id) if trans_id else None})
+            elif action == "update":
+                tx = FinanceService.update_transaction(
+                    trans_id, payload.get("type"), payload.get("amount"), payload.get("category", ""),
+                    payload.get("description", ""), payload.get("date") or payload.get("date_str") or "",
+                ) if trans_id else None
+                if tx is None:
+                    send_json_fn(404, {"ok": False, "error": "Lançamento não encontrado."})
+                else:
+                    send_json_fn(200, {"ok": True, "transaction": tx, "summary": FinanceService.get_summary()})
             elif action == "delete":
-                summary = FinanceService.delete_transaction(str(payload.get("id") or payload.get("trans_id")))
+                summary = FinanceService.delete_transaction(trans_id)
                 send_json_fn(200, {"ok": True, "summary": summary})
+            elif action == "list":
+                date_from = str(payload.get("date_from") or "")
+                date_to = str(payload.get("date_to") or "")
+                kind = str(payload.get("type") or "")
+                for label, value in (("inicial", date_from), ("final", date_to)):
+                    if value:
+                        try:
+                            date.fromisoformat(value)
+                        except ValueError:
+                            send_json_fn(400, {"ok": False, "error": f"Data {label} inválida: use AAAA-MM-DD."})
+                            return True
+                if kind and kind not in ("expense", "income"):
+                    send_json_fn(400, {"ok": False, "error": "Tipo inválido: use 'expense' ou 'income'."})
+                    return True
+                result = FinanceService.query_transactions(
+                    date_from=date_from, date_to=date_to, type_=kind,
+                    category=str(payload.get("category") or ""), limit=int(payload.get("limit") or 200),
+                )
+                send_json_fn(200, {"ok": True, **result, "summary": FinanceService.get_summary()})
             else:
                 summary = FinanceService.get_summary()
                 txs = FinanceService.list_transactions(limit=30)
                 send_json_fn(200, {"ok": True, "summary": summary, "transactions": txs})
+        except ValueError as exc:
+            send_json_fn(400, {"ok": False, "error": str(exc)})
         except Exception as exc:
             send_json_fn(500, {"ok": False, "error": str(exc)})
         return True

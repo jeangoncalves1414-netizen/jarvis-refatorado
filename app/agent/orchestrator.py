@@ -652,6 +652,9 @@ ter pesquisado se não pesquisou.
             cinema_marker = _build_cinema_marker(legacy_tool_results) if tool_steps else ""
             if cinema_marker:
                 final_summary = f"{final_summary.rstrip()}\n\n{cinema_marker}" if final_summary.strip() else cinema_marker
+            if tool_steps and legacy_tool_results.get("open_window", {}).get("ok"):
+                # Mesmo formato do caminho nativo: o painel lê context.tool_results.open_window.data.ui_window.
+                context_data["tool_results"] = {"open_window": legacy_tool_results["open_window"]}
             
             return AgentPlan(
                 intent="tool_execution" if tool_steps else ("tutor" if mode == "tutor" else "general"),

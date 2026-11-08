@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import type { ChatMessage, ChatSession, ScriptRequest } from '../types'
 import type { SearchPayload } from '../components/tools/SearchTool'
+import { extractWindowRequest, type WindowOpenRequest } from '../windows/registry'
 
 const initialAnswer = 'Olá. Estou pronto para ajudar.'
 const sessionFilter = (item: ChatSession) => item.type === 'chat' || !item.type
@@ -41,7 +42,16 @@ function getScriptRequest(summary: unknown): ScriptRequest | null {
   }
 }
 
-export function useChat() {
+type UseChatOptions = { onOpenWindow?: (request: WindowOpenRequest) => void }
+
+export function useChat(options: UseChatOptions = {}) {
+  // O efeito da conexão roda uma vez; a referência mantém o callback sempre atual.
+  const openWindowRef = useRef(options.onOpenWindow)
+  openWindowRef.current = options.onOpenWindow
+  const openRequestedWindow = (context: unknown) => {
+    const request = extractWindowRequest(context)
+    if (request) openWindowRef.current?.(request)
+  }
   const [query, setQuery] = useState('')
   const [answer, setAnswer] = useState(initialAnswer)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -311,7 +321,10 @@ export function useChat() {
       throw new Error(data.error || 'Não foi possível obter resposta do Jarvis.')
     }
     const reply = data.reply || data.summary || ''
-    if (activeSessionRef.current === activeSessionId) commitRestReply(reply, data.context?.run_id)
+    if (activeSessionRef.current === activeSessionId) {
+      commitRestReply(reply, data.context?.run_id)
+      openRequestedWindow(data.context)
+    }
     return reply
   }
 
@@ -493,6 +506,7 @@ export function useChat() {
           if (payload?.query && Array.isArray(payload.results)) setLiveSearch(payload)
         } else if (type === 'complete') {
           finalRunIdRef.current = typeof data.context?.run_id === 'string' ? data.context.run_id : undefined
+          openRequestedWindow(data.context)
           finalReasoningRef.current = (liveReasoningRef.current + reasoningBufferRef.current).trim()
           finalReplyRef.current = summary || message || ''
           const script = getScriptRequest(summary)

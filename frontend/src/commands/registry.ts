@@ -1,8 +1,9 @@
 import {
-  AudioLines, Camera, CloudSun, Download, Droplets, Eye, Film, Flame, MessageSquare, Mic, Search, Sparkles, Volume2, Zap,
+  AudioLines, Camera, CloudSun, Download, Droplets, Eye, Film, Flame, MessageSquare, Mic, Search, Sparkles, Volume2, Wallet, Zap,
   type LucideIcon,
 } from 'lucide-react'
 import { navigation } from '../navigation'
+import { WINDOW_FINANCE } from '../windows/registry'
 import type { ChatMode } from '../components/ChatComposer'
 
 // Registro único de comandos. A paleta (Ctrl+K) e o menu "/" do compositor são montados a partir
@@ -93,6 +94,7 @@ export const commands: CommandDef[] = [
   // Life OS
   { id: 'lifeos-open', label: 'Life OS (janela)', title: 'Abrir Painel de Evolução (Life OS)', description: 'Janela dedicada de hábitos, treinos e rotina', aliases: ['evolucao', 'habitos', 'treino'], group: 'Life OS', action: { kind: 'open-window', windowId: WINDOW_LIFE_OS }, worksOffline: true, icon: Zap },
   { id: 'lifeos-vice', label: 'Blindagem e foco', title: 'Ver Blindagem & Foco (Anti-Vício)', description: 'Acompanhar dias limpos e metas de sobriedade', aliases: ['anti-vicio', 'sobriedade', 'foco'], slash: 'foco', group: 'Life OS', action: { kind: 'open-window', windowId: WINDOW_LIFE_OS }, worksOffline: true, icon: Flame },
+  { id: 'window-finance', label: 'Finanças', title: 'Abrir Finanças', description: 'Registrar e consultar gastos e receitas, sem precisar da IA', aliases: ['gastos', 'despesas', 'receitas', 'dinheiro', 'lancamentos'], slash: 'financas', group: 'Life OS', action: { kind: 'open-window', windowId: WINDOW_FINANCE }, worksOffline: true, icon: Wallet },
   { id: 'lifeos-water', label: 'Água', title: 'Registrar +250ml de Água', description: 'Computar copo de água na meta diária', aliases: ['agua', 'copo', 'hidratacao'], slash: 'agua', group: 'Life OS', action: { kind: 'backend', operation: 'add-water' }, worksOffline: true, icon: Droplets },
 
   // Ações rápidas

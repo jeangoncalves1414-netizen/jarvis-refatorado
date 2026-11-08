@@ -69,6 +69,7 @@ except ImportError:
 
 from .lifestyle_tools import HabitTool, TaskTool, FinanceTool
 from .lifeos_tool import LifeOSTool
+from .open_window import OpenWindowTool
 from .planning_workspace import PlanningWorkspaceTool
 from .catalog import metadata_for
 
@@ -79,7 +80,7 @@ GENERAL_TOOL_NAMES = {
     "screen_peeler", "phantom_typer", "smart_drop_zone",
     "desktop_search", "kasa_control", "document_generator", "telegram_bot", "mobile_adb",
     "wormhole", "wallpaper_engine", "clipboard_intelligence",
-    "habit_tool", "task_tool", "finance_tool", "lifeos_tool",
+    "habit_tool", "task_tool", "finance_tool", "lifeos_tool", "open_window",
     "planning_workspace",
 }
 
@@ -150,6 +151,7 @@ class ToolRegistry:
         self._register(TaskTool())
         self._register(FinanceTool())
         self._register(LifeOSTool())
+        self._register(OpenWindowTool())
         self._register(PlanningWorkspaceTool())
         self._register(ScreenPeelerTool())
         self._register(PhantomTyperTool())
@@ -215,7 +217,7 @@ class ToolRegistry:
             core_groq = {
                 "web_search", "system_control", "open_windows_app", "timer",
                 "spotify", "whatsapp", "calendar", "file_manager", "notes",
-                "cinema", "script_runner", "image_generator", "vision", "planning_workspace"
+                "cinema", "script_runner", "image_generator", "vision", "planning_workspace", "open_window"
             }
             user_lower = (user_text or "").lower()
             dynamic_tools = set(core_groq)

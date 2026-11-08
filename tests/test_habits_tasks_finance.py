@@ -2,7 +2,7 @@ import json
 import pytest
 from app.services.habits import HabitService
 from app.services.tasks import TaskService
-from app.services.finance import FinanceService
+from app.services.finance import FinanceService, init_finance_tables
 from app.agent.tools.lifestyle_tools import HabitTool, TaskTool, FinanceTool
 from app.ui.panel.api.routes.system_routes import handle_system_routes
 
@@ -125,3 +125,101 @@ def test_system_routes_lifestyle_endpoints():
     HabitService.delete_habit("rest_h1")
     TaskService.delete_task("rest_t1")
     FinanceService.delete_transaction("rest_f1")
+
+
+@pytest.fixture
+def finance_db(tmp_path, monkeypatch):
+    """Banco temporário: os testes de finanças da janela nunca tocam data/lifestyle.db."""
+    monkeypatch.setattr("app.services.habits.DB_PATH", tmp_path / "lifestyle.db")
+    init_finance_tables()
+    return tmp_path / "lifestyle.db"
+
+
+def call_finance(payload: dict) -> tuple[int, dict]:
+    sent: dict = {}
+    handled = handle_system_routes("/api/finance", json.dumps(payload).encode("utf-8"), lambda status, data: sent.update(status=status, data=data))
+    assert handled is True
+    return sent["status"], sent["data"]
+
+
+def seed_finance() -> None:
+    rows = [
+        ("a1", "income", 3000, "Salário", "Mensal", "2026-05-05"),
+        ("a2", "expense", 200.5, "Mercado", "Compras", "2026-05-10"),
+        ("a3", "expense", 80, "Lazer", "Cinema", "2026-05-20"),
+        ("a4", "expense", 50.25, "Mercado", "Feira", "2026-06-02"),
+        ("a5", "income", 100, "Extra", "Venda", "2026-06-03"),
+    ]
+    for trans_id, kind, amount, category, description, day in rows:
+        status, data = call_finance({"action": "add", "id": trans_id, "type": kind, "amount": amount, "category": category, "description": description, "date": day})
+        assert status == 200 and data["ok"] is True
+
+
+def test_finance_api_list_filters_and_totals(finance_db):
+    seed_finance()
+    _, everything = call_finance({"action": "list"})
+    assert everything["totals"] == {
+        "income": 3100.0, "expense": 330.75, "net": 2769.25, "count": 5,
+        "by_category": everything["totals"]["by_category"],
+    }
+    assert [t["id"] for t in everything["transactions"]] == ["a5", "a4", "a3", "a2", "a1"]
+    assert sorted(everything["categories"]) == ["Extra", "Lazer", "Mercado", "Salário"]
+
+    _, may = call_finance({"action": "list", "date_from": "2026-05-01", "date_to": "2026-05-31"})
+    assert (may["totals"]["income"], may["totals"]["expense"], may["totals"]["count"]) == (3000.0, 280.5, 3)
+
+    _, expenses = call_finance({"action": "list", "type": "expense"})
+    assert expenses["totals"]["income"] == 0.0 and expenses["totals"]["expense"] == 330.75
+
+    _, market = call_finance({"action": "list", "category": "Mercado", "type": "expense"})
+    assert market["totals"]["expense"] == 250.75 and market["totals"]["count"] == 2
+    assert market["totals"]["by_category"] == [{"category": "Mercado", "type": "expense", "total": 250.75}]
+
+    _, limited = call_finance({"action": "list", "limit": 2})
+    assert len(limited["transactions"]) == 2 and limited["truncated"] is True
+    assert limited["totals"]["count"] == 5 and limited["totals"]["income"] == 3100.0
+
+
+def test_finance_api_add_update_delete_cycle(finance_db):
+    status, created = call_finance({"action": "add", "id": "m1", "type": "expense", "amount": 10, "category": "Lazer", "description": "Café", "date": "2026-07-01"})
+    assert status == 200 and created["transaction"]["amount"] == 10.0 and created["transaction"]["date_str"] == "2026-07-01"
+
+    # Reenviar o mesmo id (nova tentativa do rascunho) não duplica.
+    call_finance({"action": "add", "id": "m1", "type": "expense", "amount": 10, "category": "Lazer", "description": "Café", "date": "2026-07-01"})
+    assert call_finance({"action": "list"})[1]["totals"]["count"] == 1
+
+    status, updated = call_finance({"action": "update", "id": "m1", "type": "income", "amount": 12.345, "category": "Reembolso", "description": "Devolvido", "date": "2026-07-02"})
+    assert status == 200
+    assert updated["transaction"]["type"] == "income" and updated["transaction"]["amount"] == 12.35
+    assert updated["transaction"]["category"] == "Reembolso" and updated["transaction"]["date_str"] == "2026-07-02"
+
+    status, missing = call_finance({"action": "update", "id": "nao-existe", "type": "expense", "amount": 1})
+    assert status == 404 and missing["ok"] is False
+
+    status, deleted = call_finance({"action": "delete", "id": "m1"})
+    assert status == 200 and deleted["ok"] is True
+    assert call_finance({"action": "list"})[1]["totals"]["count"] == 0
+
+
+def test_finance_api_default_date_is_today_and_rejects_bad_input(finance_db):
+    from datetime import date
+
+    status, created = call_finance({"action": "add", "id": "d1", "type": "expense", "amount": 5})
+    assert status == 200 and created["transaction"]["date_str"] == date.today().isoformat()
+    assert created["transaction"]["category"] == "Outros"
+
+    for bad in (
+        {"type": "expense", "amount": 0},
+        {"type": "expense", "amount": -3},
+        {"type": "expense", "amount": "abc"},
+        {"type": "expense", "amount": float("inf")},
+        {"type": "transferencia", "amount": 5},
+        {"type": "expense", "amount": 5, "date": "31/12/2026"},
+    ):
+        status, data = call_finance({"action": "add", "id": "bad", **bad})
+        assert status == 400 and data["ok"] is False and data["error"], bad
+    assert call_finance({"action": "add", "id": "../x", "type": "expense", "amount": 1})[0] == 400
+    assert call_finance({"action": "list", "date_from": "ontem"})[0] == 400
+    assert call_finance({"action": "list", "type": "outro"})[0] == 400
+    assert call_finance({"action": "list"})[1]["totals"]["count"] == 1
+

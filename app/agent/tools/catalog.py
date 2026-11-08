@@ -48,6 +48,8 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
     "vision": ToolMetadata(("vision", "observe"), "observe"),
     "realtime": ToolMetadata(("realtime", "observe"), "observe"),
     "desktop_search": ToolMetadata(("desktop", "observe"), "observe"),
+    # Só pede ao painel que abra uma janela do registro; não altera dados nem o sistema.
+    "open_window": ToolMetadata(("ui", "window"), "observe"),
     "planning_workspace": ToolMetadata(("planning", "workspace"), "low", reversible=True),
     "timer": ToolMetadata(("timer", "productivity"), "low", reversible=True),
     "calendar": ToolMetadata(("calendar", "productivity"), "low", reversible=True),
