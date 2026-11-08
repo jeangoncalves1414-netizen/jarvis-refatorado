@@ -12,7 +12,7 @@ from app.agent.tools.base import ToolResult
 from app.core.action_proposals import build_proposal_preview
 from app.core.actions import ActionRecord, ToolMetadata, arguments_digest, pending_action_broker, summarize_result
 from app.storage.action_store import ActionStore, action_store
-from app.core.runs import current_run
+from app.core.runs import current_origin, current_run
 
 
 LegacyExecute = Callable[[str, dict, str], ToolResult]
@@ -37,7 +37,8 @@ class ActionExecutor:
         context = current_run.get()
         self.store = store or (context[0] if context else action_store)
         self.run_id = context[1] if context and self.store is context[0] else None
-        self.source = source
+        origin = current_origin.get()
+        self.source = source if origin == "chat" else f"{origin}:{source}"
         # The approval worker must not overwrite what the planner just proposed.
         self._thread = local()
 

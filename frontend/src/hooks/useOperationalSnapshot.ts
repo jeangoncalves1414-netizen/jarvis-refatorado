@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { panelRequest } from '../utils/panelApi'
 
-export type AgentAction = { id: string; tool_name: string; preview: string; risk: string; status: string; result_summary?: string | null; updated_at: number; run_id?: string | null }
+export type AgentAction = { id: string; tool_name: string; preview: string; risk: string; status: string; result_summary?: string | null; updated_at: number; run_id?: string | null; source?: string }
 export type AgentGoal = { id: string; title: string; next_action: string; status: string }
 export type OperationalSnapshot = {
   components: { id: string; label: string; status: string; reason: string }[]

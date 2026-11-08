@@ -40,6 +40,10 @@ class RunRecord:
 # Context stays local to the request thread; approval callbacks retain run_id.
 current_run: ContextVar[tuple[object, str] | None] = ContextVar("current_run", default=None)
 
+# Origem do pedido de conversa (C10): ações registradas num turno de voz levam o prefixo "voice:".
+REQUEST_ORIGINS: frozenset[str] = frozenset({"chat", "voice"})
+current_origin: ContextVar[str] = ContextVar("current_origin", default="chat")
+
 
 def check_run_cancelled() -> None:
     context = current_run.get()

@@ -3,6 +3,9 @@ import type { ChatMessage, ChatSession, ScriptRequest } from '../types'
 import type { SearchPayload } from '../components/tools/SearchTool'
 import { extractWindowRequest, type WindowOpenRequest } from '../windows/registry'
 
+/** Origem do pedido registrada nas ações da Central (C10); sem valor, o servidor usa "chat". */
+export type RequestOrigin = 'voice'
+
 const initialAnswer = 'Olá. Estou pronto para ajudar.'
 const sessionFilter = (item: ChatSession) => item.type === 'chat' || !item.type
 const technicalErrorMarkers = ['erro ao acessar a api', 'erro de autenticação', 'limite de taxa', 'api key', 'gemini_api_key', 'groq_api_key', 'timeout na conexão', 'erro de conexão com a api', 'orquestrador não disponível', 'não consegui falar com o núcleo']
@@ -312,11 +315,11 @@ export function useChat(options: UseChatOptions = {}) {
     }
   }
 
-  const postChat = async (message: string, mode: string, activeSessionId: string, racingMode?: boolean): Promise<string> => {
+  const postChat = async (message: string, mode: string, activeSessionId: string, racingMode?: boolean, origin?: RequestOrigin): Promise<string> => {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, mode, session_id: activeSessionId, profile_id: getActiveProfileId() || undefined, racing: Boolean(racingMode) }),
+      body: JSON.stringify({ message, mode, session_id: activeSessionId, profile_id: getActiveProfileId() || undefined, racing: Boolean(racingMode), origin }),
     })
     const data = await response.json().catch(() => ({}))
     if (!response.ok || data.ok === false) {
@@ -371,7 +374,7 @@ export function useChat(options: UseChatOptions = {}) {
     }
   }
 
-  const sendText = async (message: string, mode = 'general', racingMode = false): Promise<string> => {
+  const sendText = async (message: string, mode = 'general', racingMode = false, origin?: RequestOrigin): Promise<string> => {
     if (!message || loading) return ''
     setLoading(true)
     setLiveSearch(null)
@@ -396,13 +399,13 @@ export function useChat(options: UseChatOptions = {}) {
         liveReasoningRef.current = ''
         waitingForSocket = true
 
-        socket.send(JSON.stringify({ type: 'message', message, mode, session_id: activeSessionId, profile_id: getActiveProfileId() || undefined, racing: Boolean(racingMode) }))
+        socket.send(JSON.stringify({ type: 'message', message, mode, session_id: activeSessionId, profile_id: getActiveProfileId() || undefined, racing: Boolean(racingMode), origin }))
         const reply = await new Promise<string>(resolve => {
           waitForReplyRef.current = resolve
         })
         return reply
       } else {
-        return await postChat(message, mode, activeSessionId, racingMode)
+        return await postChat(message, mode, activeSessionId, racingMode, origin)
       }
     } catch (error) {
       failReply(error)

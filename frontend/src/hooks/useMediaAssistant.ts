@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { isMobileStandalone } from './useDirectChat'
+import type { RequestOrigin } from './useChat'
 import {
   hasNativeVoice,
   installNativeVoiceHandlers,
@@ -97,13 +98,15 @@ async function createStreamingAudio(response: Response): Promise<{ audio: HTMLAu
 
 type MediaAssistantOptions = {
   query: string
-  sendText: (message: string) => Promise<string>
+  sendText: (message: string, mode?: string, racingMode?: boolean, origin?: RequestOrigin) => Promise<string>
   setAnswer: (answer: string) => void
   setQuery: (query: string) => void
   sessionId?: string
 }
 
-export function useMediaAssistant({ query, sendText, setAnswer, setQuery, sessionId }: MediaAssistantOptions) {
+export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, setQuery, sessionId }: MediaAssistantOptions) {
+  // Pedidos falados chegam ao servidor com origem "voice": as ações entram na Central como voz (C10).
+  const sendText = useCallback((message: string) => sendChatText(message, 'general', false, 'voice'), [sendChatText])
   const [speakEnabled, setSpeakEnabledState] = useState(readSpeakEnabled)
   const [speakerIdentificationEnabled, setSpeakerIdentificationEnabledState] = useState(readSpeakerIdentificationEnabled)
   const [recording, setRecording] = useState(false)
@@ -436,7 +439,7 @@ export function useMediaAssistant({ query, sendText, setAnswer, setQuery, sessio
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userText, mode: 'general' }),
+        body: JSON.stringify({ message: userText, mode: 'general', origin: 'voice' }),
         signal: abortController.signal,
       })
 

@@ -8,6 +8,9 @@ type ActionDetail = { action: AgentAction; events: ActionEvent[] }
 type ActionPage = { actions: AgentAction[]; next_cursor: number | null }
 export type Decisions = { onDecide: (action: AgentAction, command: 'approve' | 'reject') => void; busy: string[]; unavailable: boolean }
 const when = (timestamp: number) => new Date(timestamp * 1000).toLocaleString('pt-BR')
+// Origem gravada pelo Action Kernel (C10): "voice:" vem da voz; "api:" e "panel:" de rotas e janelas.
+const originLabels: [string, string][] = [['voice:', 'Voz'], ['panel:', 'Janela do painel'], ['api:browser', 'Navegador automatizado (rota direta)'], ['api:script', 'Script confirmado no chat'], ['api:terminal', 'Terminal'], ['react:', 'Execução por etapas'], ['function:', 'Conversa'], ['marker:', 'Conversa'], ['shortcut:', 'Conversa (atalho)']]
+const originLabel = (source?: string) => !source ? 'Não registrada' : originLabels.find(([prefix]) => source.startsWith(prefix))?.[1] || source
 
 export function ActionDetails({ id, revision, onClose, onDecide, busy, unavailable }: { id: string; revision: number | string | null; onClose: () => void } & Decisions) {
   const [detail, setDetail] = useState<ActionDetail | null>(null)
@@ -31,7 +34,7 @@ export function ActionDetails({ id, revision, onClose, onDecide, busy, unavailab
     <div className="ws-section-title"><h3>Detalhes da ação</h3><button className="ws-icon-button" aria-label="Fechar detalhes" onClick={onClose}><X size={16} /></button></div>
     {error && <p className="ws-error" role="alert">{error}{detail && ' Os detalhes exibidos podem estar desatualizados.'}</p>}
     {!detail && !error && <p role="status">Carregando linha do tempo…</p>}
-    {action && <><dl><dt>Identificador</dt><dd>{action.id}</dd><dt>Estado registrado</dt><dd>{actionLabels[action.status] || action.status}</dd><dt>Proposta</dt><dd>{action.preview}</dd><dt>Resultado registrado</dt><dd>{action.result_summary || 'Ainda não disponível.'}</dd><dt>Atualização</dt><dd>{when(action.updated_at)}</dd>{start && terminal && <><dt>Duração da execução</dt><dd>{Math.max(0, action.updated_at - start.timestamp).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} s</dd></>}</dl>
+    {action && <><dl><dt>Identificador</dt><dd>{action.id}</dd><dt>Estado registrado</dt><dd>{actionLabels[action.status] || action.status}</dd><dt>Origem</dt><dd>{originLabel(action.source)}</dd><dt>Proposta</dt><dd>{action.preview}</dd><dt>Resultado registrado</dt><dd>{action.result_summary || 'Ainda não disponível.'}</dd><dt>Atualização</dt><dd>{when(action.updated_at)}</dd>{start && terminal && <><dt>Duração da execução</dt><dd>{Math.max(0, action.updated_at - start.timestamp).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} s</dd></>}</dl>
       <h4>Linha do tempo</h4>
       <ol className="ws-action-timeline">{detail.events.map(event => <li key={event.id}><span className={`ws-dot ${event.status}`} /><div><strong>{event.kind === 'legacy_import' ? 'Registro anterior importado' : actionLabels[event.status] || event.status}</strong><time dateTime={new Date(event.timestamp * 1000).toISOString()}>{when(event.timestamp)}</time>{event.summary && <p>{event.summary}</p>}</div></li>)}</ol>
       {!detail.events.length && <p className="ws-muted">Nenhum evento disponível para esta ação.</p>}

@@ -127,7 +127,7 @@ class RealtimeVoicePipeline:
             # Aqui você pode integrar com o LLM service existente
             # Por enquanto, retorna um echo para teste
             if hasattr(self.llm_service, 'handle_request'):
-                plan = self.llm_service.handle_request(text)
+                plan = self.llm_service.handle_request(text, origin="voice")
                 return getattr(plan, 'summary', str(plan))
             return f"Você disse: {text}"
         except Exception as e:

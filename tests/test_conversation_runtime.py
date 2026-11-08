@@ -58,6 +58,24 @@ def detail(store, plan):
     return store.run_details(plan.context["run_id"])
 
 
+@pytest.mark.parametrize("stream", [False, True])
+def test_voice_turn_records_actions_with_voice_origin(runtime, stream):
+    from app.core.runs import current_origin
+
+    agent, store, _, _ = runtime
+    text = "Adicione uma tarefa de estudar Python"
+    if stream:
+        plan = list(agent.handle_request_stream(text, session_id="one", origin="voice"))[-1]["plan"]
+    else:
+        plan = agent.handle_request(text, session_id="one", origin="voice")
+    [action] = detail(store, plan)["actions"]
+    assert action["source"] == "voice:shortcut:one"
+    assert current_origin.get() == "chat"
+    # Sem origem (ou com valor desconhecido) o turno continua sendo do chat.
+    plan = agent.handle_request(text + " de novo", session_id="one", origin="phone-hack")
+    assert detail(store, plan)["actions"][0]["source"] == "shortcut:one"
+
+
 @pytest.mark.parametrize("text", ["Como organizar minhas tarefas?", "Explique metabolismo", "O que é uma pasta?", "Não crie uma tarefa", "Quero abrir a pasta Downloads"])
 def test_mentions_do_not_trigger_local_mutations(runtime, text):
     agent, store, _, _ = runtime

@@ -24,6 +24,7 @@ from app.ui.panel.api.actions import handle_actions_get, handle_actions_post
 from app.ui.panel.api.runs import handle_runs_get, handle_runs_post
 from app.ui.panel.api.controls import handle_controls_post
 from app.ui.panel.api.mission_control import handle_mission_control_get
+from app.agent.action_gateway import request_origin, run_action
 from app.ui.panel.api.goals import handle_goals_get, handle_goals_post
 from app.storage.vector.semantic_memory import is_technical_error_memory
 from app.core.control_plane import ControlPlanePolicy, RequestPrincipal
@@ -1256,7 +1257,22 @@ class PanelHandler(BaseHTTPRequestHandler):
                             self._send_json(403, {"ok": False, "error": "Recibo de autorização ausente, expirado ou inválido."})
                             return
                         analysis = hacker_terminal.analyze_command(cmd)
-                        res = hacker_terminal._run_command_subprocess(cmd.strip(), analysis.get("risk_level", "high"), approved=True)
+                        from app.agent.tools.base import ToolResult
+
+                        def execute_command(_args: dict) -> ToolResult:
+                            ran = hacker_terminal._run_command_subprocess(cmd.strip(), analysis.get("risk_level", "high"), approved=True)
+                            return ToolResult(bool(ran.get("ok")), str(ran.get("message") or ran.get("status") or "Comando executado no terminal."), ran)
+
+                        # C10/AQ1: o comando aprovado roda pelo Action Kernel e entra na Central.
+                        outcome = run_action(
+                            "hacker_mode", {"command": cmd},
+                            source="api:terminal", user_text="Comando aprovado no terminal", run_mode="terminal",
+                            execute=execute_command, confirmed_by="Aprovada no terminal com recibo de uso único.",
+                        )
+                        if outcome.result is not None and isinstance(outcome.result.data, dict):
+                            res = {**outcome.result.data, "action": outcome.action.public_dict() if outcome.action else None}
+                        else:
+                            res = {"ok": False, "error": "O comando não foi executado.", "action": outcome.action.public_dict() if outcome.action else None}
                     else:
                         res = hacker_terminal.prepare_for_approval(cmd)
                     self._send_json(200 if res.get("ok") else 400, res)
@@ -1389,7 +1405,8 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self.end_headers()
 
                 full_summary = ""
-                for item in _orchestrator.handle_request_stream(message, session_id=session_id, mode=mode, profile_id=profile_id):
+                origin = request_origin(payload.get("origin"))
+                for item in _orchestrator.handle_request_stream(message, session_id=session_id, mode=mode, profile_id=profile_id, origin=origin):
                     plan = item.get("plan")
                     if plan is not None:
                         if item.get("status") == "complete" and plan.intent != "cancelled" and plan.context.get("success") is not False:
@@ -1448,7 +1465,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 if not message:
                     self._send_json(400, {"error": "Mensagem não pode ser vazia."})
                     return
-                plan = _orchestrator.handle_request(message, session_id=session_id, mode=mode, profile_id=profile_id, racing_mode=racing_mode)
+                plan = _orchestrator.handle_request(message, session_id=session_id, mode=mode, profile_id=profile_id, racing_mode=racing_mode, origin=request_origin(payload.get("origin")))
                 prefix = _calendar_conversation_prefix()
                 if prefix:
                     plan.summary = prefix + getattr(plan, "summary", str(plan))
@@ -1537,19 +1554,20 @@ class PanelHandler(BaseHTTPRequestHandler):
                             self._send_json(403, {"error": f"Código contém padrão perigoso não permitido: {pattern}"})
                             return
                     
-                    with tempfile.NamedTemporaryFile(
-                        suffix=".py", delete=False, mode="w", encoding="utf-8"
-                    ) as f:
-                        f.write(code)
-                        tmp_path = f.name
-                    try:
-                        result = subprocess.run(
-                            [sys.executable, tmp_path],
-                            capture_output=True, text=True, timeout=30,
-                            encoding="utf-8", errors="replace"
-                        )
-                    finally:
-                        import os as _os; _os.unlink(tmp_path)
+                    def run_script():
+                        with tempfile.NamedTemporaryFile(
+                            suffix=".py", delete=False, mode="w", encoding="utf-8"
+                        ) as f:
+                            f.write(code)
+                            tmp_path = f.name
+                        try:
+                            return subprocess.run(
+                                [sys.executable, tmp_path],
+                                capture_output=True, text=True, timeout=30,
+                                encoding="utf-8", errors="replace"
+                            )
+                        finally:
+                            import os as _os; _os.unlink(tmp_path)
                         
                 elif language == "powershell":
                     # Check code length
@@ -1592,21 +1610,51 @@ class PanelHandler(BaseHTTPRequestHandler):
                             self._send_json(403, {"error": f"Código contém padrão perigoso não permitido: {pattern}"})
                             return
                     
-                    result = subprocess.run(
-                        ["powershell", "-NoProfile", "-NonInteractive", "-Command", code],
-                        capture_output=True, text=True, timeout=30,
-                        encoding="utf-8", errors="replace"
-                    )
+                    def run_script():
+                        return subprocess.run(
+                            ["powershell", "-NoProfile", "-NonInteractive", "-Command", code],
+                            capture_output=True, text=True, timeout=30,
+                            encoding="utf-8", errors="replace"
+                        )
                 else:
                     self._send_json(400, {"error": f"Linguagem '{language}' não suportada."})
                     return
-                    
+
+                # C10/AQ1: o script roda pelo Action Kernel. O recibo de uso único já é a confirmação
+                # da usuária no chat; a ação entra na Central como autorizada por ele, com o resultado.
+                from app.agent.tools.base import ToolResult
+                completed: dict[str, Any] = {}
+
+                def execute_script(_args: dict) -> ToolResult:
+                    try:
+                        finished = run_script()
+                    except subprocess.TimeoutExpired:
+                        completed["timeout"] = True
+                        return ToolResult(False, "Script excedeu o limite de 30 segundos e foi cancelado.")
+                    completed["result"] = finished
+                    return ToolResult(finished.returncode == 0, f"Script {language} concluído com código de saída {finished.returncode}.")
+
+                outcome = run_action(
+                    "script_runner", {"language": language, "code": code},
+                    source="api:script", user_text=f"Script {language} confirmado no chat", run_mode="script",
+                    execute=execute_script, confirmed_by="Confirmada no chat com recibo de uso único.",
+                )
+                action = outcome.action.public_dict() if outcome.action else None
+                if completed.get("timeout"):
+                    self._send_json(200, {"ok": False, "error": "Script excedeu o limite de 30 segundos e foi cancelado.", "action": action})
+                    return
+                result = completed.get("result")
+                if result is None:
+                    self._send_json(500, {"ok": False, "error": "O script não foi executado.", "action": action})
+                    return
+
                 logger.info(f"Script executed successfully: language={language}, returncode={result.returncode}")
                 self._send_json(200, {
                     "ok": result.returncode == 0,
                     "returncode": result.returncode,
                     "stdout": result.stdout.strip(),
                     "stderr": result.stderr.strip(),
+                    "action": action,
                 })
             except subprocess.TimeoutExpired:
                 self._send_json(200, {"ok": False, "error": "Script excedeu o limite de 30 segundos e foi cancelado."})
@@ -1755,12 +1803,28 @@ class PanelHandler(BaseHTTPRequestHandler):
                     "browser": getattr(_orchestrator, "browser_agent", None),
                     "settings": getattr(_orchestrator, "settings", None)
                 }
-                res = tool.execute({"goal": goal, "start_url": start_url}, context=ctx)
-                self._send_json(200, {
-                    "ok": res.ok,
-                    "message": res.message,
-                    "data": res.data
-                })
+                # C10/AQ1: a rota entrega o pedido ao Action Kernel; o navegador automatizado é de
+                # risco alto e fica aguardando aprovação na Central antes de rodar.
+                outcome = run_action(
+                    "browser_agent", {"goal": goal, "start_url": start_url},
+                    source="api:browser", user_text=goal, run_mode="browser",
+                    execute=lambda args: tool.execute(args, context=ctx),
+                )
+                action = outcome.action.public_dict() if outcome.action else None
+                if outcome.pending:
+                    self._send_json(202, {"ok": False, "pending": True, "error": "O navegador automatizado exige aprovação na Central de Execuções.", "action": action})
+                elif outcome.cancelled:
+                    self._send_json(409, {"ok": False, "error": "O pedido foi cancelado antes de concluir.", "action": action})
+                elif outcome.crashed or outcome.result is None:
+                    self._send_json(500, {"ok": False, "error": "Falha ao executar o navegador automatizado.", "action": action})
+                else:
+                    res = outcome.result
+                    self._send_json(200, {
+                        "ok": outcome.succeeded,
+                        "message": res.message,
+                        "data": res.data,
+                        "action": action,
+                    })
             except Exception as exc:
                 self._send_json(500, {"error": str(exc)})
             return
@@ -1967,7 +2031,7 @@ async def _ws_chat_handler(websocket) -> None:
 
                 # Run the blocking orchestrator call in a thread
                 plan = await loop.run_in_executor(
-                    None, lambda: _orchestrator.handle_request(message, session_id=session_id, mode=mode, on_chunk=on_chunk, on_reasoning=on_reasoning, on_search=on_search, profile_id=profile_id)
+                    None, lambda: _orchestrator.handle_request(message, session_id=session_id, mode=mode, on_chunk=on_chunk, on_reasoning=on_reasoning, on_search=on_search, profile_id=profile_id, origin=request_origin(data.get("origin")))
                 )
                 prefix = _calendar_conversation_prefix()
                 if prefix:

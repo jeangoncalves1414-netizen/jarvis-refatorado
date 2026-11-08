@@ -17,7 +17,7 @@ from app.agent.mode_resolver import ModeResolver
 from app.agent.tool_guardrails import ToolCallGuardrailController
 from app.agent.action_executor import ActionExecutor
 from app.agent.run_tracking import track_run
-from app.core.runs import RunCancelled, check_run_cancelled, current_run
+from app.core.runs import REQUEST_ORIGINS, RunCancelled, check_run_cancelled, current_origin, current_run
 from app.core.actions import ToolMetadata
 from app.agent.tools.base import ToolResult
 from app.storage.session_store import get_session_history, save_session_history
@@ -742,13 +742,21 @@ ter pesquisado se não pesquisou.
         profile_id: str | None = None,
         racing_mode: bool = False,
         react_max_steps: int = 8,
+        origin: str | None = None,
     ) -> AgentPlan:
         if history is None:
             history = get_session_history(session_id) if session_id else []
-        plan = self._dispatch_request(
-            text, session_id, mode, history, enem_context, enem_question_id,
-            on_chunk, on_reasoning, on_search, profile_id, racing_mode, react_max_steps,
-        )
+        # Toda ação deste turno registra a origem (voz ou chat) no Action Kernel;
+        # sem origem explícita, uma chamada aninhada herda a do pedido que a contém.
+        origin_token = current_origin.set(origin) if origin in REQUEST_ORIGINS else None
+        try:
+            plan = self._dispatch_request(
+                text, session_id, mode, history, enem_context, enem_question_id,
+                on_chunk, on_reasoning, on_search, profile_id, racing_mode, react_max_steps,
+            )
+        finally:
+            if origin_token is not None:
+                current_origin.reset(origin_token)
         check_run_cancelled()
         if session_id and plan.intent != "error" and not is_technical_error_memory(plan.summary):
             assistant_message = {"role": "assistant", "content": plan.summary, "run_id": current_run.get()[1]}
@@ -923,6 +931,7 @@ ter pesquisado se não pesquisou.
         enem_context: dict[str, Any] | None = None,
         enem_question_id: str | None = None,
         profile_id: str | None = None,
+        origin: str | None = None,
     ):
         import queue
         import threading
@@ -939,7 +948,7 @@ ter pesquisado se não pesquisou.
                 plan = self.handle_request(
                     text, mode=mode, session_id=session_id, history=history,
                     enem_context=enem_context, enem_question_id=enem_question_id,
-                    on_chunk=on_chunk, on_reasoning=on_reasoning, profile_id=profile_id,
+                    on_chunk=on_chunk, on_reasoning=on_reasoning, profile_id=profile_id, origin=origin,
                 )
                 self.last_plan = plan
                 q.put({"type": "error" if plan.intent == "error" else "done", "plan": plan})

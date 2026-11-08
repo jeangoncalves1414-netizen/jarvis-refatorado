@@ -58,7 +58,18 @@ def test_receipts_are_bound_single_use_and_expire(monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.fixture
-def panel_http_server(monkeypatch: pytest.MonkeyPatch):
+def journal(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    # Rotas diretas registram a ação pelo Action Kernel (C10); o histórico fica em pasta temporária.
+    from app.storage.action_store import ActionStore
+    store = ActionStore(tmp_path / "actions.sqlite3")
+    monkeypatch.setattr("app.storage.action_store.action_store", store)
+    yield store
+    if store._runtime_lock:
+        store._runtime_lock.close()
+
+
+@pytest.fixture
+def panel_http_server(monkeypatch: pytest.MonkeyPatch, journal):
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), PanelHandler)
     previous_settings = PanelHandler.settings
     PanelHandler.settings = Settings(host="127.0.0.1", port=httpd.server_address[1])
@@ -117,7 +128,43 @@ def test_script_run_requires_bound_single_use_receipt_over_http(panel_http_serve
     assert status == 403 and len(calls) == 1
 
 
-def test_hacker_http_cannot_bypass_receipts_with_force_or_direct_policy(panel_http_server, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_script_run_goes_through_the_action_kernel_with_the_receipt_as_approval(panel_http_server, journal) -> None:
+    address, calls = panel_http_server
+    code = "print('harmless')"
+    _, body = _post(address, "/api/script/authorize", {"language": "python", "code": code, "confirmed": True})
+    status, body = _post(address, "/api/script/run", {"language": "python", "code": code, "receipt": body["receipt"]})
+    assert status == 200 and body["ok"] and len(calls) == 1
+    [action] = journal.list(limit=10)
+    assert (action.tool_name, action.source, action.risk, action.status) == ("script_runner", "api:script", "critical", "succeeded")
+    assert body["action"]["id"] == action.id and code not in action.preview
+    events = [event["status"] for event in journal.details(action.id)["events"]]
+    assert events == ["awaiting_confirmation", "authorized", "running", "succeeded"]
+
+
+def test_browser_route_waits_for_approval_in_the_central(panel_http_server, journal, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.agent.tools.base import ToolResult
+    from app.core.actions import pending_action_broker
+    from app.ui.panel.api import actions
+
+    monkeypatch.setattr(actions, "action_store", journal)
+    executed: list[tuple[dict, dict]] = []
+    tool = SimpleNamespace(execute=lambda args, context=None: executed.append((args, context)) or ToolResult(True, "Navegação concluída.", {"pages": 1}))
+    monkeypatch.setattr(panel_server, "_orchestrator", SimpleNamespace(registry=SimpleNamespace(get_tool=lambda name: tool if name == "browser_agent" else None)))
+    address, _ = panel_http_server
+    status, body = _post(address, "/api/browser/run", {"goal": "ver a previsão do tempo"})
+    assert status == 202 and body["pending"] and executed == []
+    [action] = journal.list(limit=10)
+    assert (action.tool_name, action.source, action.status) == ("browser_agent", "api:browser", "awaiting_confirmation")
+    try:
+        status, _ = actions.handle_actions_post(f"/api/actions/{action.id}/approve", b"{}", None)
+        assert status == 200
+        assert [args for args, _ in executed] == [{"goal": "ver a previsão do tempo", "start_url": ""}]
+        assert journal.get(action.id).status == "succeeded"
+    finally:
+        pending_action_broker.discard(action.id)
+
+
+def test_hacker_http_cannot_bypass_receipts_with_force_or_direct_policy(panel_http_server, journal, monkeypatch: pytest.MonkeyPatch) -> None:
     address, _ = panel_http_server
     executions: list[str] = []
     monkeypatch.setattr(hacker_terminal, "_run_command_subprocess", lambda command, risk_level, approved: executions.append(command) or {"ok": True, "status": "executed", "command": command})
@@ -129,6 +176,9 @@ def test_hacker_http_cannot_bypass_receipts_with_force_or_direct_policy(panel_ht
     assert status == 200 and receipt_body["ok"]
     status, body = _post(address, "/api/hacker/execute", {"command": "echo harmless", "receipt": receipt_body["receipt"], "force": True})
     assert status == 200 and body["status"] == "executed" and executions == ["echo harmless"]
+    [action] = journal.list(limit=10)
+    assert body["action"]["id"] == action.id
+    assert (action.tool_name, action.source, action.status) == ("hacker_mode", "api:terminal", "succeeded")
 
 
 def test_lan_mode_explicitly_disables_the_unauthenticated_websocket_port() -> None:
