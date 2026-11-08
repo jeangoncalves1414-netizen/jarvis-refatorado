@@ -22,6 +22,7 @@ ActionStatus = Literal[
 ]
 
 RISKS: frozenset[str] = frozenset({"observe", "low", "high", "critical"})
+_RISK_ORDER: tuple[str, ...] = ("observe", "low", "high", "critical")
 STATUSES: frozenset[str] = frozenset({
     "proposed", "awaiting_confirmation", "authorized", "running",
     "succeeded", "failed", "cancelled", "expired", "interrupted",
@@ -120,6 +121,9 @@ class ToolMetadata:
     operation_arguments: tuple[str, ...] = ()
     default_operation: str = ""
     operation_risks: tuple[tuple[str, ActionRisk], ...] = ()
+    # Ajuste pelo alvo: recebe (operação, argumentos) e devolve um risco. Só
+    # eleva o risco da operação, nunca o reduz.
+    target_risk: Callable[[str, dict[str, Any]], ActionRisk] | None = None
 
     def __post_init__(self) -> None:
         for risk in (self.default_risk, *(risk for _operation, risk in self.operation_risks)):
@@ -133,7 +137,17 @@ class ToolMetadata:
         arguments = arguments or {}
         key = next((name for name in self.operation_arguments if name in arguments), None)
         operation = str(arguments[key] if key else self.default_operation).strip().lower()
-        return dict(self.operation_risks).get(operation, "critical")
+        risk = dict(self.operation_risks).get(operation, "critical")
+        if self.target_risk is not None:
+            try:
+                target = self.target_risk(operation, arguments)
+            except Exception:
+                target = "critical"
+            if target not in RISKS:
+                target = "critical"
+            if _RISK_ORDER.index(target) > _RISK_ORDER.index(risk):
+                risk = target
+        return risk
 
 
 @dataclass(slots=True)

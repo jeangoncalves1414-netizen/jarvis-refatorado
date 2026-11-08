@@ -6,6 +6,13 @@ from app.agent.tools.catalog import TOOL_CATALOG, metadata_for
 from app.agent.tools.open_windows_app import OpenWindowsAppTool
 from app.agent.tools.system_control import SystemControlTool
 from app.core.actions import ToolMetadata
+from app.services.app_manager import AppManager
+
+
+@pytest.fixture(autouse=True)
+def _fake_registry(monkeypatch):
+    """O registro do Windows nunca é lido: um único app instalado fictício."""
+    monkeypatch.setattr(AppManager, "_scan_registry", lambda self: {"foo studio": r"C:\Apps\Foo\foo.exe"})
 
 
 def test_catalog_has_explicit_policy_for_privileged_builtin_tools():
@@ -43,9 +50,39 @@ def test_unknown_tool_keeps_its_own_metadata():
     ("open_windows_app", {"action": " Close ", "app_name": "chrome"}, "high"),
     ("open_windows_app", {"action": "kill", "app_name": "chrome"}, "critical"),
     ("open_windows_app", {"action": ""}, "critical"),
+    # open é low só quando o alvo resolve por alias, comando do sistema, URI ou registro.
+    ("open_windows_app", {"action": "open", "app_name": "calc.exe"}, "low"),
+    ("open_windows_app", {"action": "open", "app_name": "slack"}, "low"),
+    ("open_windows_app", {"action": "open", "app_name": "Foo Studio"}, "low"),
+    ("open_windows_app", {"command": "bloco de notas"}, "low"),
+    ("open_windows_app", {"action": "open", "app_name": "cmd /c echo x"}, "high"),
+    ("open_windows_app", {"app_name": "notepad && calc"}, "high"),
+    ("open_windows_app", {"command": "powershell -c whoami"}, "high"),
+    ("open_windows_app", {"app_name": "chrome", "command": "cmd /c echo x"}, "high"),
+    ("open_windows_app", {"action": "open", "app_name": ""}, "high"),
+    ("open_windows_app", {"action": "open", "app_name": ["chrome"]}, "high"),
+    ("open_windows_app", {"action": "open"}, "high"),
+    ("open_windows_app", {"action": "status", "app_name": "cmd /c echo x"}, "observe"),
+    ("open_windows_app", {"action": "close", "app_name": "cmd /c echo x"}, "high"),
 ])
 def test_control_tools_classify_risk_by_operation(tool, arguments, risk):
     assert TOOL_CATALOG[tool].risk_for(arguments) == risk
+
+
+def test_opening_arbitrary_existing_file_needs_approval(tmp_path):
+    script = tmp_path / "script.bat"
+    script.write_text("@echo off", encoding="utf-8")
+    assert TOOL_CATALOG["open_windows_app"].risk_for({"action": "open", "app_name": str(script)}) == "high"
+
+
+def test_target_risk_only_raises_and_fails_closed():
+    base = {"operation_arguments": ("action",), "operation_risks": (("x", "high"),)}
+    assert ToolMetadata(**base, target_risk=lambda _op, _args: "observe").risk_for({"action": "x"}) == "high"
+    assert ToolMetadata(**base, target_risk=lambda _op, _args: "unknown").risk_for({"action": "x"}) == "critical"
+
+    def broken(_op, _args):
+        raise RuntimeError("falha ao resolver o alvo")
+    assert ToolMetadata(**base, target_risk=broken).risk_for({"action": "x"}) == "critical"
 
 
 @pytest.mark.parametrize(("name", "parameters"), [

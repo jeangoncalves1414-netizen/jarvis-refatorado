@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+import shutil
 import time
 import subprocess
 import winreg
@@ -39,6 +40,30 @@ _URI_PROTOCOLS = {
 }
 
 _SYSTEM_COMMANDS = {"notepad", "calc", "mspaint", "cmd", "powershell", "explorer", "wt", "code", "chrome", "msedge"}
+
+_CREATE_NEW_CONSOLE = 0x00000010
+_CREATE_NO_WINDOW = 0x08000000
+
+
+def _exe_stem(name: str) -> str:
+    """Nome do executável sem pasta nem ``.exe``, em minúsculas."""
+    stem = name.strip().replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return stem[:-4] if stem.endswith(".exe") else stem
+
+
+def _spawn(argv: list[str]) -> bool:
+    """Inicia o executável sem shell: nenhum texto passa por cmd.exe como comando."""
+    try:
+        if argv[0].lower().endswith((".cmd", ".bat")):
+            subprocess.Popen(argv, shell=False, creationflags=_CREATE_NO_WINDOW,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            # Apps de console (cmd, powershell) ganham janela própria; apps gráficos ignoram a flag.
+            subprocess.Popen(argv, shell=False, creationflags=_CREATE_NEW_CONSOLE)
+        return True
+    except (OSError, ValueError):
+        return False
+
 
 class AppManager:
     """Gerenciamento robusto de aplicativos Windows."""
@@ -139,6 +164,22 @@ class AppManager:
                 return exe_path
                 
         return None
+
+    def is_known_target(self, name: str) -> bool:
+        """Se ``name`` resolve por alias, comando do sistema, protocolo URI conhecido ou app do registro.
+
+        Nome livre e caminho de arquivo digitado não contam: abri-los exige aprovação.
+        """
+        query = str(name or "").lower().strip()
+        if not query:
+            return False
+        base = query[:-4] if query.endswith(".exe") else query
+        if query in self.aliases or base in _SYSTEM_COMMANDS or base in _URI_PROTOCOLS:
+            return True
+        try:
+            return self.find_app(query) is not None
+        except Exception:
+            return False
     
     # ── Caminhos de executável conhecidos (mais confiável que URI para estes apps) ──
     _EXEC_PATHS: dict[str, str] = {
@@ -192,7 +233,9 @@ class AppManager:
         2. Comandos de sistema (notepad, calc, etc.)
         3. Caminho direto de arquivo (cache)
         4. URI Protocol (spotify:, discord:, steam://)
-        5. Shell genérico como último recurso
+        5. Executável encontrado no PATH, sem shell
+
+        Nada é passado ao shell: um nome com argumentos ou operadores não vira comando.
         """
         resolved = self.find_app(name)
         if not resolved:
@@ -206,22 +249,20 @@ class AppManager:
         target_path = self._EXEC_PATHS.get(base_key) or self._EXEC_PATHS.get(key)
         if target_path:
             path_expanded = os.path.expandvars(target_path)
-            base_exe = path_expanded.split(" --")[0]
+            base_exe, _, extra = path_expanded.partition(" --")
             if Path(base_exe).is_file():
-                try:
-                    subprocess.Popen(path_expanded, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                argv = [base_exe] + (("--" + extra).split() if extra else [])
+                if _spawn(argv):
                     return True
-                except Exception:
-                    pass
 
         # 2. Comandos de sistema do Windows (notepad, calc, cmd, etc.)
-        sys_target = base_key if base_key in _SYSTEM_COMMANDS else (key if key in _SYSTEM_COMMANDS else resolved)
-        if base_key in _SYSTEM_COMMANDS or key in _SYSTEM_COMMANDS or resolved in _SYSTEM_COMMANDS:
+        if base_key in _SYSTEM_COMMANDS:
+            exe = shutil.which(base_key)
+            if exe and _spawn([exe]):
+                return True
             try:
-                subprocess.Popen(
-                    sys_target, shell=True, creationflags=0x08000000,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                )
+                # Sem PATH (ex.: chrome), o Windows resolve pelo registro App Paths, sem cmd.exe.
+                os.startfile(base_key)
                 return True
             except Exception:
                 pass
@@ -243,35 +284,29 @@ class AppManager:
             except Exception:
                 pass
 
-        # 5. Último recurso: shell genérico
-        try:
-            proc = subprocess.Popen(
-                resolved, shell=True, creationflags=0x08000000,
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
-            )
-            try:
-                proc.wait(timeout=2)
-                if proc.returncode == 0:
-                    return True
-            except subprocess.TimeoutExpired:
-                return True
-        except Exception:
-            pass
+        # 5. Último recurso: executável com esse nome exato no PATH, sem shell
+        exe = shutil.which(resolved.strip())
+        if exe:
+            return _spawn([exe])
 
         return False
 
     def is_app_running(self, name: str) -> tuple[bool, list[Any]]:
-        """Verifica se um aplicativo está em execução. Retorna (bool, lista_de_processos)."""
+        """Verifica se um aplicativo está em execução. Retorna (bool, lista_de_processos).
+
+        O casamento é exato no nome do executável, sem ``.exe`` e sem diferenciar maiúsculas:
+        ``close_app`` encerra tudo o que casar, então "code" não pode pegar "vscode-helper".
+        """
         import psutil
         resolved = self.find_app(name) or name
-        target_stem = Path(resolved).stem.lower().strip() if ("/" in resolved or "\\" in resolved) else resolved.lower().replace(".exe", "").strip()
+        target_stem = _exe_stem(resolved)
+        if not target_stem:
+            return (False, [])
         
         matches = []
         for proc in psutil.process_iter(['pid', 'name']):
             try:
-                pname = (proc.info['name'] or "").lower()
-                pstem = pname.replace(".exe", "")
-                if target_stem == pstem or target_stem in pstem or pstem in target_stem:
+                if _exe_stem(proc.info['name'] or "") == target_stem:
                     matches.append(proc)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
@@ -369,4 +404,15 @@ class AppManager:
             results[name] = self.open_app(name)
             time.sleep(0.4)
         return results
+
+
+_shared_manager: AppManager | None = None
+
+
+def is_known_app_target(name: str) -> bool:
+    """Classificação de risco: ``AppManager.is_known_target`` com aliases e cache de registro compartilhados."""
+    global _shared_manager
+    if _shared_manager is None:
+        _shared_manager = AppManager()
+    return _shared_manager.is_known_target(name)
 

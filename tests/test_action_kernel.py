@@ -9,11 +9,13 @@ from app.agent.tool_guardrails import ToolCallGuardrailController
 from app.agent.tools.base import ToolResult
 from app.agent.tools.catalog import TOOL_CATALOG
 from app.agent.tools.open_windows_app import OpenWindowsAppTool
+from app.agent.tools.registry import ToolRegistry
 from app.agent.tools.system_control import SystemControlTool
 from app.agent.tools.workflow import WorkflowTool, validate_recipe
 from app.core.actions import ActionRecord, ToolMetadata
 from app.storage.action_store import ActionStore
 from app.core.actions import pending_action_broker
+from app.services.app_manager import AppManager
 
 
 def _executor(tmp_path, metadata: ToolMetadata, calls: list[str]) -> ActionExecutor:
@@ -146,6 +148,51 @@ def test_listing_processes_is_observation(tmp_path):
     process_iter.assert_called_once()
     popen.assert_not_called()
     assert (executor.last_action.risk, executor.last_action.status) == ("observe", "succeeded")
+
+
+def _marker_executor(tmp_path) -> ActionExecutor:
+    """Caminho de marcadores com o registro real e o mesmo adaptador do orquestrador."""
+    registry = ToolRegistry(base_folder=str(tmp_path))
+    return ActionExecutor(
+        frozenset(registry.tools), ToolCallGuardrailController(),
+        lambda name, args, user: registry.run_by_marker(name, args.get("command") if args else None, user),
+        metadata_for=registry.get_tool_metadata,
+        store=ActionStore(tmp_path / "actions.jsonl"), source="marker:test",
+    )
+
+
+def test_marker_volume_runs_as_low_and_kill_waits_for_approval(tmp_path):
+    executor = _marker_executor(tmp_path)
+    with patch("subprocess.Popen") as popen, \
+         patch("app.agent.tools.system_control._press_media_key") as press, \
+         patch("psutil.process_iter") as process_iter:
+        assert executor.execute("system_control", {"command": "volume_up"}, "aumente o volume") == "Volume do sistema aumentado."
+        assert (executor.last_action.risk, executor.last_action.status) == ("low", "succeeded")
+        press.assert_called_once()
+
+        message = executor.execute("system_control", {"command": "kill_process"}, "mate o processo")
+        assert "exige confirmação" in message
+        assert (executor.last_action.risk, executor.last_action.status) == ("critical", "awaiting_confirmation")
+    press.assert_called_once()
+    popen.assert_not_called()
+    process_iter.assert_not_called()
+
+
+def test_marker_open_with_free_text_waits_for_approval(tmp_path, monkeypatch):
+    monkeypatch.setattr(AppManager, "_scan_registry", lambda self: {})
+    executor = _marker_executor(tmp_path)
+    with patch("subprocess.Popen") as popen, patch("os.startfile") as startfile, \
+         patch("psutil.process_iter", return_value=[]):
+        message = executor.execute("open_windows_app", {"command": "cmd /c echo x"}, "rode isso")
+        assert "exige confirmação" in message
+        assert (executor.last_action.risk, executor.last_action.status) == ("high", "awaiting_confirmation")
+        popen.assert_not_called()
+        startfile.assert_not_called()
+
+        executor.execute("open_windows_app", {"command": "bloco de notas"}, "abra o bloco de notas")
+        assert (executor.last_action.risk, executor.last_action.status) == ("low", "succeeded")
+    popen.assert_called_once()
+    assert popen.call_args.kwargs["shell"] is False
 
 
 @pytest.mark.parametrize("approved", [False, True])

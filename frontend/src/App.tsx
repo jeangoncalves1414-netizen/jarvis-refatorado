@@ -460,6 +460,8 @@ export default function App() {
       await panelRequest('/api/bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', device_id: deviceId, ...(deviceToken ? { device_token: deviceToken } : {}) }) })
     } catch (error) {
       if (error instanceof TypeError) throw new Error('Sem conexão com a ponte. Verifique se o backend está ligado e tente de novo.')
+      // A ponte já não conhece o controle local: a credencial guardada deixou de valer.
+      if (isLocalController && error instanceof Error && error.message.startsWith('Dispositivo não encontrado')) localStorage.removeItem('jarvis-bridge-desktop-token')
       throw error
     }
     if (isLocalController) localStorage.removeItem('jarvis-bridge-desktop-token')

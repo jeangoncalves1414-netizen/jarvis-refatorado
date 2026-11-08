@@ -16,7 +16,7 @@ mkdirSync(output, { recursive: true })
     page.on('pageerror', error => errors.push(error.message))
     let offline = false, historyOffline = false, approvals = 0, sent = null, deletions = 0, titles = 0
     let bridgeDevices = [{ id: 'jarvis-desktop', name: 'Jarvis Desktop', kind: 'controller', platform: 'desktop', connected: true }, { id: 'sim-lamp', name: 'Lâmpada de teste', kind: 'light', platform: 'simulator', connected: true }]
-    let refuseRemoval = false, sttCalls = 0
+    let refuseRemoval = false, abortRemoval = false, missingRemoval = false, sttCalls = 0
     const removals = []
     const histories = new Map()
     let sessions = [{ id: 'session-1', type: 'chat', title: 'Ideias para meu projeto' }, { id: 'session-2', type: 'chat', title: 'Planejamento da semana' }]
@@ -67,7 +67,9 @@ mkdirSync(output, { recursive: true })
         else if (body.action === 'pairing_code') data = { ok: true, pairing_code: 'TESTE-123' }
         else if (body.action === 'remove') {
           removals.push(body)
+          if (abortRemoval) return route.abort()
           if (refuseRemoval) { status = 400; data = { ok: false, error: 'A ponte recusou a remoção. Sem a credencial do próprio dispositivo, só o painel local do PC, no modo de acesso loopback, pode removê-lo.' } }
+          else if (missingRemoval) { status = 400; data = { ok: false, error: 'Dispositivo não encontrado na ponte.' } }
           else { bridgeDevices = bridgeDevices.filter(device => device.id !== body.device_id); data = { ok: true, removed: body.device_id } }
         }
       }
@@ -257,14 +259,33 @@ mkdirSync(output, { recursive: true })
     assert.equal(await bridgeCard.getByRole('alert').count(), 0)
     assert.equal(removals.length, 2)
     assert.equal(removals[1].device_token, undefined)
+    const removeDesktop = bridgeCard.getByRole('button', { name: 'Remover Jarvis Desktop', exact: true })
+    const desktopDialog = page.getByRole('dialog', { name: 'Remover Jarvis Desktop?' })
+    const desktopToken = () => page.evaluate(() => localStorage.getItem('jarvis-bridge-desktop-token'))
     await page.evaluate(() => localStorage.setItem('jarvis-bridge-desktop-token', 'credencial-de-teste'))
-    await bridgeCard.getByRole('button', { name: 'Remover Jarvis Desktop', exact: true }).click()
-    await page.getByRole('dialog', { name: 'Remover Jarvis Desktop?' }).getByRole('button', { name: 'Remover dispositivo', exact: true }).click()
+    abortRemoval = true
+    await removeDesktop.click()
+    await desktopDialog.getByText('Ligar e Desligar deixam de funcionar').waitFor()
+    await desktopDialog.getByRole('button', { name: 'Remover dispositivo', exact: true }).click()
+    await bridgeCard.getByRole('alert').filter({ hasText: 'Sem conexão com a ponte' }).waitFor()
+    assert.equal(await desktopToken(), 'credencial-de-teste')
+    abortRemoval = false
+    missingRemoval = true
+    await removeDesktop.click()
+    await desktopDialog.getByRole('button', { name: 'Remover dispositivo', exact: true }).click()
+    await bridgeCard.getByRole('alert').filter({ hasText: 'Dispositivo não encontrado na ponte' }).waitFor()
+    assert.equal(await desktopToken(), null)
+    missingRemoval = false
+    await page.evaluate(() => localStorage.setItem('jarvis-bridge-desktop-token', 'credencial-de-teste'))
+    await removeDesktop.click()
+    await desktopDialog.getByRole('button', { name: 'Remover dispositivo', exact: true }).click()
     await bridgeCard.getByText('Nenhum cliente conectado.').waitFor()
-    assert.equal(removals[2].device_id, 'jarvis-desktop')
-    assert.equal(removals[2].device_token, 'credencial-de-teste')
-    assert.equal(await page.evaluate(() => localStorage.getItem('jarvis-bridge-desktop-token')), null)
-    console.log('PASS: remoção de dispositivo com confirmação, erro visível, 360 px e limpeza da credencial local')
+    const lastRemoval = removals[removals.length - 1]
+    assert.equal(removals.length, 5)
+    assert.equal(lastRemoval.device_id, 'jarvis-desktop')
+    assert.equal(lastRemoval.device_token, 'credencial-de-teste')
+    assert.equal(await desktopToken(), null)
+    console.log('PASS: remoção de dispositivo com confirmação, aviso do controle local, falha de rede, credencial velha, 360 px e limpeza da credencial local')
     assert.deepEqual(errors, [])
     console.log('PASS: chat/mode, navigation, approvals 410, goal 500 draft, filters/details, disconnect/recovery, palette, mobile drawers/layout. Screenshots: ' + output)
   } finally { await browser.close() }

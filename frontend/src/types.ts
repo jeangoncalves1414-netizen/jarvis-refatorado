@@ -62,21 +62,3 @@ export type CinemaSource = { label?: string; url: string; kind?: string; quality
 export type CinemaEpisode = { season?: number; episode?: number; title?: string; sources?: CinemaSource[] }
 export type CinemaItem = { id?: string; title?: string; type?: 'movie' | 'tv'; sources?: CinemaSource[]; episodes?: CinemaEpisode[] }
 
-export type ProcessStepStatus = 'pending' | 'active' | 'done' | 'error'
-export type ProcessStepItem = {
-  id: string
-  title: string
-  detail?: string
-  status: ProcessStepStatus
-  startedAt?: number
-  endedAt?: number
-  toolName?: string
-}
-export type ProcessQuest = {
-  id: string
-  title: string
-  steps: ProcessStepItem[]
-  status: 'active' | 'completed' | 'failed' | 'aborted'
-  startedAt: number
-}
-

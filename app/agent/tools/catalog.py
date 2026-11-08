@@ -6,12 +6,28 @@ fall back to their own metadata (or the conservative BaseTool default).
 """
 from __future__ import annotations
 
+from typing import Any
+
 from app.core.actions import ActionRisk, ToolMetadata
 
 
 def _by_operation(**levels: tuple[str, ...]) -> tuple[tuple[str, ActionRisk], ...]:
     """Agrupa operações por risco: ``observe=(...), low=(...), high=(...)``."""
     return tuple((operation, risk) for risk, operations in levels.items() for operation in operations)
+
+
+def _open_app_target_risk(operation: str, arguments: dict[str, Any]) -> ActionRisk:
+    """``open`` só é low para app conhecido; nome livre ou caminho de arquivo pede aprovação.
+
+    O caminho de marcadores envia o nome em "command"; as chamadas nativas, em "app_name".
+    """
+    if operation != "open":
+        return "observe"
+    from app.services.app_manager import is_known_app_target
+
+    targets = [arguments[name] for name in ("app_name", "command") if name in arguments]
+    known = bool(targets) and all(isinstance(t, str) and is_known_app_target(t) for t in targets)
+    return "low" if known else "high"
 
 
 TOOL_CATALOG: dict[str, ToolMetadata] = {
@@ -44,6 +60,7 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         ("desktop", "application"), "critical",
         operation_arguments=("action",), default_operation="open",
         operation_risks=_by_operation(observe=("list", "status"), low=("open",), high=("close",)),
+        target_risk=_open_app_target_risk,
     ),
     "spotify": ToolMetadata(("media",), "low"),
     "clipboard": ToolMetadata(("clipboard",), "low"),

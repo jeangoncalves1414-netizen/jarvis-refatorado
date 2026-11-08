@@ -134,7 +134,9 @@ export function AutomationsPage({
         <button className="outline-button" type="button" onClick={onRegisterBridgeDemo}>Adicionar lâmpada de teste</button>
         <dialog ref={removeDialog} className="ws-confirm-dialog" aria-labelledby="remove-device-title" onCancel={event => { if (removing) event.preventDefault() }}>
           <h2 id="remove-device-title">Remover {removeTarget?.name || removeTarget?.id || 'dispositivo'}?</h2>
-          <p>O dispositivo perde o acesso à ponte. Para voltar, ele precisa ser pareado de novo com o código de pareamento.</p>
+          <p>{removeTarget?.id === 'jarvis-desktop'
+            ? 'Este é o controle local do PC. Sem ele, Ligar e Desligar deixam de funcionar neste painel. Para voltar, use “Adicionar lâmpada de teste”, que pareia o controle de novo.'
+            : 'O dispositivo perde o acesso à ponte. Para voltar, ele precisa ser pareado de novo com o código de pareamento.'}</p>
           <div>
             <button type="button" className="ws-button" disabled={removing} onClick={() => removeDialog.current?.close()}>Manter dispositivo</button>
             <button type="button" className="ws-button danger" disabled={removing} onClick={() => void confirmRemoval()}>{removing ? 'Removendo…' : 'Remover dispositivo'}</button>

@@ -27,6 +27,12 @@ Com um Android conectado por ADB:
 
 O APK fica em `mobile_app/app/build/outputs/apk/debug/app-debug.apk`.
 
+Conferência manual depois de `npm run build:mobile` (a suíte padrão pula este teste):
+
+```powershell
+python -m pytest -m mobile_release tests/test_orb_canonical_integrity.py
+```
+
 ## Evolução / Life OS
 
 A mesma interface React do Evolute é compilada para o painel do PC e para
