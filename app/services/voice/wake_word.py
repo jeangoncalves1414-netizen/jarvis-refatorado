@@ -1,11 +1,14 @@
 """
 wake_word.py — Fase 6
-Detecção de wake word "Ei Jarvis" / "Jarvis" usando Vosk (PT-BR, 100% local, sem API key).
+Detecção da frase de ativação usando Vosk (PT-BR, 100% local, sem API key).
+
+A frase vem do perfil do agente (runtime_settings.get_agent_profile); o padrão
+neutro é "ei assistente".
 
 Fluxo:
   1. Thread daemon em background captura áudio do microfone
   2. Vosk processa frames em tempo real (reconhecimento de fala local)
-  3. Quando a transcrição contém "jarvis", o callback é disparado
+  3. Quando a transcrição contém a frase de ativação, o callback é disparado
   4. O callback sinaliza o frontend via WebSocket para abrir o microfone
   5. Toggle On/Off via settings
 """
@@ -17,7 +20,7 @@ import os
 import queue
 import threading
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +44,15 @@ except ImportError:
 _MODEL_DIR = Path("data/vosk_model_ptbr")
 _MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip"
 
-WAKE_WORDS = {"jarvis", "ei jarvis", "jarvis!", "jarvis,", "hey jarvis"}
+# Um único modelo carregado serve ao detector e à validação de vocabulário.
+_shared_model: Any = None
+_shared_model_lock = threading.Lock()
+
+
+def _profile_wake_phrase() -> str:
+    # get_agent_profile já volta ao perfil neutro se o arquivo estiver ausente ou inválido.
+    from app.storage.runtime_settings import get_agent_profile
+    return get_agent_profile()["wake_phrase"]
 
 
 def _download_model() -> bool:
@@ -69,6 +80,60 @@ def _download_model() -> bool:
         return False
 
 
+def _get_model(download: bool = False) -> Any:
+    """Carrega (uma vez) o modelo Vosk local. Só baixa quando download=True."""
+    global _shared_model
+    with _shared_model_lock:
+        if _shared_model is not None:
+            return _shared_model
+        if not VOSK_AVAILABLE:
+            return None
+        if not _MODEL_DIR.exists() or not any(_MODEL_DIR.iterdir()):
+            if not download:
+                return None
+            logger.info("Modelo Vosk não encontrado — baixando em background…")
+            if not _download_model():
+                return None
+        try:
+            vosk.SetLogLevel(-1)  # silencia logs do Kaldi
+            _shared_model = vosk.Model(str(_MODEL_DIR))
+            logger.info("Modelo Vosk PT-BR carregado para wake word detection.")
+        except Exception as e:
+            logger.error(f"Falha ao carregar modelo Vosk: {e}")
+            return None
+        return _shared_model
+
+
+def check_wake_phrase_vocabulary(phrase: str) -> dict[str, Any]:
+    """Confere se todas as palavras da frase existem no vocabulário do Vosk.
+
+    O detector usa reconhecimento livre: uma palavra fora do vocabulário nunca
+    aparece na transcrição, então a frase jamais seria detectada. Sem Vosk ou
+    sem modelo local, a verificação é marcada como não realizada (não baixa nada).
+    """
+    words = [word for word in (phrase or "").split() if word]
+    model = _get_model(download=False)
+    if model is None:
+        return {
+            "checked": False,
+            "supported": None,
+            "missing": [],
+            "message": "Detector local indisponível neste computador; o vocabulário da frase não foi verificado.",
+        }
+    missing = [word for word in words if model.vosk_model_find_word(word) < 0]
+    if missing:
+        return {
+            "checked": True,
+            "supported": False,
+            "missing": missing,
+            "message": (
+                f"O detector local não reconhece estas palavras da frase '{phrase}': "
+                f"{', '.join(missing)}. Escolha outra frase de ativação."
+            ),
+        }
+    return {"checked": True, "supported": True, "missing": [], "message": "Frase reconhecida pelo detector local."}
+
+
 class WakeWordDetector:
     """
     Detector de wake word usando Vosk (reconhecimento de fala local, PT-BR).
@@ -81,7 +146,7 @@ class WakeWordDetector:
         sample_rate: int = 16000,
         on_wake: Callable[[], None] | None = None,
     ):
-        self.wake_words = wake_words or WAKE_WORDS
+        self.wake_words = set(wake_words) if wake_words else {_profile_wake_phrase()}
         self.sample_rate = sample_rate
         self._on_wake = on_wake
         self._running = False
@@ -94,18 +159,15 @@ class WakeWordDetector:
             return False
         if self._model:
             return True
-        if not _MODEL_DIR.exists() or not any(_MODEL_DIR.iterdir()):
-            logger.info("Modelo Vosk não encontrado — baixando em background…")
-            if not _download_model():
-                return False
-        try:
-            vosk.SetLogLevel(-1)  # silencia logs do Kaldi
-            self._model = vosk.Model(str(_MODEL_DIR))
-            logger.info("Modelo Vosk PT-BR carregado para wake word detection.")
-            return True
-        except Exception as e:
-            logger.error(f"Falha ao carregar modelo Vosk: {e}")
-            return False
+        self._model = _get_model(download=True)
+        return self._model is not None
+
+    def set_wake_phrase(self, phrase: str) -> None:
+        """Troca a frase sem reiniciar a thread (usado ao salvar o perfil)."""
+        phrase = " ".join((phrase or "").lower().split())
+        if phrase:
+            self.wake_words = {phrase}
+            logger.info(f"Wake word atualizada para: '{phrase}'")
 
     def _matches_wake_word(self, text: str) -> bool:
         text_lower = text.lower().strip()

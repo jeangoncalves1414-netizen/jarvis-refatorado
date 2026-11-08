@@ -17,7 +17,7 @@ class ProactiveAgentTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Gerencia o comportamento proativo do JARVIS: configura o briefing matinal (horário, tópicos, "
+            "Gerencia o comportamento proativo do assistente: configura o briefing matinal (horário, tópicos, "
             "instruções personalizadas em linguagem natural) e agenda lembretes por voz temporizados (ex: às 13:00 ou em +30m)."
         )
 
@@ -50,7 +50,7 @@ class ProactiveAgentTool(BaseTool):
                 },
                 "custom_instructions": {
                     "type": "string",
-                    "description": "Instruções personalizadas em linguagem natural para ajustar o que o JARVIS fala de manhã (ex: 'não fale de clima', 'remova finanças').",
+                    "description": "Instruções personalizadas em linguagem natural para ajustar o que o assistente fala de manhã (ex: 'não fale de clima', 'remova finanças').",
                 },
                 "reminder_message": {
                     "type": "string",

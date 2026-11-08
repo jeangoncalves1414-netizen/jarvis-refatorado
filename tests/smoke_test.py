@@ -71,9 +71,9 @@ class TestJarvisSmoke(unittest.TestCase):
     def test_06_wake_word_detector(self):
         """Verifica a inicialização e disponibilidade do WakeWordDetector."""
         from app.services.voice.wake_word import WakeWordDetector
-        detector = WakeWordDetector()
+        detector = WakeWordDetector(wake_words={"ei assistente"})
         self.assertTrue(detector.is_available())
-        self.assertTrue(detector._matches_wake_word("ei jarvis abra o navegador"))
+        self.assertTrue(detector._matches_wake_word("ei assistente abra o navegador"))
 
     def test_07_semantic_memory(self):
         """Verifica adição e busca na memória vetorial (ChromaDB)."""

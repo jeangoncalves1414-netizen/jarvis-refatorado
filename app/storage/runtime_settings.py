@@ -180,6 +180,111 @@ def sync_settings_to_obj(settings_obj: Any) -> None:
         settings_obj.oxyy_embedding_model = str(oxyy_models.get("embedding", settings_obj.oxyy_embedding_model))
 
 
+# ---------------------------------------------------------------------------
+# Perfil do agente (nome, estilo e frase de ativação)
+# ---------------------------------------------------------------------------
+# O perfil muda só a identidade apresentada no prompt e a frase do detector
+# de voz. Permissões, ferramentas e aprovações não leem estes campos.
+DEFAULT_AGENT_NAME = "Assistente"
+DEFAULT_AGENT_STYLE = (
+    "Neutro, cordial e conciso. Responda em português do Brasil, com frases curtas e diretas. "
+    "Trate o usuário pelo nome quando souber, sem títulos ou apelidos."
+)
+_AGENT_NAME_MAX = 40
+_AGENT_STYLE_MAX = 2000
+_WAKE_PHRASE_MAX = 60
+_WAKE_PHRASE_MAX_WORDS = 4
+
+
+def _clean_agent_name(value: Any) -> str:
+    name = " ".join(str(value or "").split())
+    if not name:
+        raise ValueError("Informe um nome para o agente.")
+    if len(name) > _AGENT_NAME_MAX:
+        raise ValueError(f"O nome do agente pode ter no máximo {_AGENT_NAME_MAX} caracteres.")
+    return name
+
+
+def _clean_agent_style(value: Any) -> str:
+    style = str(value or "").strip()
+    if len(style) > _AGENT_STYLE_MAX:
+        raise ValueError(f"As instruções de estilo podem ter no máximo {_AGENT_STYLE_MAX} caracteres.")
+    return style
+
+
+def normalize_wake_phrase(value: Any) -> str:
+    """Normaliza a frase de ativação: minúsculas, só letras e espaços simples."""
+    phrase = " ".join(str(value or "").lower().split())
+    if not phrase:
+        return ""
+    if len(phrase) > _WAKE_PHRASE_MAX:
+        raise ValueError(f"A frase de ativação pode ter no máximo {_WAKE_PHRASE_MAX} caracteres.")
+    if not all(ch.isalpha() or ch == " " for ch in phrase):
+        raise ValueError("A frase de ativação aceita só letras e espaços, sem números ou pontuação.")
+    if len(phrase.split()) > _WAKE_PHRASE_MAX_WORDS:
+        raise ValueError(f"A frase de ativação pode ter no máximo {_WAKE_PHRASE_MAX_WORDS} palavras.")
+    return phrase
+
+
+def derive_wake_phrase(name: str) -> str:
+    """Frase padrão derivada do nome: 'ei <nome>'."""
+    try:
+        return normalize_wake_phrase(f"ei {name}")
+    except ValueError as exc:
+        raise ValueError(
+            f"Não foi possível derivar a frase de ativação do nome '{name}'. "
+            "Informe uma frase de ativação só com letras e espaços."
+        ) from exc
+
+
+def _build_agent_profile(name: str, style: str, wake_phrase: str) -> dict[str, Any]:
+    custom = bool(wake_phrase)
+    return {
+        "name": name,
+        "style": style or DEFAULT_AGENT_STYLE,
+        "wake_phrase": wake_phrase or derive_wake_phrase(name),
+        "wake_phrase_custom": custom,
+    }
+
+
+def default_agent_profile() -> dict[str, Any]:
+    return _build_agent_profile(DEFAULT_AGENT_NAME, DEFAULT_AGENT_STYLE, "")
+
+
+def prepare_agent_profile(payload: dict[str, Any]) -> dict[str, Any]:
+    """Valida e normaliza um perfil recebido, sem gravar."""
+    if not isinstance(payload, dict):
+        raise ValueError("O perfil do agente deve ser um objeto.")
+    name = _clean_agent_name(payload.get("name"))
+    style = _clean_agent_style(payload.get("style"))
+    wake_phrase = normalize_wake_phrase(payload.get("wake_phrase"))
+    return _build_agent_profile(name, style, wake_phrase)
+
+
+def get_agent_profile() -> dict[str, Any]:
+    """Perfil ativo. Dados ausentes ou inválidos voltam ao perfil neutro."""
+    saved = _read().get("agent_profile")
+    if not isinstance(saved, dict):
+        return default_agent_profile()
+    try:
+        return prepare_agent_profile(saved)
+    except ValueError:
+        return default_agent_profile()
+
+
+def set_agent_profile(payload: dict[str, Any]) -> dict[str, Any]:
+    profile = prepare_agent_profile(payload)
+    data = _read()
+    data["agent_profile"] = {
+        "name": profile["name"],
+        "style": profile["style"],
+        # Vazio significa "derivar do nome", para acompanhar trocas de nome.
+        "wake_phrase": profile["wake_phrase"] if profile["wake_phrase_custom"] else "",
+    }
+    _write(data)
+    return get_agent_profile()
+
+
 def get_llm_provider(default: str | None = None) -> str:
     data = _read()
     if "llm_provider" in data:

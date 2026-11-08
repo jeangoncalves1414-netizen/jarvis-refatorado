@@ -20,7 +20,7 @@ class CoderSubagent:
             return {"ok": False, "error": "Prompt não fornecido ao CoderSubagent."}
 
         full_prompt = (
-            "Você é o CoderSubagent do Jarvis, especialista em Python/TypeScript.\n"
+            "Você é o CoderSubagent do assistente, especialista em Python/TypeScript.\n"
             f"Instruções: {prompt}\n\n"
         )
         if code_snippet:

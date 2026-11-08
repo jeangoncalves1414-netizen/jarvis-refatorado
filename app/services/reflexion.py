@@ -39,7 +39,7 @@ class ReflexionEngine:
             )
 
         eval_prompt = (
-            f"Você é o Crítico de Qualidade e Segurança do Jarvis.\n"
+            f"Você é o Crítico de Qualidade e Segurança do assistente.\n"
             f"Pergunta/Objetivo do Usuário: '{prompt}'\n\n"
             f"Resposta do Gerador:\n{candidate_response}\n\n"
             "Avalie a resposta quanto à precisão, clareza, correção de código e completude.\n"

@@ -13,7 +13,7 @@ class JarvisModeTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Altera o modo de interação atual do Jarvis. "
+            "Altera o modo de interação atual do assistente. "
             "Use 'silent' para mutar a voz (modo texto). "
             "Use 'hybrid' para voz normal. "
             "Use 'call_mode' para abrir interface de ligação."

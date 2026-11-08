@@ -4,6 +4,7 @@ import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download } from 'lucide-react'
 import type { AiSettings, LlmSettings, OxyyCatalog, OxyySettings, Proactive, SttSettings, TtsSettings, Tray, WakeWord } from '../types'
 import { isMobileStandalone, getMobileProvider, getMobileApiKeys, setMobileProvider, setMobileApiKeys, getMobileOxyyModels, setMobileOxyyModels, DEFAULT_MOBILE_KEYS, DEFAULT_OXXY_MODELS, type DirectChatProvider, countKeys, nativeDirectPost } from '../hooks/useDirectChat'
 import { isSfxEnabled, setSfxEnabled, playSuccess } from '../utils/sfx'
+import { DEFAULT_AGENT_NAME, DEFAULT_AGENT_STYLE, deriveWakePhrase, getStoredAgentProfile, setStoredAgentProfile, type AgentProfile } from '../utils/jarvisVaultKeys'
 import {
   DEFAULT_SUPABASE_KEY,
   DEFAULT_SUPABASE_URL,
@@ -145,6 +146,8 @@ export function SettingsPage({
 
   return (
     <section className="settings-grid">
+      <AgentProfileSettings />
+
       {/* 2. Leitura Automática Switch Card */}
       <article className="settings-card">
         <p className="eyebrow">RESPOSTAS FALADAS</p>
@@ -634,6 +637,122 @@ export function SettingsPage({
 
       {notice && <p className="settings-notice">{notice}</p>}
     </section>
+  )
+}
+
+const textareaStyle = { minHeight: 96, resize: 'vertical', border: '1px solid #3a3a45', borderRadius: 11, padding: 12, color: 'inherit', background: '#111117', font: 'inherit', lineHeight: 1.5 } as const
+
+/** Perfil do agente: muda só nome, tom e frase de ativação, nunca permissões ou ferramentas. */
+function AgentProfileSettings() {
+  const standalone = isMobileStandalone()
+  const [name, setName] = useState('')
+  const [style, setStyle] = useState('')
+  const [wakePhrase, setWakePhrase] = useState('')
+  const [status, setStatus] = useState<'loading' | 'idle' | 'saving' | 'saved' | 'error'>('loading')
+  const [message, setMessage] = useState('')
+
+  const apply = (profile: AgentProfile) => {
+    setName(profile.name)
+    setStyle(profile.style)
+    setWakePhrase(profile.wake_phrase_custom ? profile.wake_phrase : '')
+  }
+
+  useEffect(() => {
+    if (standalone) {
+      apply(getStoredAgentProfile())
+      setStatus('idle')
+      return
+    }
+    let cancelled = false
+    fetch('/api/settings/agent-profile')
+      .then(async response => {
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok || !data.ok || !data.profile) throw new Error(data.error || '')
+        if (cancelled) return
+        apply(data.profile)
+        setStoredAgentProfile(data.profile)
+        setStatus('idle')
+      })
+      .catch(error => {
+        if (cancelled) return
+        apply(getStoredAgentProfile())
+        setStatus('error')
+        setMessage(error instanceof Error && error.message ? error.message : 'Não foi possível carregar o perfil do agente. Verifique se o backend está ligado.')
+      })
+    return () => { cancelled = true }
+  }, [standalone])
+
+  const edit = (setter: (value: string) => void) => (value: string) => {
+    setter(value)
+    if (status === 'saved' || status === 'error') {
+      setStatus('idle')
+      setMessage('')
+    }
+  }
+
+  const save = async () => {
+    const cleanName = name.trim()
+    if (!cleanName) {
+      setStatus('error')
+      setMessage('Informe um nome para o agente.')
+      return
+    }
+    setStatus('saving')
+    setMessage('')
+    if (standalone) {
+      setStoredAgentProfile({ name: cleanName, style: style.trim() || DEFAULT_AGENT_STYLE, wake_phrase: deriveWakePhrase(cleanName), wake_phrase_custom: false })
+      apply(getStoredAgentProfile())
+      setStatus('saved')
+      setMessage('Perfil salvo neste aparelho.')
+      return
+    }
+    try {
+      const response = await fetch('/api/settings/agent-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: cleanName, style, wake_phrase: wakePhrase }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data.ok || !data.profile) throw new Error(data.error || '')
+      apply(data.profile)
+      setStoredAgentProfile(data.profile)
+      setStatus('saved')
+      setMessage(data.wake_phrase_check?.checked === false ? `Perfil salvo. ${data.wake_phrase_check.message}` : 'Perfil salvo.')
+    } catch (error) {
+      setStatus('error')
+      setMessage(error instanceof Error && error.message && error.message !== 'Failed to fetch' ? error.message : 'Não foi possível salvar o perfil do agente. Verifique se o backend está ligado.')
+    }
+  }
+
+  const busy = status === 'loading' || status === 'saving'
+  const derived = deriveWakePhrase(name.trim() || DEFAULT_AGENT_NAME)
+
+  return (
+    <article className="settings-card agent-profile-card" style={{ gridColumn: '1 / -1' }}>
+      <p className="eyebrow">IDENTIDADE</p>
+      <h2>Perfil do agente</h2>
+      <p>Muda só o nome, o tom e a frase de ativação. Permissões, ferramentas e aprovações continuam iguais.</p>
+      <label className="field-label">Nome
+        <input value={name} maxLength={40} disabled={busy} onChange={event => edit(setName)(event.target.value)} placeholder={DEFAULT_AGENT_NAME} />
+      </label>
+      <label className="field-label">Personalidade e estilo
+        <textarea value={style} maxLength={2000} disabled={busy} onChange={event => edit(setStyle)(event.target.value)} placeholder={DEFAULT_AGENT_STYLE} style={textareaStyle} />
+      </label>
+      {!standalone && (
+        <label className="field-label">Frase de ativação
+          <input value={wakePhrase} maxLength={60} disabled={busy} onChange={event => edit(setWakePhrase)(event.target.value)} placeholder={derived} />
+          <span className="settings-muted">Em branco, usa “{derived}”. Só letras e espaços, até 4 palavras. Cada palavra precisa existir no vocabulário do detector local.</span>
+        </label>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16, flexWrap: 'wrap' }}>
+        <button className="outline-button" type="button" disabled={busy} onClick={save}>
+          <Save size={14} /> {status === 'saving' ? 'Salvando…' : 'Salvar perfil'}
+        </button>
+        {status === 'loading' && <span className="settings-muted">Carregando perfil…</span>}
+      </div>
+      {status === 'error' && message && <p className="ws-error" role="alert" style={{ marginTop: 12 }}>{message}</p>}
+      {status === 'saved' && message && <p className="settings-notice" aria-live="polite">{message}</p>}
+    </article>
   )
 }
 

@@ -4,7 +4,7 @@
 
 ## Revisão das pendências em 7 de novembro de 2026
 
-O inventário reconcilia os 20 planos numerados com o código e registra 34 testes dirigidos desta revisão. O pacote servido pelo desktop e os assets Android ainda estão atrás do build temporário que contém a nova Central. O chat convencional conserva prompts de personagem e o fluxo de sincronização pode incluir chaves de provedor. As próximas entregas abrangem empacotamento, perfil neutro, proteção de credenciais, aprovações por escopo e o primeiro pedido acompanhado no PC e no aparelho físico. [Inventário, critérios de aceite e evidências](PENDENCIAS_DO_PAINEL.md)
+O inventário reconcilia os 20 planos numerados com o código e registra 34 testes dirigidos desta revisão. O pacote servido pelo desktop e os assets Android ainda estão atrás do build temporário que contém a nova Central. Os prompts do chat agora vêm de um perfil do agente configurável, neutro por padrão (atualização de 7/11). O fluxo de sincronização pode incluir chaves de provedor. As próximas entregas abrangem empacotamento, proteção de credenciais, aprovações por escopo e o primeiro pedido acompanhado no PC e no aparelho físico. [Inventário, critérios de aceite e evidências](PENDENCIAS_DO_PAINEL.md)
 
 ## Entrega do chat à execução por etapas — 2026-11-07
 

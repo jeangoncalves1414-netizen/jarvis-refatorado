@@ -1999,7 +1999,8 @@ async def _ws_chat_handler(websocket) -> None:
 
 async def _broadcast_wake_word() -> None:
     """Envia evento de wake word para todos os clientes WebSocket conectados."""
-    msg = json.dumps({"type": "wake_word", "phrase": "ei jarvis"})
+    from app.storage.runtime_settings import get_agent_profile
+    msg = json.dumps({"type": "wake_word", "phrase": get_agent_profile()["wake_phrase"]})
     dead = set()
     for ws in list(_ws_clients):
         try:
@@ -2092,7 +2093,8 @@ class PanelServer:
                     asyncio.run_coroutine_threadsafe(_broadcast_wake_word(), loop)
             _wake_word_detector = WakeWordDetector(on_wake=on_wake)
             _wake_word_detector.start()
-            print("[Jarvis] Wake word detector iniciado. Diga 'Ei Jarvis' para ativar.")
+            phrase = next(iter(_wake_word_detector.wake_words), "")
+            print(f"[Jarvis] Wake word detector iniciado. Diga '{phrase}' para ativar.")
         except Exception as e:
             print(f"[Jarvis] Wake word desativado: {e}")
 

@@ -18,6 +18,8 @@ mkdirSync(output, { recursive: true })
     let bridgeDevices = [{ id: 'jarvis-desktop', name: 'Jarvis Desktop', kind: 'controller', platform: 'desktop', connected: true }, { id: 'sim-lamp', name: 'Lâmpada de teste', kind: 'light', platform: 'simulator', connected: true }]
     let refuseRemoval = false, abortRemoval = false, missingRemoval = false, sttCalls = 0
     const removals = []
+    let agentProfile = { name: 'Assistente', style: 'Neutro e conciso.', wake_phrase: 'ei assistente', wake_phrase_custom: false }
+    const profilePosts = []
     const histories = new Map()
     let sessions = [{ id: 'session-1', type: 'chat', title: 'Ideias para meu projeto' }, { id: 'session-2', type: 'chat', title: 'Planejamento da semana' }]
     const snapshot = { ok: true, components: [{ id: 'action_kernel', label: 'Ações', status: 'healthy', reason: 'Registro disponível.' }, { id: 'providers', label: 'IA e voz', status: 'healthy', reason: 'Provedor configurado.' }, { id: 'bridge', label: 'Dispositivos', status: 'degraded', reason: 'Nenhum dispositivo conectado.' }], summary: { pending_actions: 1, failed_actions: 1, devices: 0, active_goals: 0 }, goals: [], pending_actions: [{ id: 'action-1', tool_name: 'file_write', preview: 'Criar um arquivo na pasta autorizada', risk: 'medium', status: 'awaiting_confirmation', updated_at: 1793920000 }], recent_actions: [{ id: 'action-2', tool_name: 'web_search', preview: 'Pesquisar referências', result_summary: 'Pesquisa concluída.', risk: 'low', status: 'succeeded', updated_at: 1793920000 }] }
@@ -56,6 +58,14 @@ mkdirSync(output, { recursive: true })
       else if (url.pathname === '/api/sessions/new-session' && method === 'DELETE') deletions++
       else if (url.pathname === '/api/sessions/new-session' && method === 'POST') titles++
       else if (url.pathname === '/api/settings/llm') data = { effective_provider: 'Provedor de teste', effective_model: 'Modelo de demonstração' }
+      else if (url.pathname === '/api/settings/agent-profile') {
+        if (method === 'POST') {
+          const body = route.request().postDataJSON()
+          profilePosts.push(body)
+          if (body.wake_phrase === 'ei jarvis') { status = 400; data = { ok: false, error: "O detector local não reconhece estas palavras da frase 'ei jarvis': jarvis. Escolha outra frase de ativação." } }
+          else { agentProfile = { name: body.name, style: body.style || 'Neutro e conciso.', wake_phrase: body.wake_phrase || `ei ${body.name.toLowerCase()}`, wake_phrase_custom: Boolean(body.wake_phrase) }; data = { ok: true, profile: agentProfile, wake_phrase_check: { checked: true, supported: true } } }
+        } else data = { ok: true, profile: agentProfile }
+      }
       else if (url.pathname === '/api/chat') { sent = route.request().postDataJSON(); data = { ok: true, reply: 'Resposta de teste recebida. Podemos organizar o projeto em etapas.', context: { run_id: 'run-linked' } } }
       else if (url.pathname.endsWith('/approve')) { approvals++; status = 410; data = { ok: false, error: 'Ação expirou; solicite novamente pela conversa.' } }
       else if (url.pathname === '/api/goals') { status = 500; data = { ok: false, error: 'Não foi possível salvar o objetivo.' } }
@@ -188,6 +198,22 @@ mkdirSync(output, { recursive: true })
 
     await page.setViewportSize({ width: 1536, height: 960 })
     await page.locator('.ws-sidebar').getByRole('button', { name: 'Configurações', exact: true }).click()
+    const profileCard = page.locator('.agent-profile-card')
+    await profileCard.getByRole('heading', { name: 'Perfil do agente' }).waitFor()
+    await profileCard.locator('input[placeholder="Assistente"]:not([disabled])').waitFor()
+    assert.equal(await profileCard.getByLabel('Nome').inputValue(), 'Assistente')
+    await profileCard.getByLabel('Nome').fill('Nova')
+    await profileCard.getByLabel('Frase de ativação').fill('ei jarvis')
+    await profileCard.getByRole('button', { name: 'Salvar perfil' }).click()
+    await profileCard.getByRole('alert').filter({ hasText: 'não reconhece' }).waitFor()
+    await profileCard.getByLabel('Frase de ativação').fill('')
+    assert.equal(await profileCard.getByRole('alert').count(), 0)
+    await profileCard.getByRole('button', { name: 'Salvar perfil' }).click()
+    await profileCard.getByText('Perfil salvo.', { exact: true }).waitFor()
+    assert.deepEqual(profilePosts.at(-1), { name: 'Nova', style: 'Neutro e conciso.', wake_phrase: '' })
+    assert.equal(await profileCard.getByLabel('Frase de ativação').getAttribute('placeholder'), 'ei nova')
+    await profileCard.screenshot({ path: path.join(output, 'desktop-agent-profile.png') })
+    console.log('PASS: perfil do agente carrega, recusa frase fora do vocabulário e salva')
     await page.getByRole('button', { name: /Métricas & Logs/ }).click()
     await page.locator('.ws-topbar strong').filter({ hasText: 'Métricas' }).waitFor()
     await page.getByText('LOGS AO VIVO', { exact: true }).waitFor()

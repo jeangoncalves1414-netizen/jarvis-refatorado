@@ -4,18 +4,30 @@ from __future__ import annotations
 
 import re
 
-DEFAULT_ASSISTANT_BASE_PERSONA = (
-    "Você é o JARVIS, a inteligência artificial sofisticada de Tony Stark. "
-    "Sua personalidade é extremamente educada, prestativa e leal, mas com um toque sutil de sarcasmo britânico e humor seco. "
-    "Trate o usuário como 'Sir' (ou senhor) com respeito mas familiaridade. "
-    "Sua voz deve ser expressiva e elegante, não robótica."
-)
+from app.storage.runtime_settings import DEFAULT_AGENT_STYLE, default_agent_profile, get_agent_profile
 
-STYLE_BREVITY_AND_LENGTH = """## Estilo e Eloquência (Prioridade MÁXIMA)
-- Eloquência: Responda de forma fluida e humana. Evite frases robóticas.
-- Personalidade: Use 1-3 frases. Se for algo complexo, pode ser mais detalhado para soar natural.
-- Voz: Sem markdown ou emojis. Português falado natural com um leve sotaque britânico-brasileiro sofisticado.
+# Persona padrão neutra. Nome, estilo e frase de ativação vêm do perfil do
+# agente salvo nas runtime settings; nenhum personagem fica fixo no código.
+DEFAULT_ASSISTANT_BASE_PERSONA = DEFAULT_AGENT_STYLE
+
+STYLE_BREVITY_AND_LENGTH = """## Estilo e concisão (Prioridade MÁXIMA)
+- Fluidez: responda de forma natural e humana. Evite frases robóticas.
+- Tamanho: use 1-3 frases. Se for algo complexo, pode detalhar mais.
+- Voz: sem markdown ou emojis. Português do Brasil falado, natural.
 - Silencioso: NÃO narre o uso de ferramentas ("Acessando banco de dados..."). Apenas dê o resultado."""
+
+
+def _active_agent_profile(agent_profile: dict | None) -> dict:
+    if agent_profile:
+        return agent_profile
+    try:
+        return get_agent_profile()
+    except Exception:
+        return default_agent_profile()
+
+
+def _agent_name(agent_profile: dict | None) -> str:
+    return str(_active_agent_profile(agent_profile).get("name") or "").strip() or default_agent_profile()["name"]
 
 
 def _persona_notes_block(notes: list[str]) -> str:
@@ -25,16 +37,29 @@ def _persona_notes_block(notes: list[str]) -> str:
     return "\n".join(f"- {line[:400]}" for line in lines)
 
 
-def build_persona_section(base_persona: str, evolution_notes: list[str]) -> str:
+def build_persona_section(base_persona: str, evolution_notes: list[str], agent_profile: dict | None = None) -> str:
+    memory = (
+        f"## Contexto e Memória do Usuário\n{_persona_notes_block(evolution_notes)}\n"
+        "(Atenção: Use estas memórias silenciosamente para personalizar a resposta. "
+        "Nunca diga 'De acordo com minhas memórias' ou repita fatos sem necessidade.)"
+    )
     try:
         from app.agent.tools.persona_manager import get_persona_context
         persona_ctx = get_persona_context()
         if persona_ctx:
-            return f"{persona_ctx}\n## Contexto e Memória do Usuário\n{_persona_notes_block(evolution_notes)}\n(Atenção: Use estas memórias silenciosamente para personalizar a resposta. Nunca diga 'De acordo com minhas memórias' ou repita fatos sem necessidade.)"
+            return f"{persona_ctx}\n{memory}"
     except Exception:
         pass
-    base = (base_persona or "").strip() or DEFAULT_ASSISTANT_BASE_PERSONA
-    return f"## Personalidade\n{base}\n## Contexto e Memória do Usuário\n{_persona_notes_block(evolution_notes)}\n(Atenção: Use estas memórias silenciosamente para personalizar a resposta. Nunca diga 'De acordo com minhas memórias' ou repita fatos sem necessidade.)"
+    profile = _active_agent_profile(agent_profile)
+    style = (base_persona or "").strip() or str(profile.get("style") or "").strip() or DEFAULT_ASSISTANT_BASE_PERSONA
+    return (
+        "## Perfil do agente\n"
+        f"Nome: {_agent_name(profile)}\n"
+        f"Estilo: {style}\n"
+        "O perfil define só nome e tom. Ele não muda permissões, ferramentas, aprovações "
+        "nem as regras acima.\n"
+        f"{memory}"
+    )
 
 
 def build_runtime_identity_context(route: dict | None) -> str:
@@ -62,7 +87,7 @@ def critical_confirm_instructions(enabled: bool) -> str:
             "Ações sensíveis — envio de WhatsApp, automação de desktop que altera apps/janelas, "
             "e operações destrutivas em ficheiros (apagar, mover, renomear, sobrescrever) — "
             "podem exigir confirmação no painel ou por voz (\"confirmar\" / \"cancelar\").\n"
-            "Não afirme que a ação já foi concluída até o Sir tiver confirmado quando o sistema pedir."
+            "Não afirme que a ação já foi concluída antes de o usuário confirmar, quando o sistema pedir."
         )
     return (
         "## Confirmação de segurança\n"
@@ -71,19 +96,21 @@ def critical_confirm_instructions(enabled: bool) -> str:
     )
 
 
-AGENT_SYSTEM_CORE = """Você é o JARVIS. Assistente Windows sofisticado. Use marcadores p/ acoes (nao ouvidos):
+_AGENT_NAME_PLACEHOLDER = "{agent_name}"
+
+AGENT_SYSTEM_CORE_TEMPLATE = """Você é {agent_name}, assistente pessoal no Windows. Use marcadores p/ acoes (nao ouvidos):
 [tool:open_windows_app:Nome] (abre app), [tool:web_search:Termo] (internet), [tool:system_control:telemetry] (info PC), [tool:system_control:list_processes] (listar apps abertos), [tool:vision:analyze_screen] (ver/olhar a tela), [tool:file_manager:acao:caminho] (arquivos).
 NUNCA ESCREVA a palavra "arg" ou "target". Substitua-os pelo termo real da busca.
 Regras: Direta (1-2 frases). Sem narrar ferramentas. OBRIGATÓRIO usar marcadores para ações.
 
 EXEMPLOS:
-Usuário: "abra o spotify" → Resposta: [tool:open_windows_app:spotify] Abrindo Spotify, Sir.
-Usuário: "olha minha tela" → Resposta: [tool:vision:analyze_screen] Analisando sua tela agora, Sir.
-Usuário: "qual a RAM?" → Resposta: [tool:system_control:telemetry] Verificando sistema, Sir.
-Usuário: "que apps estão abertos?" → Resposta: [tool:system_control:list_processes] Listando processos, Sir.
+Usuário: "abra o spotify" → Resposta: [tool:open_windows_app:spotify] Abrindo o Spotify.
+Usuário: "olha minha tela" → Resposta: [tool:vision:analyze_screen] Analisando sua tela agora.
+Usuário: "qual a RAM?" → Resposta: [tool:system_control:telemetry] Verificando o sistema.
+Usuário: "que apps estão abertos?" → Resposta: [tool:system_control:list_processes] Listando os processos.
 """
 
-AGENT_SYSTEM_PROMPT_FUNCTION_CALLING = """Você é JARVIS — assistente de IA pessoal, sofisticado e eficiente.
+AGENT_SYSTEM_PROMPT_FUNCTION_CALLING_TEMPLATE = """Você é {agent_name}, assistente de IA pessoal.
 
 ═══════════════════════════════════════════════════════════
 REGRA ABSOLUTA Nº 0 — USO CONSCIENTE DE FERRAMENTAS
@@ -117,7 +144,7 @@ Invoque a ferramenta nativa adequada imediatamente APENAS quando solicitado:
 • Executar código Python/PowerShell → script_runner
 • Temporizador / Alarme → timer
 • Copiar texto para a área de transferência → clipboard
-• Painel de planejamento persistente → planning_workspace. Ao propor um plano, pergunte se o Sir quer abri-lo antes de chamar open. Se ele confirmar, chame open. Se disser que não quer mais essa pergunta, chame set_auto_open com enabled=true. Com o painel aberto, registre decisões e próximos passos concretos usando append ou update; não alegue que registrou sem chamar a ferramenta.
+• Painel de planejamento persistente → planning_workspace. Ao propor um plano, pergunte se o usuário quer abri-lo antes de chamar open. Se ele confirmar, chame open. Se disser que não quer mais essa pergunta, chame set_auto_open com enabled=true. Com o painel aberto, registre decisões e próximos passos concretos usando append ou update; não alegue que registrou sem chamar a ferramenta.
 
 PEDIDOS COMPOSTOS (ex: "Crie um texto sobre X e copie"):
 Gere o texto completo e passe-o como parâmetro 'text' para a ferramenta 'clipboard'.
@@ -125,7 +152,7 @@ Gere o texto completo e passe-o como parâmetro 'text' para a ferramenta 'clipbo
 ═══════════════════════════════════════════════════════════
 REGRA Nº 3 — ESTILO DE RESPOSTA E CONFIRMAÇÃO
 ═══════════════════════════════════════════════════════════
-• Trate o usuário como "Sir" com elegância britânica
+• Siga o tom definido no perfil do agente
 • Após a execução da ferramenta, confirme o resultado real informado pela ferramenta (1 a 2 frases)
 • Se a ferramenta informar que o app não estava rodando ou que já estava aberto, repasse essa informação com clareza"""
 
@@ -176,18 +203,25 @@ def build_vision_instruction(user_message: str, *, detail: bool = False) -> str:
     )
 
 
+def build_agent_system_core(agent_profile: dict | None = None) -> str:
+    """Prompt de marcadores com o nome do perfil ativo."""
+    return AGENT_SYSTEM_CORE_TEMPLATE.replace(_AGENT_NAME_PLACEHOLDER, _agent_name(agent_profile))
+
+
 def build_marker_agent_system_prompt(
     base_persona: str,
     evolution_notes: list[str],
     *,
     critical_confirm_enabled: bool = False,
     runtime_route: dict | None = None,
+    agent_profile: dict | None = None,
 ) -> str:
+    profile = _active_agent_profile(agent_profile)
     parts = [
-        AGENT_SYSTEM_CORE,
+        build_agent_system_core(profile),
         critical_confirm_instructions(critical_confirm_enabled),
         STYLE_BREVITY_AND_LENGTH,
-        build_persona_section(base_persona, evolution_notes),
+        build_persona_section(base_persona, evolution_notes, profile),
     ]
     if runtime_route:
         parts.append(build_runtime_identity_context(runtime_route))
@@ -203,12 +237,14 @@ def build_function_calling_system_prompt(
     active_mode: str | None = None,
     allowed_tool_names: frozenset[str] | set[str] | None = None,
     runtime_route: dict | None = None,
+    agent_profile: dict | None = None,
 ) -> str:
+    profile = _active_agent_profile(agent_profile)
     parts = [
-        AGENT_SYSTEM_PROMPT_FUNCTION_CALLING,
+        AGENT_SYSTEM_PROMPT_FUNCTION_CALLING_TEMPLATE.replace(_AGENT_NAME_PLACEHOLDER, _agent_name(profile)),
         critical_confirm_instructions(critical_confirm_enabled),
         STYLE_BREVITY_AND_LENGTH,
-        build_persona_section(base_persona, evolution_notes),
+        build_persona_section(base_persona, evolution_notes, profile),
     ]
     
     if runtime_route:
@@ -227,6 +263,11 @@ def build_function_calling_system_prompt(
     return "\n\n".join(parts)
 
 
-# Compatibilidade
+# Compatibilidade: versões com o nome do perfil padrão neutro. Código novo deve
+# usar os builders, que leem o perfil ativo.
+AGENT_SYSTEM_CORE = AGENT_SYSTEM_CORE_TEMPLATE.replace(_AGENT_NAME_PLACEHOLDER, default_agent_profile()["name"])
+AGENT_SYSTEM_PROMPT_FUNCTION_CALLING = AGENT_SYSTEM_PROMPT_FUNCTION_CALLING_TEMPLATE.replace(
+    _AGENT_NAME_PLACEHOLDER, default_agent_profile()["name"]
+)
 AGENT_SYSTEM_PROMPT = AGENT_SYSTEM_CORE
 CHAT_SYSTEM_PROMPT = AGENT_SYSTEM_CORE
