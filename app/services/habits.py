@@ -13,6 +13,8 @@ from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Any
 
+from app.storage import sync_tombstones
+
 
 DB_PATH = Path("data/lifestyle.db")
 
@@ -44,7 +46,8 @@ def init_db() -> None:
                 color TEXT DEFAULT '#06b6d4',
                 icon TEXT DEFAULT '✨',
                 archived INTEGER DEFAULT 0,
-                created_at REAL NOT NULL
+                created_at REAL NOT NULL,
+                updated_at REAL DEFAULT 0
             )
         """)
         cursor.execute("""
@@ -72,6 +75,9 @@ def init_db() -> None:
             cursor.execute("ALTER TABLE habits ADD COLUMN time_exceptions TEXT DEFAULT '{}'")
         if "items_list" not in columns:
             cursor.execute("ALTER TABLE habits ADD COLUMN items_list TEXT DEFAULT '[]'")
+        if "updated_at" not in columns:
+            # Data da última alteração; 0 = nunca editado (a sincronização usa created_at nesse caso).
+            cursor.execute("ALTER TABLE habits ADD COLUMN updated_at REAL DEFAULT 0")
 
         conn.commit()
 
@@ -116,8 +122,8 @@ class HabitService:
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO habits 
-                (id, name, category, routine_block, frequency_type, days_of_week, start_time, time_exceptions, items_list, target_days_per_week, target_value, unit, color, icon, archived, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+                (id, name, category, routine_block, frequency_type, days_of_week, start_time, time_exceptions, items_list, target_days_per_week, target_value, unit, color, icon, archived, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
             """,
                 (
                     habit_id,
@@ -134,6 +140,7 @@ class HabitService:
                     unit,
                     color,
                     icon,
+                    now,
                     now,
                 ),
             )
@@ -163,6 +170,7 @@ class HabitService:
         if not fields_to_update:
             return habit
 
+        fields_to_update["updated_at"] = time.time()
         set_clause = ", ".join(f"{col} = ?" for col in fields_to_update.keys())
         params = list(fields_to_update.values())
         params.append(habit_id)
@@ -265,7 +273,10 @@ class HabitService:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM habit_logs WHERE habit_id = ? AND date_str = ?", (habit_id, date_str))
+            removed = cursor.rowcount > 0
             conn.commit()
+        if removed:
+            sync_tombstones.record("lifestyle.habit_logs", sync_tombstones.row_key(habit_id, date_str))
         return HabitService.get_habit(habit_id) or {"ok": True, "habit_id": habit_id}
 
     @staticmethod
@@ -347,5 +358,8 @@ class HabitService:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM habit_logs WHERE habit_id = ?", (habit_id,))
             cursor.execute("DELETE FROM habits WHERE id = ?", (habit_id,))
+            removed = cursor.rowcount > 0
             conn.commit()
-            return cursor.rowcount > 0
+        if removed:
+            sync_tombstones.record("lifestyle.habits", sync_tombstones.row_key(habit_id))
+        return removed

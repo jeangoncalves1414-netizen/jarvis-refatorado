@@ -10,9 +10,13 @@ Regras de mesclagem (função pura ``merge_snapshots``):
   nunca substitui um preenchido; campos que só um dispositivo conhece são
   preservados; no mesmo campo vence o carimbo mais recente (empate: local).
 - Registros (tarefas, metas, finanças...): união por identificador, vence o
-  registro mais recente. Nada é apagado pela mesclagem.
-- Notas: vence a de modificação mais recente; a versão local substituída é
-  guardada em ``.conflitos`` dentro do cofre.
+  registro mais recente. Hábitos usam ``updated_at`` (snapshots antigos sem
+  ele caem em ``created_at``).
+- Exclusões: o snapshot leva ``tombstones`` (ver ``sync_tombstones``). Um item
+  some na mesclagem só se a lápide for mais recente que a última edição dele;
+  sem lápide, nada é apagado (snapshots antigos continuam funcionando).
+- Notas: vence a de modificação mais recente; a versão local substituída (ou
+  apagada por lápide) é guardada em ``.conflitos`` dentro do cofre.
 
 As chaves de API viajam completas (decisão da usuária, protegidas por login e
 RLS no Supabase). Nenhuma função aqui imprime valores.
@@ -30,6 +34,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.storage import runtime_settings as rs
+from app.storage import sync_tombstones as tomb
 
 SCHEMA_VERSION = 1
 MAX_NOTE_BYTES = 512 * 1024
@@ -58,6 +63,11 @@ def _stamp(record: dict[str, Any], names: tuple[str, ...]) -> float:
             with contextlib.suppress(ValueError):
                 return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
     return 0.0
+
+
+def _latest_stamp(record: dict[str, Any], names: tuple[str, ...]) -> float:
+    """Maior carimbo entre os campos informados (``updated_at`` 0 não esconde ``created_at``)."""
+    return max((_stamp(record, (name,)) for name in names), default=0.0)
 
 
 def _dict(value: Any) -> dict[str, Any]:
@@ -182,6 +192,18 @@ def merge_records(local: Any, remote: Any, stamp_names: tuple[str, ...] = ("upda
     return merged
 
 
+_TASK_STAMPS = ("updated_at", "created_at")
+
+
+def drop_deleted_records(records: dict[str, Any], tombstones: tomb.Tombstones, kind: str, stamp_names: tuple[str, ...] = _TASK_STAMPS) -> dict[str, Any]:
+    """Tira os registros cuja lápide é mais recente que a última edição deles."""
+    return {
+        record_id: record
+        for record_id, record in records.items()
+        if not tomb.covers(tombstones, kind, record_id, _latest_stamp(record, stamp_names))
+    }
+
+
 def _collect_tasks() -> dict[str, Any]:
     from app.storage import task_store
 
@@ -288,6 +310,7 @@ def _collect_notes() -> dict[str, Any]:
     notes: dict[str, Any] = {}
     if not root.exists():
         return notes
+    collected_at = time.time()
     for file in sorted(root.rglob("*.md")):
         relative = file.relative_to(root)
         if any(part.startswith(".") for part in relative.parts):
@@ -300,7 +323,33 @@ def _collect_notes() -> dict[str, Any]:
             continue
         if len(notes) >= MAX_NOTES:
             break
+    _record_deleted_notes(root, notes, collected_at)
     return notes
+
+
+def _record_deleted_notes(root: Path, notes: dict[str, Any], collected_at: float) -> None:
+    """Notas apagadas direto na pasta do cofre viram lápide.
+
+    O instante da lápide é o da última coleta em que a nota ainda existia (nunca
+    depois da exclusão real), para que uma edição feita em outro dispositivo
+    depois disso continue vencendo.
+    """
+    seen, seen_at = tomb.load_seen_notes()
+    for relative in seen:
+        if relative in notes or not seen_at:
+            continue
+        with contextlib.suppress(OSError, ValueError):
+            if not (root / relative).exists():
+                tomb.record("notes", relative, seen_at)
+    tomb.save_seen_notes(set(notes), collected_at)
+
+
+def drop_deleted_notes(notes: dict[str, Any], tombstones: tomb.Tombstones) -> dict[str, Any]:
+    return {
+        path: entry
+        for path, entry in notes.items()
+        if not tomb.covers(tombstones, "notes", path, float(entry.get("mtime") or 0))
+    }
 
 
 def _valid_note(path: Any, entry: Any) -> bool:
@@ -325,8 +374,31 @@ def merge_notes(local: Any, remote: Any) -> dict[str, Any]:
     return dict(list(merged.items())[:MAX_NOTES])
 
 
-def _apply_notes(merged: dict[str, Any]) -> None:
+def _delete_notes(root: Path, merged: dict[str, Any], tombstones: tomb.Tombstones) -> int:
+    """Apaga as notas locais cobertas por lápide, guardando cópia em ``.conflitos``."""
+    deleted = 0
+    for relative, at in tombstones.get("notes", {}).items():
+        if relative in merged or not relative.endswith(".md") or any(part.startswith(".") for part in Path(relative).parts):
+            continue
+        target = (root / relative).resolve()
+        try:
+            target.relative_to(root)
+            if not target.is_file() or target.stat().st_mtime > at:
+                continue
+            current = target.read_text(encoding="utf-8")
+        except (OSError, ValueError, UnicodeDecodeError):
+            continue
+        backup = root / ".conflitos" / f"{target.stem}.apagada.{int(time.time() * 1000)}.md"
+        _atomic_write_text(backup, current)
+        with contextlib.suppress(OSError):
+            target.unlink()
+            deleted += 1
+    return deleted
+
+
+def _apply_notes(merged: dict[str, Any], tombstones: tomb.Tombstones | None = None) -> int:
     root = _vault_root().resolve()
+    deleted = _delete_notes(root, merged, tombstones or {})
     for relative, entry in merged.items():
         target = (root / relative).resolve()
         try:
@@ -347,6 +419,9 @@ def _apply_notes(merged: dict[str, Any]) -> None:
         _atomic_write_text(target, entry["content"])
         with contextlib.suppress(OSError):
             os.utime(target, (entry["mtime"], entry["mtime"]))
+    # As notas apagadas acima saem da lista de vistas: não viram uma segunda lápide mais nova.
+    tomb.save_seen_notes({relative for relative in merged if (root / relative).is_file()})
+    return deleted
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +436,19 @@ _LIFESTYLE_TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "finance_transactions": (("id",), ()),
     "finance_categories": (("name",), ()),
 }
+# tabela -> (tipo da lápide, carimbos da última edição da linha)
+_LIFESTYLE_TOMBSTONES: dict[str, tuple[str, tuple[str, ...]]] = {
+    "habits": ("lifestyle.habits", ("updated_at", "created_at")),
+    "habit_logs": ("lifestyle.habit_logs", ("timestamp",)),
+    "tasks": ("lifestyle.tasks", ("completed_at", "created_at")),
+    "finance_transactions": ("lifestyle.finance_transactions", ("timestamp",)),
+}
+# tabela filha -> (tabela mãe, coluna que aponta para o id da mãe)
+_LIFESTYLE_CHILDREN: dict[str, tuple[str, str]] = {
+    "habit_logs": ("habits", "habit_id"),
+    "task_subtasks": ("tasks", "task_id"),
+}
+_HABIT_STAMPS = _LIFESTYLE_TOMBSTONES["habits"][1]
 
 
 def _lifestyle_connection():
@@ -394,6 +482,9 @@ def _prefer_remote(table: str) -> Callable[[dict[str, Any], dict[str, Any]], boo
         return lambda local, remote: bool(remote.get("completed")) and not bool(local.get("completed"))
     if table == "finance_categories":
         return lambda local, remote: not float(local.get("monthly_limit") or 0) and float(remote.get("monthly_limit") or 0) > 0
+    if table == "habits":
+        # Edição mais recente vence; sem updated_at (snapshot antigo) vale created_at; empate: local.
+        return lambda local, remote: _latest_stamp(remote, _HABIT_STAMPS) > _latest_stamp(local, _HABIT_STAMPS)
     return lambda local, remote: False
 
 
@@ -411,6 +502,58 @@ def merge_lifestyle(local: Any, remote: Any) -> dict[str, list[dict[str, Any]]]:
                 rows[key] = row
         merged[table] = list(rows.values())
     return merged
+
+
+def _row_deleted(table: str, row: dict[str, Any], tombstones: tomb.Tombstones) -> bool:
+    rule = _LIFESTYLE_TOMBSTONES.get(table)
+    if rule is None:
+        return False
+    kind, stamp_names = rule
+    return tomb.covers(tombstones, kind, _row_key(row, _LIFESTYLE_TABLES[table][0]), _latest_stamp(row, stamp_names))
+
+
+def drop_deleted_rows(lifestyle: dict[str, list[dict[str, Any]]], tombstones: tomb.Tombstones) -> dict[str, list[dict[str, Any]]]:
+    """Tira as linhas cobertas por lápide e as filhas (registros, subtarefas) de uma mãe apagada."""
+    result = {table: [row for row in rows if not _row_deleted(table, row, tombstones)] for table, rows in lifestyle.items()}
+    for child, (parent, column) in _LIFESTYLE_CHILDREN.items():
+        parent_kind = _LIFESTYLE_TOMBSTONES[parent][0]
+        alive = {row.get("id") for row in result.get(parent, [])}
+        deleted_parents = tombstones.get(parent_kind, {})
+        result[child] = [
+            row
+            for row in result.get(child, [])
+            if row.get(column) in alive or tomb.row_key(row.get(column)) not in deleted_parents
+        ]
+    return result
+
+
+def _delete_lifestyle_rows(tombstones: tomb.Tombstones) -> int:
+    """Apaga do SQLite local as linhas cobertas por lápide (e filhas de mães apagadas)."""
+    deleted = 0
+    if not any(tombstones.get(kind) for kind, _ in _LIFESTYLE_TOMBSTONES.values()):
+        return deleted
+    with _lifestyle_connection() as conn:
+        for table in _LIFESTYLE_TOMBSTONES:  # nomes vêm das listas fixas acima, nunca do remoto
+            key_cols = _LIFESTYLE_TABLES[table][0]
+            where = " AND ".join(f"{col} = ?" for col in key_cols)
+            for row in conn.execute(f"SELECT * FROM {table}").fetchall():
+                values = dict(row)
+                if _row_deleted(table, values, tombstones):
+                    deleted += conn.execute(f"DELETE FROM {table} WHERE {where}", [values[c] for c in key_cols]).rowcount
+        for child, (parent, column) in _LIFESTYLE_CHILDREN.items():
+            parent_kind = _LIFESTYLE_TOMBSTONES[parent][0]
+            for key in tombstones.get(parent_kind, {}):
+                parsed: Any = None
+                with contextlib.suppress(ValueError):
+                    parsed = json.loads(key)
+                if not isinstance(parsed, list) or len(parsed) != 1 or not isinstance(parsed[0], str):
+                    continue
+                deleted += conn.execute(
+                    f"DELETE FROM {child} WHERE {column} = ? AND NOT EXISTS (SELECT 1 FROM {parent} WHERE id = ?)",
+                    (parsed[0], parsed[0]),
+                ).rowcount
+        conn.commit()
+    return deleted
 
 
 def _apply_lifestyle(merged: dict[str, list[dict[str, Any]]]) -> int:
@@ -447,38 +590,45 @@ def collect_snapshot() -> dict[str, Any]:
         "tasks": _collect_tasks(),
         "goals": _collect_goals(),
         "memory": _collect_memory(),
-        "notes": _collect_notes(),
+        "notes": _collect_notes(),  # antes das lápides: registra notas apagadas na pasta
         "lifestyle": _collect_lifestyle(),
+        "tombstones": tomb.load(),
     }
 
 
 def merge_snapshots(local: Any, remote: Any) -> dict[str, Any]:
     left, right = _dict(local), _dict(remote)
+    tombstones = tomb.merge(left.get("tombstones"), right.get("tombstones"))
     return {
         "schema": SCHEMA_VERSION,
         "collected_at": int(time.time() * 1000),
         "settings": merge_settings_fields(_dict(left.get("settings")), _dict(right.get("settings"))),
-        "tasks": merge_records(left.get("tasks"), right.get("tasks")),
+        "tasks": drop_deleted_records(merge_records(left.get("tasks"), right.get("tasks")), tombstones, "tasks"),
         "goals": merge_records(left.get("goals"), right.get("goals")),
         "memory": merge_memory(left.get("memory"), right.get("memory")),
-        "notes": merge_notes(left.get("notes"), right.get("notes")),
-        "lifestyle": merge_lifestyle(left.get("lifestyle"), right.get("lifestyle")),
+        "notes": drop_deleted_notes(merge_notes(left.get("notes"), right.get("notes")), tombstones),
+        "lifestyle": drop_deleted_rows(merge_lifestyle(left.get("lifestyle"), right.get("lifestyle")), tombstones),
+        "tombstones": tombstones,
     }
 
 
 def apply_snapshot(snapshot: dict[str, Any]) -> dict[str, int]:
     """Grava no armazenamento local um snapshot já mesclado. Devolve só contagens."""
+    tombstones = tomb.clean(snapshot.get("tombstones"))
+    tomb.store(tombstones)
     summary = {
         "settings": apply_settings_fields(_dict(snapshot.get("settings"))),
         "tasks": len(_dict(snapshot.get("tasks"))),
         "goals": len(_dict(snapshot.get("goals"))),
         "notes": len(_dict(snapshot.get("notes"))),
     }
-    _apply_tasks(_dict(snapshot.get("tasks")))
+    _apply_tasks(drop_deleted_records(_dict(snapshot.get("tasks")), tombstones, "tasks"))
     _apply_goals(_dict(snapshot.get("goals")))
     _apply_memory(merge_memory(snapshot.get("memory"), {}))
-    _apply_notes(_dict(snapshot.get("notes")))
-    summary["lifestyle_rows_written"] = _apply_lifestyle(_dict(snapshot.get("lifestyle")))
+    summary["notes_deleted"] = _apply_notes(drop_deleted_notes(_dict(snapshot.get("notes")), tombstones), tombstones)
+    summary["lifestyle_rows_deleted"] = _delete_lifestyle_rows(tombstones)
+    summary["lifestyle_rows_written"] = _apply_lifestyle(drop_deleted_rows(_dict(snapshot.get("lifestyle")), tombstones))
+    summary["tombstones"] = sum(len(entries) for entries in tombstones.values())
     return summary
 
 

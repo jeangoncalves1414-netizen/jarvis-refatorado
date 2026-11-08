@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -45,6 +46,7 @@ def use_device(monkeypatch, tmp_path):
         monkeypatch.setattr("app.storage.user_preferences.preference_store.file_path", str(root / "data" / "preferences.json"))
         monkeypatch.setattr("app.services.memory_vault.VAULT_DIR", root / "data" / "vault")
         monkeypatch.setattr("app.services.habits.DB_PATH", root / "data" / "lifestyle.db")
+        monkeypatch.setattr("app.storage.sync_tombstones.TOMBSTONES_FILE", root / "data" / "sync_tombstones.json")
         (root / "data" / "vault").mkdir(exist_ok=True)
         from app.services import finance, habits, tasks
 
@@ -246,6 +248,138 @@ def test_invalid_remote_providers_are_ignored(use_device):
     bs.sync_with_remote({"settings": {"llm_provider": field("inexistente", 9999999999999), "api_keys.desconhecido": field("x", 1)}})
     assert rs.get_llm_provider() == "gemini"
     assert "desconhecido" not in rs._read().get("api_keys", {})
+
+
+# ---------------------------------------------------------------------------
+# Lápides de exclusão (S1) e data de edição dos hábitos (S2)
+# ---------------------------------------------------------------------------
+def via_cloud(snapshot):
+    return json.loads(json.dumps(snapshot))
+
+
+def lifestyle_ids(table, column="id"):
+    return sorted(row[column] for row in bs._collect_lifestyle()[table])
+
+
+def test_deleting_on_one_device_does_not_come_back_after_merging_with_the_other(use_device):
+    from app.services.finance import FinanceService
+    from app.services.habits import HabitService
+    from app.services.tasks import TaskService
+    from app.storage import task_store
+
+    populated = populate_pc(use_device)
+    HabitService.check_in("hab_1", "2026-11-01")
+    first = via_cloud(bs.collect_snapshot())
+    use_device("phone")
+    bs.sync_with_remote(first)
+    phone_snapshot = via_cloud(bs.collect_snapshot())  # o celular ainda tem tudo
+
+    pc = use_device("pc")
+    FinanceService.delete_transaction("fin_1")
+    HabitService.delete_habit("hab_1")
+    TaskService.delete_task("rot_1")
+    task_store.delete_task(populated["task"]["id"])
+    (pc / "data" / "vault" / "04-Projects" / "ideia.md").unlink()  # apagada direto na pasta do cofre
+
+    merged, summary = bs.sync_with_remote(phone_snapshot)
+
+    assert FinanceService.list_transactions() == [] and HabitService.list_habits() == []
+    assert TaskService.list_tasks(completed=None) == [] and task_store.list_tasks() == []
+    assert lifestyle_ids("habit_logs", "habit_id") == [] and lifestyle_ids("task_subtasks", "task_id") == []
+    assert not (pc / "data" / "vault" / "04-Projects" / "ideia.md").exists()
+    assert set(merged["tombstones"]) >= {"tasks", "notes", "lifestyle.habits", "lifestyle.tasks", "lifestyle.finance_transactions"}
+    assert summary["tombstones"] >= 5
+
+    # A exclusão chega ao outro dispositivo pela nuvem.
+    phone = use_device("phone")
+    _, phone_summary = bs.sync_with_remote(via_cloud(merged))
+
+    assert FinanceService.list_transactions() == [] and HabitService.list_habits() == []
+    assert TaskService.list_tasks(completed=None) == [] and task_store.list_tasks() == []
+    assert lifestyle_ids("habit_logs", "habit_id") == [] and lifestyle_ids("task_subtasks", "task_id") == []
+    assert not (phone / "data" / "vault" / "04-Projects" / "ideia.md").exists()
+    backup = list((phone / "data" / "vault" / ".conflitos").glob("ideia.apagada.*.md"))
+    assert len(backup) == 1 and backup[0].read_text(encoding="utf-8") == "# Ideia\nMeu plano."
+    assert phone_summary["lifestyle_rows_deleted"] >= 3 and phone_summary["notes_deleted"] == 1
+
+    # E não volta numa sincronização seguinte com o snapshot velho do celular.
+    use_device("pc")
+    bs.sync_with_remote(phone_snapshot)
+    assert FinanceService.list_transactions() == [] and task_store.list_tasks() == []
+
+
+def test_edit_or_recreation_after_the_deletion_wins_over_the_tombstone():
+    now = time.time()
+    tombstones = {"lifestyle.finance_transactions": {'["fin_1"]': now - 10}, "tasks": {"t1": now - 10}}
+    old_row = {"id": "fin_1", "type": "expense", "amount": 1.0, "timestamp": now - 20}
+    new_row = {**old_row, "amount": 2.0, "timestamp": now}
+
+    dropped = bs.merge_snapshots({"tombstones": tombstones}, {"lifestyle": {"finance_transactions": [old_row]}, "tasks": {"t1": {"id": "t1", "updated_at": now - 20}}})
+    kept = bs.merge_snapshots({"tombstones": tombstones}, {"lifestyle": {"finance_transactions": [new_row]}, "tasks": {"t1": {"id": "t1", "updated_at": now}}})
+
+    assert dropped["lifestyle"]["finance_transactions"] == [] and dropped["tasks"] == {}
+    assert kept["lifestyle"]["finance_transactions"] == [new_row] and "t1" in kept["tasks"]
+
+
+def test_habit_edit_on_one_device_reaches_the_other(use_device):
+    from app.services.habits import HabitService
+
+    populate_pc(use_device)
+    first = via_cloud(bs.collect_snapshot())
+    use_device("phone")
+    bs.sync_with_remote(first)
+    stale_phone = via_cloud(bs.collect_snapshot())
+
+    use_device("pc")
+    time.sleep(0.01)
+    HabitService.update_habit("hab_1", name="Beber 2 litros de água")
+    bs.sync_with_remote(stale_phone)  # o snapshot velho do celular não desfaz a edição
+    assert HabitService.get_habit("hab_1")["name"] == "Beber 2 litros de água"
+    pc_snapshot = via_cloud(bs.collect_snapshot())
+
+    use_device("phone")
+    bs.sync_with_remote(pc_snapshot)
+    habit = HabitService.get_habit("hab_1")
+    assert habit["name"] == "Beber 2 litros de água"
+    assert habit["updated_at"] > habit["created_at"]
+
+
+def test_old_snapshot_without_tombstones_or_habit_dates_still_works(use_device):
+    from app.services.finance import FinanceService
+    from app.services.habits import HabitService
+
+    populate_pc(use_device)
+    old = via_cloud(bs.collect_snapshot())
+    old.pop("tombstones")
+    for row in old["lifestyle"]["habits"]:
+        row.pop("updated_at")
+
+    use_device("phone")
+    merged, _ = bs.sync_with_remote(old)
+
+    assert [h["id"] for h in HabitService.list_habits()] == ["hab_1"]
+    assert [t["id"] for t in FinanceService.list_transactions()] == ["fin_1"]
+    assert merged["tombstones"] == {}
+    # Sem data de edição, o hábito local não é trocado pelo remoto (empate: local).
+    assert bs.merge_lifestyle({"habits": [{"id": "h", "name": "local", "created_at": 5}]}, {"habits": [{"id": "h", "name": "remoto", "created_at": 5}]})["habits"][0]["name"] == "local"
+
+
+def test_tombstones_are_validated_and_old_ones_are_pruned():
+    from app.storage import sync_tombstones as tomb
+
+    now = time.time()
+    raw = {
+        "tasks": {"velha": now - tomb.RETENTION_SECONDS - 60, "nova": now - 60, "futura": now + 9999, "ruim": "x"},
+        "desconhecido": {"a": now},
+        "notes": {"x" * (tomb.MAX_KEY_LENGTH + 1): now},
+    }
+    cleaned = tomb.clean(raw, now)
+
+    assert cleaned == {"tasks": {"nova": now - 60, "futura": now}}
+    assert tomb.merge({"tasks": {"a": now - 50}}, {"tasks": {"a": now - 10}}, now) == {"tasks": {"a": now - 10}}
+    tomb.record("tasks", "t1", now - 5)
+    tomb.store({"tasks": {"t1": now - tomb.RETENTION_SECONDS - 1}})
+    assert tomb.load()["tasks"]["t1"] == now - 5
 
 
 # ---------------------------------------------------------------------------

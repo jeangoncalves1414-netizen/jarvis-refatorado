@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services.habits import get_db_connection
+from app.storage import sync_tombstones
 
 
 def init_finance_tables() -> None:
@@ -205,7 +206,10 @@ class FinanceService:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM finance_transactions WHERE id = ?", (trans_id,))
+            removed = cursor.rowcount > 0
             conn.commit()
+        if removed:
+            sync_tombstones.record("lifestyle.finance_transactions", sync_tombstones.row_key(trans_id))
         return FinanceService.get_summary()
 
     @staticmethod

@@ -7,6 +7,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from app.storage import sync_tombstones
+
 DATA_DIR = os.path.join(os.getcwd(), "data")
 TASKS_FILE = os.path.join(DATA_DIR, "tasks.json")
 _lock = threading.Lock()
@@ -83,4 +85,5 @@ def delete_task(task_id: str) -> bool:
             return False
         data["tasks"] = filtered
         _write(data)
+    sync_tombstones.record("tasks", str(task_id))
     return True

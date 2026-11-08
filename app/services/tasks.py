@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services.habits import get_db_connection
+from app.storage import sync_tombstones
 
 
 def init_task_tables() -> None:
@@ -132,5 +133,8 @@ class TaskService:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM task_subtasks WHERE task_id = ?", (task_id,))
             cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            removed = cursor.rowcount > 0
             conn.commit()
-            return cursor.rowcount > 0
+        if removed:
+            sync_tombstones.record("lifestyle.tasks", sync_tombstones.row_key(task_id))
+        return removed

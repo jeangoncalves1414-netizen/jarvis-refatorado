@@ -8,6 +8,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+@pytest.fixture(autouse=True)
+def isolated_sync_tombstones(tmp_path, monkeypatch):
+    """Exclusões feitas em testes nunca gravam lápides em data/ do projeto."""
+    monkeypatch.setattr("app.storage.sync_tombstones.TOMBSTONES_FILE", tmp_path / "sync_tombstones.json")
+
+
 @pytest.fixture
 def isolated_conversation_journal(tmp_path, monkeypatch):
     from app.storage.action_store import ActionStore
