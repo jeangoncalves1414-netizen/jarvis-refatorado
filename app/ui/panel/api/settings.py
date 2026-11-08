@@ -265,13 +265,20 @@ def handle_settings_post(path: str, body: bytes, handler: Any) -> tuple[int, dic
             return 400, {"ok": False, "error": "JSON inválido."}
 
         provider = payload.get("tts_provider")
-        if not provider:
+        voices = payload.get("voices") if isinstance(payload.get("voices"), dict) else {}
+        if not provider and not voices:
             return 400, {"ok": False, "error": "Campo tts_provider é obrigatório."}
 
         try:
-            set_tts_provider(str(provider))
+            if provider:
+                set_tts_provider(str(provider))
+            if voices:
+                from app.storage.runtime_settings import set_tts_voices, sync_settings_to_obj
+                set_tts_voices(voices)
+                sync_settings_to_obj(handler.settings)
         except ValueError as exc:
             return 400, {"ok": False, "error": str(exc)}
+        provider = provider or getattr(handler.settings, "tts_provider", "fish")
 
         # A troca feita no painel deve valer para a próxima fala sem exigir
         # reiniciar o servidor. O pipeline é pequeno e pode ser reconstruído

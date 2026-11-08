@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { micAudioConstraints } from '../utils/micPrefs'
 import { isMobileStandalone } from './useDirectChat'
 import type { RequestOrigin } from './useChat'
 import {
@@ -186,7 +187,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       return
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: micAudioConstraints() })
       const chunks: BlobPart[] = []
       const options = pickRecorderOptions()
       const recorder = new MediaRecorder(stream, options)
@@ -873,7 +874,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       return
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: micAudioConstraints({ echoCancellation: true, noiseSuppression: true, autoGainControl: true }) })
       if (!liveCallActiveRef.current) { stream.getTracks().forEach(track => track.stop()); return }
       liveCallStreamRef.current = stream
       const audioContext = new AudioContext()

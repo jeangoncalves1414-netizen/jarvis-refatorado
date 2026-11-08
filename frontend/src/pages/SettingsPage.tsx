@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { Switch } from '../components/Switch'
 import { AutoApprovalsManager } from '../components/AutoApprovals'
-import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download } from 'lucide-react'
+import { VoiceSettings } from '../components/VoiceSettings'
+import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download, User, Mic, Route, ShieldCheck, Cloud, Palette, HardDrive, Search, Star, ArrowUp, ArrowDown, Check, SlidersHorizontal } from 'lucide-react'
 import type { AiSettings, LlmSettings, OxyyCatalog, OxyySettings, Proactive, SttSettings, TtsSettings, Tray, WakeWord } from '../types'
 import { isMobileStandalone, getMobileProvider, getMobileApiKeys, setMobileProvider, setMobileApiKeys, getMobileOxyyModels, setMobileOxyyModels, DEFAULT_MOBILE_KEYS, DEFAULT_OXXY_MODELS, type DirectChatProvider, countKeys, nativeDirectPost } from '../hooks/useDirectChat'
 import { isSfxEnabled, setSfxEnabled, playSuccess } from '../utils/sfx'
@@ -26,6 +27,9 @@ import {
   syncJarvisAfterLogin,
 } from '../utils/jarvisCloud'
 import { maskKeyList } from '../utils/syncMerge'
+import { loadSettingsLayout, orderSectionIds, saveSettingsLayout, type SettingsLayout } from '../utils/settingsLayout'
+
+type SectionDef = { id: string; label: string; icon: ReactNode; keywords: string; render: () => ReactNode }
 
 type SettingsPageProps = {
   ttsSettings: TtsSettings | null
@@ -146,56 +150,31 @@ export function SettingsPage({
 
   const [sfxActive, setSfxActive] = useState(isSfxEnabled)
 
-  return (
-    <section className="settings-grid">
+  const desktop = !isMobileStandalone()
+  const [query, setQuery] = useState('')
+  const [layout, setLayout] = useState<SettingsLayout>(loadSettingsLayout)
+  const [organizing, setOrganizing] = useState(false)
+  const [activeId, setActiveId] = useState<string>('general')
+
+  const updateLayout = (next: SettingsLayout) => { setLayout(next); saveSettingsLayout(next) }
+
+  const sections: SectionDef[] = [
+    {
+      id: 'general', label: 'Geral e perfil', icon: <User size={16} />, keywords: 'perfil agente nome personalidade estilo frase ativação briefing rotina diária módulos automações métricas',
+      render: () => (<>
       <AgentProfileSettings />
-
-      <AutoApprovalsManager />
-
-      {/* 2. Leitura Automática Switch Card */}
-      <article className="settings-card">
-        <p className="eyebrow">RESPOSTAS FALADAS</p>
-        <h2>Leitura automática</h2>
-        <Switch label="Ler respostas em voz alta" description="Quando ativo, o Jarvis fala respostas e ações automáticas." checked={speakEnabled} onChange={onSetSpeakEnabled} glowColor="blue" />
-      </article>
-
-      {/* Sons Táticos Switch Card */}
-      <article className="settings-card">
-        <p className="eyebrow">FEEDBACK AUDITIVO TÁTICO</p>
-        <h2>Sons procedurais (SFX)</h2>
-        <Switch
-          label="Sons táticos da interface"
-          description="Cliques sutis, confirmações de comando e sons futuristas sem arquivos pesados."
-          checked={sfxActive}
-          onChange={(val) => {
-            setSfxEnabled(val)
-            setSfxActive(val)
-            if (val) playSuccess()
-          }}
-          glowColor="purple"
-        />
-      </article>
-
-      {/* Backup & Dados do Sistema Card */}
-      <article className="settings-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-        <div>
-          <p className="eyebrow">SEGURANÇA & DADOS</p>
-          <h2>Backup do Jarvis & Life OS</h2>
-          <p>Exporta em 1 clique um arquivo ZIP com todas as memórias, conversas, hábitos e preferências.</p>
-        </div>
-        <div style={{ marginTop: 16 }}>
-          <a
-            href="/api/system/backup"
-            download
-            className="outline-button"
-            onClick={() => playSuccess()}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 16px', textDecoration: 'none', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)', color: '#fbbf24', borderRadius: 10, fontWeight: 700 }}
-          >
-            <Download size={15} /> Exportar Backup Completo (ZIP)
-          </a>
-        </div>
-      </article>
-
+        {desktop && (<>
+          {/* 7. Briefing Proativo */}
+          <article className="settings-card briefing-settings">
+            <p className="eyebrow">BRIEFING PROATIVO</p>
+            <h2>Rotina diária</h2>
+            <Switch label="Ativar briefing" description="O Jarvis prepara o resumo no horário definido." checked={Boolean(proactive?.config?.briefing_enabled)} onChange={checked => onSaveBriefing(checked)} glowColor="green" />
+            <label className="field-label">Horário<input type="time" value={briefingTime} onChange={event => onBriefingTimeChange(event.target.value)} /></label>
+            <div className="topic-list">{[['weather', 'Clima'], ['tasks', 'Tarefas'], ['news', 'Notícias'], ['finance', 'Mercado']].map(([value, label]) => <Switch key={value} label={label} checked={briefingTopics.includes(value)} onChange={() => onToggleBriefingTopic(value)} glowColor="purple" />)}</div>
+            <label className="field-label">Instruções personalizadas<input value={briefingInstructions} onChange={event => onBriefingInstructionsChange(event.target.value)} placeholder="Ex.: seja breve e priorize compromissos" /></label>
+            <button className="outline-button" type="button" onClick={() => onSaveBriefing()}>Salvar briefing</button>
+          </article>
+        </>)}
       {/* Ferramentas do Sistema & Módulos */}
       {onNavigate && (
         <article className="settings-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
@@ -224,206 +203,33 @@ export function SettingsPage({
           </div>
         </article>
       )}
-
-      {/* Desktop-only Backend Cards — hidden on mobile standalone */}
-      {!isMobileStandalone() && (
-        <>
-          {/* 1. Provedor de Voz TTS */}
+      </>),
+    },
+    {
+      id: 'voice', label: 'Voz e microfone', icon: <Mic size={16} />, keywords: 'voz microfone sensibilidade silêncio ganho dispositivo medidor stt tts teste fala whisper fish gemini edge palavra de ativação windows leitura automática',
+      render: () => (<>
+        {desktop && <VoiceSettings ttsSettings={ttsSettings} sttSettings={sttSettings} oxyySettings={oxyySettings} onSetTtsProvider={onSetTtsProvider} onSetSttProvider={onSetSttProvider} onSaveOxyy={onSaveOxyy} />}
+      {/* 2. Leitura Automática Switch Card */}
+      <article className="settings-card">
+        <p className="eyebrow">RESPOSTAS FALADAS</p>
+        <h2>Leitura automática</h2>
+        <Switch label="Ler respostas em voz alta" description="Quando ativo, o Jarvis fala respostas e ações automáticas." checked={speakEnabled} onChange={onSetSpeakEnabled} glowColor="blue" />
+      </article>
+        {desktop && (<>
+          {/* 6. Disponibilidade (Wake Word & Boot) */}
           <article className="settings-card">
-            <p className="eyebrow">SÍNTESE DE VOZ (TTS)</p>
-            <h2>Síntese de voz</h2>
-            <p>Escolha o provedor que lê as respostas em voz alta.</p>
-            <div className="provider-list">
-              {(['fish', 'gemini', 'edge', 'oxyy'] as const).map(provider => (
-                <button key={provider} type="button" className={ttsSettings?.tts_provider === provider ? 'provider-active' : ''} onClick={() => onSetTtsProvider(provider)}>
-                  <span>{providerLabel[provider]}</span>
-                  <small>{provider === 'fish' ? (ttsSettings?.fish_configured ? 'Voz personalizada · configurado' : 'Adicione FISH_API_KEY') : provider === 'gemini' ? 'Voz natural · Charon' : provider === 'edge' ? 'Neural PT-BR' : (ttsSettings?.oxyy_configured ? `Modelo ${ttsSettings.oxyy_model || oxyySettings?.models?.tts || 'TTS'}` : 'Adicione OXYY_API_KEYS')}</small>
-                </button>
-              ))}
-            </div>
+            <p className="eyebrow">VOZ E INICIALIZAÇÃO</p>
+            <h2>Disponibilidade</h2>
+            <Switch label="Palavra de ativação" description={!wakeWord?.available ? 'Detector local não instalado.' : wakeWord.active ? `Ativo: ouvindo “${wakeWord.phrase || 'a frase do perfil'}”.` : wakeWord.enabled ? 'Ligado, mas a escuta local não está em execução.' : 'Detector local disponível, desligado.'} checked={Boolean(wakeWord?.enabled)} disabled={!wakeWord?.available} onChange={onSetWakeWordEnabled} glowColor="purple" />
+            <Switch label="Iniciar com o Windows" description="Abre o Jarvis automaticamente no login." checked={Boolean(tray?.boot_enabled)} onChange={onSetBootEnabled} glowColor="blue" />
           </article>
-
-          {/* 3. API Keys Card (Desktop Backend) */}
-          <article className="settings-card settings-keys-card" style={{ gridColumn: '1 / -1' }}>
-            <div className="settings-card-heading">
-              <div>
-                <p className="eyebrow">SEGURANÇA & CREDENCIAIS</p>
-                <h2>Chaves de API dos Provedores (Desktop)</h2>
-              </div>
-              <button className="outline-button" type="button" onClick={handleSaveKeys} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Save size={14} /> Salvar Chaves
-              </button>
-            </div>
-            <p>Insira ou atualize as chaves de API. Separe múltiplas chaves por vírgula para rotação automática. Use o ícone 👁️ para desocultar os caracteres.</p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, marginTop: 12 }}>
-              {/* Oxyy API Key */}
-              <div className="field-label">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
-                    <KeyRound size={14} style={{ color: '#fbbf24' }} /> Oxyy API Key (Catálogo Principal)
-                  </span>
-                  {keyValues.oxyy && (
-                    <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
-                      {keyValues.oxyy.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.oxyy ? ` · ${maskKeyList(keyValues.oxyy)}` : ''}
-                    </span>
-                  )}
-                </div>
-                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
-                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  <input
-                    type="password"
-                    value={keyValues.oxyy}
-                    onChange={e => handleKeyChange('oxyy', e.target.value)}
-                    placeholder="sk-oxyy-...,sk-oxyy-..."
-                    style={{ flex: 1 }}
-                  />
-                  <button
-                    type="button"
-                    className="outline-button"
-                    onClick={() => toggleKeyVisibility('oxyy')}
-                    title={visibleKeys.oxyy ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
-                    style={{ padding: '6px 10px' }}
-                  >
-                    {visibleKeys.oxyy ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Groq API Key */}
-              <div className="field-label">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
-                    <KeyRound size={14} style={{ color: '#78e68c' }} /> Groq API Key ° Oficial
-                  </span>
-                  {keyValues.groq && (
-                    <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
-                      {keyValues.groq.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.groq ? ` · ${maskKeyList(keyValues.groq)}` : ''}
-                    </span>
-                  )}
-                </div>
-                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
-                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  <input
-                    type="password"
-                    value={keyValues.groq}
-                    onChange={e => handleKeyChange('groq', e.target.value)}
-                    placeholder="gsk_...,gsk_..."
-                    style={{ flex: 1 }}
-                  />
-                  <button
-                    type="button"
-                    className="outline-button"
-                    onClick={() => toggleKeyVisibility('groq')}
-                    title={visibleKeys.groq ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
-                    style={{ padding: '6px 10px' }}
-                  >
-                    {visibleKeys.groq ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Gemini API Key */}
-              <div className="field-label">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
-                    <KeyRound size={14} style={{ color: '#a855f7' }} /> Gemini API Key ° Oficial (Google)
-                  </span>
-                  {keyValues.gemini && (
-                    <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
-                      {keyValues.gemini.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.gemini ? ` · ${maskKeyList(keyValues.gemini)}` : ''}
-                    </span>
-                  )}
-                </div>
-                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
-                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  <input
-                    type="password"
-                    value={keyValues.gemini}
-                    onChange={e => handleKeyChange('gemini', e.target.value)}
-                    placeholder="AIzaSy...,AIzaSy..."
-                    style={{ flex: 1 }}
-                  />
-                  <button
-                    type="button"
-                    className="outline-button"
-                    onClick={() => toggleKeyVisibility('gemini')}
-                    title={visibleKeys.gemini ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
-                    style={{ padding: '6px 10px' }}
-                  >
-                    {visibleKeys.gemini ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-              </div>
-
-              {/* OpenRouter API Key */}
-              <div className="field-label">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
-                    <KeyRound size={14} style={{ color: '#ffaa00' }} /> OpenRouter API Key ° Oficial
-                  </span>
-                  {keyValues.openrouter && (
-                    <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
-                      {keyValues.openrouter.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.openrouter ? ` · ${maskKeyList(keyValues.openrouter)}` : ''}
-                    </span>
-                  )}
-                </div>
-                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
-                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  <input
-                    type="password"
-                    value={keyValues.openrouter}
-                    onChange={e => handleKeyChange('openrouter', e.target.value)}
-                    placeholder="sk-or-v1-...,sk-or-v1-..."
-                    style={{ flex: 1 }}
-                  />
-                  <button
-                    type="button"
-                    className="outline-button"
-                    onClick={() => toggleKeyVisibility('openrouter')}
-                    title={visibleKeys.openrouter ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
-                    style={{ padding: '6px 10px' }}
-                  >
-                    {visibleKeys.openrouter ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Fish Audio API Key */}
-              <div className="field-label">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
-                    <KeyRound size={14} style={{ color: '#fbbf24' }} /> Fish Audio API Key ° Oficial
-                  </span>
-                  {keyValues.fish && (
-                    <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
-                      {keyValues.fish.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.fish ? ` · ${maskKeyList(keyValues.fish)}` : ''}
-                    </span>
-                  )}
-                </div>
-                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
-                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  <input
-                    type="password"
-                    value={keyValues.fish}
-                    onChange={e => handleKeyChange('fish', e.target.value)}
-                    placeholder="key-...,key-..."
-                    style={{ flex: 1 }}
-                  />
-                  <button
-                    type="button"
-                    className="outline-button"
-                    onClick={() => toggleKeyVisibility('fish')}
-                    title={visibleKeys.fish ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
-                    style={{ padding: '6px 10px' }}
-                  >
-                    {visibleKeys.fish ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </article>
-
+        </>)}
+      </>),
+    },
+    {
+      id: 'providers', label: 'Provedores e rotas', icon: <Route size={16} />, keywords: 'provedores rotas capacidade chaves api oxyy groq gemini openrouter fish modelo fallback catálogo mobile',
+      render: () => (<>
+        {desktop && (<>
           {/* 4. Rotas por Capacidade (Motor Efetivo Status) */}
           <article className="settings-card settings-routes-card">
             <p className="eyebrow">ROTAS POR CAPACIDADE</p>
@@ -447,7 +253,6 @@ export function SettingsPage({
               })}
             </div>
           </article>
-
           {/* 5. Catálogo Modular Oxyy */}
           <article className="settings-card oxyy-settings-card">
             <div className="settings-card-heading">
@@ -630,35 +435,330 @@ export function SettingsPage({
               </div>
             </details>
           </article>
+          {/* 3. API Keys Card (Desktop Backend) */}
+          <article className="settings-card settings-keys-card" style={{ gridColumn: '1 / -1' }}>
+            <div className="settings-card-heading">
+              <div>
+                <p className="eyebrow">SEGURANÇA & CREDENCIAIS</p>
+                <h2>Chaves de API dos Provedores (Desktop)</h2>
+              </div>
+              <button className="outline-button" type="button" onClick={handleSaveKeys} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Save size={14} /> Salvar Chaves
+              </button>
+            </div>
+            <p>Insira ou atualize as chaves de API. Separe múltiplas chaves por vírgula para rotação automática. Use o ícone 👁️ para desocultar os caracteres.</p>
 
-          {/* 6. Disponibilidade (Wake Word & Boot) */}
-          <article className="settings-card">
-            <p className="eyebrow">VOZ E INICIALIZAÇÃO</p>
-            <h2>Disponibilidade</h2>
-            <Switch label="Palavra de ativação" description={!wakeWord?.available ? 'Detector local não instalado.' : wakeWord.active ? `Ativo: ouvindo “${wakeWord.phrase || 'a frase do perfil'}”.` : wakeWord.enabled ? 'Ligado, mas a escuta local não está em execução.' : 'Detector local disponível, desligado.'} checked={Boolean(wakeWord?.enabled)} disabled={!wakeWord?.available} onChange={onSetWakeWordEnabled} glowColor="purple" />
-            <Switch label="Iniciar com o Windows" description="Abre o Jarvis automaticamente no login." checked={Boolean(tray?.boot_enabled)} onChange={onSetBootEnabled} glowColor="blue" />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, marginTop: 12 }}>
+              {/* Oxyy API Key */}
+              <div className="field-label">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                    <KeyRound size={14} style={{ color: '#fbbf24' }} /> Oxyy API Key (Catálogo Principal)
+                  </span>
+                  {keyValues.oxyy && (
+                    <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
+                      {keyValues.oxyy.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.oxyy ? ` · ${maskKeyList(keyValues.oxyy)}` : ''}
+                    </span>
+                  )}
+                </div>
+                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <input
+                    type="password"
+                    value={keyValues.oxyy}
+                    onChange={e => handleKeyChange('oxyy', e.target.value)}
+                    placeholder="sk-oxyy-...,sk-oxyy-..."
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="outline-button"
+                    onClick={() => toggleKeyVisibility('oxyy')}
+                    title={visibleKeys.oxyy ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
+                    style={{ padding: '6px 10px' }}
+                  >
+                    {visibleKeys.oxyy ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Groq API Key */}
+              <div className="field-label">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                    <KeyRound size={14} style={{ color: '#78e68c' }} /> Groq API Key ° Oficial
+                  </span>
+                  {keyValues.groq && (
+                    <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
+                      {keyValues.groq.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.groq ? ` · ${maskKeyList(keyValues.groq)}` : ''}
+                    </span>
+                  )}
+                </div>
+                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <input
+                    type="password"
+                    value={keyValues.groq}
+                    onChange={e => handleKeyChange('groq', e.target.value)}
+                    placeholder="gsk_...,gsk_..."
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="outline-button"
+                    onClick={() => toggleKeyVisibility('groq')}
+                    title={visibleKeys.groq ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
+                    style={{ padding: '6px 10px' }}
+                  >
+                    {visibleKeys.groq ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Gemini API Key */}
+              <div className="field-label">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                    <KeyRound size={14} style={{ color: '#a855f7' }} /> Gemini API Key ° Oficial (Google)
+                  </span>
+                  {keyValues.gemini && (
+                    <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
+                      {keyValues.gemini.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.gemini ? ` · ${maskKeyList(keyValues.gemini)}` : ''}
+                    </span>
+                  )}
+                </div>
+                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <input
+                    type="password"
+                    value={keyValues.gemini}
+                    onChange={e => handleKeyChange('gemini', e.target.value)}
+                    placeholder="AIzaSy...,AIzaSy..."
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="outline-button"
+                    onClick={() => toggleKeyVisibility('gemini')}
+                    title={visibleKeys.gemini ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
+                    style={{ padding: '6px 10px' }}
+                  >
+                    {visibleKeys.gemini ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* OpenRouter API Key */}
+              <div className="field-label">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                    <KeyRound size={14} style={{ color: '#ffaa00' }} /> OpenRouter API Key ° Oficial
+                  </span>
+                  {keyValues.openrouter && (
+                    <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
+                      {keyValues.openrouter.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.openrouter ? ` · ${maskKeyList(keyValues.openrouter)}` : ''}
+                    </span>
+                  )}
+                </div>
+                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <input
+                    type="password"
+                    value={keyValues.openrouter}
+                    onChange={e => handleKeyChange('openrouter', e.target.value)}
+                    placeholder="sk-or-v1-...,sk-or-v1-..."
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="outline-button"
+                    onClick={() => toggleKeyVisibility('openrouter')}
+                    title={visibleKeys.openrouter ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
+                    style={{ padding: '6px 10px' }}
+                  >
+                    {visibleKeys.openrouter ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Fish Audio API Key */}
+              <div className="field-label">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                    <KeyRound size={14} style={{ color: '#fbbf24' }} /> Fish Audio API Key ° Oficial
+                  </span>
+                  {keyValues.fish && (
+                    <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
+                      {keyValues.fish.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.fish ? ` · ${maskKeyList(keyValues.fish)}` : ''}
+                    </span>
+                  )}
+                </div>
+                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <input
+                    type="password"
+                    value={keyValues.fish}
+                    onChange={e => handleKeyChange('fish', e.target.value)}
+                    placeholder="key-...,key-..."
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="outline-button"
+                    onClick={() => toggleKeyVisibility('fish')}
+                    title={visibleKeys.fish ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
+                    style={{ padding: '6px 10px' }}
+                  >
+                    {visibleKeys.fish ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+            </div>
           </article>
-
-          {/* 7. Briefing Proativo */}
-          <article className="settings-card briefing-settings">
-            <p className="eyebrow">BRIEFING PROATIVO</p>
-            <h2>Rotina diária</h2>
-            <Switch label="Ativar briefing" description="O Jarvis prepara o resumo no horário definido." checked={Boolean(proactive?.config?.briefing_enabled)} onChange={checked => onSaveBriefing(checked)} glowColor="green" />
-            <label className="field-label">Horário<input type="time" value={briefingTime} onChange={event => onBriefingTimeChange(event.target.value)} /></label>
-            <div className="topic-list">{[['weather', 'Clima'], ['tasks', 'Tarefas'], ['news', 'Notícias'], ['finance', 'Mercado']].map(([value, label]) => <Switch key={value} label={label} checked={briefingTopics.includes(value)} onChange={() => onToggleBriefingTopic(value)} glowColor="purple" />)}</div>
-            <label className="field-label">Instruções personalizadas<input value={briefingInstructions} onChange={event => onBriefingInstructionsChange(event.target.value)} placeholder="Ex.: seja breve e priorize compromissos" /></label>
-            <button className="outline-button" type="button" onClick={() => onSaveBriefing()}>Salvar briefing</button>
-          </article>
-        </>
-      )}
-
-      <EvoluteSyncSettings />
-
+        </>)}
       {/* Mobile API & Model Configuration Manager */}
       {isMobileStandalone() && <MobileApiConfig />}
+      </>),
+    },
+    {
+      id: 'approvals', label: 'Aprovações automáticas', icon: <ShieldCheck size={16} />, keywords: 'aprovações automáticas modo liberado ferramentas regras permitir aprovar',
+      render: () => (<>
+      <AutoApprovalsManager />
+      </>),
+    },
+    {
+      id: 'sync', label: 'Sincronização e conta', icon: <Cloud size={16} />, keywords: 'sincronização conta nuvem supabase login entrar sair evolução life os',
+      render: () => (<>
+      <EvoluteSyncSettings />
+      </>),
+    },
+    {
+      id: 'appearance', label: 'Aparência e sons', icon: <Palette size={16} />, keywords: 'aparência sons sfx interface organizar seções favoritas ocultar ordem',
+      render: () => (<>
+      {/* Sons Táticos Switch Card */}
+      <article className="settings-card">
+        <p className="eyebrow">FEEDBACK AUDITIVO TÁTICO</p>
+        <h2>Sons procedurais (SFX)</h2>
+        <Switch
+          label="Sons táticos da interface"
+          description="Cliques sutis, confirmações de comando e sons futuristas sem arquivos pesados."
+          checked={sfxActive}
+          onChange={(val) => {
+            setSfxEnabled(val)
+            setSfxActive(val)
+            if (val) playSuccess()
+          }}
+          glowColor="purple"
+        />
+      </article>
+        <article className="settings-card">
+          <p className="eyebrow">ORGANIZAÇÃO</p>
+          <h2>Seções das Configurações</h2>
+          <p>Reordene, oculte ou fixe seções favoritas na lista lateral. A escolha fica salva neste aparelho e entra na sincronização.</p>
+          <div className="st-actions">
+            <button className="outline-button" type="button" onClick={() => setOrganizing(true)}>Organizar agora</button>
+            <button className="outline-button" type="button" onClick={() => updateLayout({ order: [], hidden: [], favorites: [] })}>Restaurar ordem padrão</button>
+          </div>
+        </article>
+      </>),
+    },
+    {
+      id: 'system', label: 'Backup e sistema', icon: <HardDrive size={16} />, keywords: 'backup sistema dados exportar zip segurança',
+      render: () => (<>
+      {/* Backup & Dados do Sistema Card */}
+      <article className="settings-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div>
+          <p className="eyebrow">SEGURANÇA & DADOS</p>
+          <h2>Backup do Jarvis & Life OS</h2>
+          <p>Exporta em 1 clique um arquivo ZIP com todas as memórias, conversas, hábitos e preferências.</p>
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <a
+            href="/api/system/backup"
+            download
+            className="outline-button"
+            onClick={() => playSuccess()}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 16px', textDecoration: 'none', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)', color: '#fbbf24', borderRadius: 10, fontWeight: 700 }}
+          >
+            <Download size={15} /> Exportar Backup Completo (ZIP)
+          </a>
+        </div>
+      </article>
+      </>),
+    },
+  ]
 
-      {notice && <p className="settings-notice">{notice}</p>}
-    </section>
+  const defaultIds = sections.map(section => section.id)
+  const orderedIds = orderSectionIds(defaultIds, layout)
+  const byId = (id: string) => sections.find(section => section.id === id)!
+  const visibleIds = orderedIds.filter(id => !layout.hidden.includes(id))
+  const needle = query.trim().toLowerCase()
+  const matches = (section: SectionDef) => !needle || (section.label + ' ' + section.keywords).toLowerCase().includes(needle)
+  const shownIds = organizing ? orderedIds : visibleIds.filter(id => matches(byId(id)))
+  const hiddenMatches = needle ? orderedIds.filter(id => layout.hidden.includes(id) && matches(byId(id))).length : 0
+  const currentId = visibleIds.includes(activeId) ? activeId : visibleIds[0]
+  const bodyIds = needle ? shownIds : currentId ? [currentId] : []
+
+  const move = (id: string, delta: number) => {
+    const list = [...orderedIds]
+    const index = list.indexOf(id)
+    const target = index + delta
+    if (index < 0 || target < 0 || target >= list.length) return
+    ;[list[index], list[target]] = [list[target], list[index]]
+    updateLayout({ ...layout, order: list })
+  }
+  const toggleIn = (key: 'hidden' | 'favorites', id: string) => {
+    const has = layout[key].includes(id)
+    updateLayout({ ...layout, order: orderedIds, [key]: has ? layout[key].filter(item => item !== id) : [...layout[key], id] })
+  }
+
+  return (
+    <div className="st-shell">
+      <aside className="st-nav" aria-label="Seções das configurações">
+        <label className="st-search">
+          <Search size={14} />
+          <input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar nas configurações" aria-label="Buscar nas configurações" />
+        </label>
+        <nav>
+          {shownIds.map(id => {
+            const section = byId(id)
+            const hidden = layout.hidden.includes(id)
+            const favorite = layout.favorites.includes(id)
+            return (
+              <div className={'st-nav-row ' + (hidden ? 'is-hidden' : '')} key={id}>
+                <button type="button" className={'st-nav-item ' + (!needle && currentId === id && !organizing ? 'selected' : '')} onClick={() => { setActiveId(id); setQuery('') }} disabled={organizing && hidden}>
+                  {section.icon}<span>{section.label}</span>{favorite && !organizing && <Star size={11} className="st-fav" />}
+                </button>
+                {organizing && (
+                  <span className="st-nav-tools">
+                    <button type="button" title="Subir" aria-label={'Subir ' + section.label} onClick={() => move(id, -1)}><ArrowUp size={13} /></button>
+                    <button type="button" title="Descer" aria-label={'Descer ' + section.label} onClick={() => move(id, 1)}><ArrowDown size={13} /></button>
+                    <button type="button" title={favorite ? 'Desafixar' : 'Fixar no topo'} aria-label={'Fixar ' + section.label} className={favorite ? 'on' : ''} onClick={() => toggleIn('favorites', id)}><Star size={13} /></button>
+                    <button type="button" title={hidden ? 'Mostrar' : 'Ocultar'} aria-label={(hidden ? 'Mostrar ' : 'Ocultar ') + section.label} onClick={() => toggleIn('hidden', id)}>{hidden ? <EyeOff size={13} /> : <Eye size={13} />}</button>
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </nav>
+        {!organizing && needle && shownIds.length === 0 && <p className="settings-muted">Nada encontrado para “{query}”.{hiddenMatches > 0 ? ' Há resultados em seções ocultas; use Organizar para mostrá-las.' : ''}</p>}
+        <button type="button" className="outline-button st-organize" onClick={() => setOrganizing(value => !value)}>
+          {organizing ? <><Check size={14} /> Concluir</> : <><SlidersHorizontal size={14} /> Organizar seções</>}
+        </button>
+      </aside>
+
+      <section className="st-body">
+        {organizing && <p className="settings-notice">Modo organizar: use as setas, a estrela (fixar no topo) e o olho (ocultar). Clique em Concluir quando terminar.</p>}
+        {!organizing && bodyIds.length === 0 && <p className="settings-muted">Todas as seções estão ocultas. Clique em Organizar seções para mostrá-las.</p>}
+        {!organizing && bodyIds.map(id => (
+          <div className="st-section" key={id}>
+            <header className="st-section-head">{byId(id).icon}<h2>{byId(id).label}</h2></header>
+            <div className="settings-grid">{byId(id).render()}</div>
+          </div>
+        ))}
+        {notice && <p className="settings-notice">{notice}</p>}
+      </section>
+    </div>
   )
 }
 

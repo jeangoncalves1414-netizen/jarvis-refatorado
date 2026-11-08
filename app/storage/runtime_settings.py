@@ -215,6 +215,14 @@ def sync_settings_to_obj(settings_obj: Any) -> None:
     if "stt_provider" in data:
         settings_obj.stt_provider = str(data["stt_provider"]).lower()
     
+    # Vozes dentro de cada provedor TTS (item VZ1)
+    voices = data.get("tts_voices") if isinstance(data.get("tts_voices"), dict) else {}
+    if voices.get("fish_reference_id"):
+        settings_obj.fish_reference_id = str(voices["fish_reference_id"])
+    if voices.get("gemini"):
+        settings_obj.tts_gemini_voice = str(voices["gemini"])
+    if voices.get("edge"):
+        settings_obj.tts_voice = str(voices["edge"])
     # Sync Oxyy models
     if isinstance(data.get("oxyy_models"), dict):
         oxyy_models = data["oxyy_models"]
@@ -448,6 +456,23 @@ def get_tts_settings(default_provider: str = "fish") -> dict[str, Any]:
         "oxyy_model": os.getenv("OXYY_TTS_MODEL", "tts-1-hd"),
         "oxyy_voice": os.getenv("OXYY_TTS_VOICE", "alloy"),
     }
+
+
+_TTS_VOICE_ENV = {"fish_reference_id": "FISH_REFERENCE_ID", "gemini": "TTS_GEMINI_VOICE", "edge": "TTS_VOICE"}
+
+
+def set_tts_voices(values: dict[str, Any]) -> None:
+    """Salva a voz escolhida dentro de cada provedor (fish_reference_id, gemini, edge)."""
+    data = _read()
+    current = dict(data.get("tts_voices")) if isinstance(data.get("tts_voices"), dict) else {}
+    for key, env_name in _TTS_VOICE_ENV.items():
+        if key in values:
+            value = str(values[key] or "").strip()[:120]
+            if value:
+                current[key] = value
+                os.environ[env_name] = value
+    data["tts_voices"] = current
+    _write(data)
 
 
 def get_stt_provider(default: str = "local") -> str:

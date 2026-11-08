@@ -7,6 +7,7 @@ import './profile-memory.css'
 import './camera-workspace.css'
 import './styles.css'
 import './styles/workspace.css'
+import './styles/settings.css'
 import './styles/windows.css'
 
 createRoot(document.getElementById('root')!).render(
