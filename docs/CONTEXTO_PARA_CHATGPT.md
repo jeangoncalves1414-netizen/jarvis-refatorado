@@ -188,10 +188,10 @@ Esta seção é a lista de referência. A seção 7 é só um resumo. Foi montad
 ### C. Controle, aprovação e segurança
 | ID | O que falta | Origem | Tam. |
 |---|---|---|---|
-| C1 | Aprovações que mostrem **alvo, mudança prevista, reversibilidade e escopo**. Hoje a maioria mostra "Executar X. Parâmetros registrados de forma protegida". Ex.: fechar app deve listar os processos que serão encerrados | Inventário #3, revisão do lote 1 | M |
+| C1 | **[Entregue no lote 3, `308b557`]** Aprovações que mostrem **alvo, mudança prevista, reversibilidade e escopo**. Hoje a maioria mostra "Executar X. Parâmetros registrados de forma protegida". Ex.: fechar app deve listar os processos que serão encerrados | Inventário #3, revisão do lote 1 | M |
 | C2 | Permissões por pasta, aplicativo, dispositivo ou domínio, com duração, limite e revogação | Inventário #3, referências (Jan, OpenClaw) | G |
-| C3 | O servidor deve aplicar a lista de ferramentas permitidas por modo e turno. Hoje o chat convencional entrega ao executor o catálogo completo e só filtra o que o modelo vê | Inventário #3 | M |
-| C4 | **"Parar pedido"** pelo chat e pela paleta. Falta o `run_id` no início do turno (hoje só chega no fim): o backend envia cedo ou o App consulta `/api/runs?status=running` | Lote 1 item 3 | P |
+| C3 | **[Entregue no lote 3, `0c0e413`]** O servidor deve aplicar a lista de ferramentas permitidas por modo e turno. Hoje o chat convencional entrega ao executor o catálogo completo e só filtra o que o modelo vê | Inventário #3 | M |
+| C4 | **[Entregue no lote 3, `77213fe`, por consulta periódica a `/api/runs`]** **"Parar pedido"** pelo chat e pela paleta. Falta o `run_id` no início do turno (hoje só chega no fim): o backend envia cedo ou o App consulta `/api/runs?status=running` | Lote 1 item 3 | P |
 | C5 | Cancelamento propagado a ferramentas longas (subprocessos, navegador, adaptadores). Hoje só cancela entre etapas | Inventário #4 | G |
 | C6 | Levar ao histórico: ações por voz, rotinas, automações diretas, passos internos de Swarm e Racing, rota direta de Swarm, memória em segundo plano | Inventário #4 | M |
 | C7 | Aprovar e recusar **dentro da resposta do chat** (hoje só link "Ver execução") | Referências (assistant-ui) | M |
@@ -199,7 +199,7 @@ Esta seção é a lista de referência. A seção 7 é só um resumo. Foi montad
 | C9 | Orientar um pedido em andamento sem cancelá-lo (steering) | Referências (Hermes Deck) | M |
 | C10 | Rotas que chamam ferramentas sem passar pelo `ActionExecutor` (endpoints diretos do servidor, voz) | Lote 1 item 2 | M |
 | C11 | Remover dispositivo pelo PC no modo `lan`: hoje todo pedido vira o principal `lan` e o botão não funciona | Lote 1 item 3 | P |
-| C12 | Ler brilho ao abrir "Controles do PC" cria um registro `observe` na Central a cada abertura (ruído) | Lote 2 item 6 | P |
+| C12 | **[Entregue no lote 3, `9ca78f6`]** Ler brilho ao abrir "Controles do PC" cria um registro `observe` na Central a cada abertura (ruído) | Lote 2 item 6 | P |
 
 ### A. Automação, gatilhos e comandos
 | ID | O que falta | Origem | Tam. |
@@ -207,9 +207,9 @@ Esta seção é a lista de referência. A seção 7 é só um resumo. Foi montad
 | A1 | **Cadastro único de comandos e rotinas** com vários gatilhos (horário, palma, `/`, paleta, frase de voz, botão). O registro de comandos do frontend já foi desenhado para isso | Usuária | G |
 | A2 | **Rotinas agendadas** com APScheduler (já instalado, não usado). Cada disparo cria um pedido. As receitas `workflow` hoje só simulam | Usuária, inventário #7 | G |
 | A3 | **Palmas opcionais**: o detector atual é um esboço que nunca inicia. Falta captar o microfone, detectar palma dupla e padrões, calibrar, ligar e desligar, associar padrão a comando ou sequência. Palma sozinha só executa risco baixo | Usuária | G |
-| A4 | **Palavra de ativação ligada à interface**: o detector funciona e a frase vem do perfil, mas o evento `wake_word` não é tratado por nenhum hook React. Mostrar se o detector está ativo | Paridade | P |
+| A4 | **[Entregue no lote 3, `9336be0`]** **Palavra de ativação ligada à interface**: o detector funciona e a frase vem do perfil, mas o evento `wake_word` não é tratado por nenhum hook React. Mostrar se o detector está ativo | Paridade | P |
 | A5 | Comandos de voz determinísticos (hoje a voz só vai ao chat e o modelo escolhe) | Paridade | M |
-| A6 | Escape `//` para enviar mensagens que começam com `/` (hoje todo texto com `/` no início é comando). `/clima` só prepara a pergunta | Lote 2 item 4 | P |
+| A6 | **[Entregue no lote 3, `9336be0`]** Escape `//` para enviar mensagens que começam com `/` (hoje todo texto com `/` no início é comando). `/clima` só prepara a pergunta | Lote 2 item 4 | P |
 | A7 | Spotlight (Alt+Space) e visão (Alt+V) ainda abrem o `spotlight.html` com o visual antigo | Paridade | M |
 | A8 | Proatividade: horário silencioso por objetivo, adiamento, feedback, ciclo completo sinal → consentimento → intervenção (plano 005) | Inventário #7 | G |
 | A9 | Automação de desktop (janelas, abrir pasta, resolução) existe mas não está registrada. Registrar atrás do catálogo ou remover | Paridade | M |
@@ -253,8 +253,8 @@ Esta seção é a lista de referência. A seção 7 é só um resumo. Foi montad
 ### S. Sincronização
 | ID | O que falta | Origem | Tam. |
 |---|---|---|---|
-| S1 | **Lápides para exclusões**: sem elas, um item apagado (finanças, notas, tarefas) pode voltar | Lote 2 item 3 | M |
-| S2 | Hábitos não têm data de alteração: editar em um dispositivo não chega ao outro | Lote 2 item 3 | M |
+| S1 | **[Entregue no lote 3, `8066a5c`; expiram em 90 dias]** **Lápides para exclusões**: sem elas, um item apagado (finanças, notas, tarefas) pode voltar | Lote 2 item 3 | M |
+| S2 | **[Entregue no lote 3, `8066a5c`]** Hábitos não têm data de alteração: editar em um dispositivo não chega ao outro | Lote 2 item 3 | M |
 | S3 | Limpar uma chave de propósito não se propaga; chave diferente no mesmo provedor vence a mais recente | Lote 2 item 3 | P |
 | S4 | Chat direto do celular quebra com resposta vazia (duas rotas assumem que toda resposta HTTP bem-sucedida tem corpo legível) | Plano 001 | P |
 
@@ -295,14 +295,17 @@ Personagem 3D (última prioridade); Open Interpreter como especialista de progra
 | ID | O que falta | Origem | Tam. |
 |---|---|---|---|
 | AQ1 | Ponto de entrada único de intenção para chat, voz, rotina, janela, celular e rotas diretas (`/api/browser/run` chama a ferramenta sem Action Kernel, `server.py:1737-1747`) | Análise de fluxo | G |
-| AQ2 | Metadado de risco, alvo e efeito para `finance_tool`, `habit_tool`, `task_tool`, `lifeos_tool` (fora de `TOOL_CATALOG`) | Análise de fluxo | P |
-| AQ3 | Contrato único de comando valendo no frontend, backend, voz, rotina e celular | Análise de fluxo | M |
+| AQ2 | **[Entregue no lote 3, `9ca78f6`]** Metadado de risco, alvo e efeito para `finance_tool`, `habit_tool`, `task_tool`, `lifeos_tool` (fora de `TOOL_CATALOG`) | Análise de fluxo | P |
+| AQ3 | **[Base entregue no lote 3, `9336be0`: contrato e `runCommandById` no frontend; backend, voz, rotina e celular continuam pendentes]** Contrato único de comando valendo no frontend, backend, voz, rotina e celular | Análise de fluxo | M |
 | AQ4 | Eventos de sistema (rotina disparou, sincronizou, conflito, mudou rota/chave) na Central | Análise de fluxo | M |
 | AQ5 | Contador visível e limite de etapas e chamadas ao modelo por turno | Análise de fluxo | M |
 | AQ6 | Medidor de uso de modelo em segundo plano, com chave para desligar o não essencial | Análise de fluxo | M |
 | AQ7 | Fila offline (rascunho local) para registro manual, enviada quando o servidor confirmar | Análise de fluxo | M |
 | AQ8 | Teste de contrato da "definição de pronto" (reprova item sem risco, entrada ou sync) | Análise de fluxo | P |
 | AQ9 | "Desfazer" em 1 clique para ações reversíveis | Análise de fluxo | M |
+
+### Situação do lote 3 (8/11/2026)
+Entregues: C4, C1, C3, C12, AQ2, A4, A6, S1, S2, base de AQ3, e a **remoção da orb** das superfícies ativas da ligação e do Painel pessoal (`77213fe`; os componentes antigos continuam no repositório sem entrada). Continuam pendentes do lote 3: V1 a V5 (validação manual, sem custo de IA; V5 é trocar a chave da Fish Audio). Relatório para revisão externa: `.agents/tasks/desktop-lote3/report.md` (fora do git).
 
 ## 14. Análise de fluxo e arquitetura (7/11/2026)
 
@@ -348,4 +351,4 @@ flowchart TD
 4. Rotinas, gatilhos e palmas não existem; o cadastro de comandos só está no frontend (A1, A2, AQ3).
 5. Ferramentas de módulos pessoais fora do catálogo de risco (AQ2) e celular quebrado (S4, M1, M2).
 
-**Plano mestre:** `plans/017-plano-mestre-do-aplicativo.md`. Lote 3 sugerido pelo plano: V1–V5, C4, AQ2, C12, C1, C3, AQ3, A6, A4, S1, S2.
+**Plano mestre:** `plans/017-plano-mestre-do-aplicativo.md`. Lote 3 sugerido pelo plano: V1–V5, C4, AQ2, C12, C1, C3, AQ3, A6, A4, S1, S2. Os problemas 2 (C3), 3 (C1; C2 continua aberto) e 5 (AQ2) foram tratados no lote 3; ver "Situação do lote 3" na seção 13.

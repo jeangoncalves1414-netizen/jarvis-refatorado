@@ -20,6 +20,18 @@ Revisão de 7 de novembro de 2026 no checkout de trabalho. A direção vigente �
 | 6. Ligar o APK à mesma Central | O aplicativo Android e o chat direto existem. Falta o modo conectado ao agente do PC com pareamento, identidade revogável, estado de conexão e recuperação após queda. O WebSocket legado é restrito ao loopback. O transporte usado pelo celular precisa aplicar a política de acesso do backend. | No aparelho físico, entrar no painel principal, enviar um pedido, conferir no PC o mesmo identificador e resultado, decidir uma aprovação e reconectar sem repetir a ação. Validar microfone, transcrição, saída de voz, permissões negadas e PC indisponível. [Seleção do chat móvel](../frontend/src/App.tsx) · [Contrato móvel atual](MOBILE_EVOLUTION.md) |
 | 7. Unificar conhecimento, tarefas e automações | Ligar notas, documentos e memórias à sua fonte, data e perfil, com correção e remoção. Mostrar quais fontes ajudaram na resposta. Há dois caminhos de tarefas no código e o vínculo do chat hoje abre a execução. Faltam contratos e links para abrir o próprio item. Nas automações, as receitas gerais só retornam simulação. Metas, políticas e deduplicação já existem. Faltam aplicação de horário silencioso por objetivo, adiamento, feedback e acompanhamento das rotinas com recibos. | Criar uma nota ou tarefa pelo chat, abri-la, editá-la e ler a alteração na próxima consulta. Simular uma rotina, autorizá-la no escopo escolhido e consultar o que ocorreu. Para importar dados do Nexus, prever prévia, backup, destino explícito e repetição sem duplicar. [Lista de tarefas do painel](../app/storage/task_store.py) · [Serviço de tarefas](../app/services/tasks.py) · [Receitas](../app/agent/tools/workflow.py) · [Metas](../app/storage/goal_store.py) |
 
+## Entregue em 8/11/2026 (lote 3, plano 017)
+
+- **Parar pedido** no chat, na paleta e em `/parar` (C4); orb retirada da ligação e do Painel pessoal.
+- **Propostas de aprovação** com alvo, mudança, reversibilidade e escopo em todas as ferramentas do catálogo; fechar app lista os processos (C1). Ferramentas de hábitos, tarefas, finanças e Life OS com risco por operação; exclusão pessoal pede aprovação (AQ2).
+- **Executor do chat** só aceita as ferramentas do modo e do turno (C3). Leituras das janelas fora das listas da Central por padrão (C12).
+- **Comandos:** base do contrato com origem e `runCommandById` no frontend (AQ3); escape `//` (A6); palavra de ativação abre a conversa por voz e mostra se o detector está ativo (A4).
+- **Sincronização:** lápides de exclusão para finanças, hábitos, registros de hábito, tarefas e notas, com limpeza após 90 dias (S1); hábitos com data de edição (S2).
+
+**Saem das pendências acima:** alvo/efeito/escopo nas propostas; "Parar pedido"; evento `wake_word` na UI; lápide para exclusões; escape `//`.
+
+**Continuam pendentes:** V1 a V5 (abrir pelo caminho normal, hardware real, Supabase real, provedor real, trocar a chave da Fish Audio); concessões por escopo (C2); voz e `/api/browser/run` fora do Action Kernel (C6, C10, AQ1); contrato de comandos no backend, rotinas e gatilhos (AQ3, A1, A2); Integrações com estado real (O1, O2); limpar chave propagando e chat direto do celular (S3, S4); lápides para metas e seções do cofre do frontend (não entraram em S1); testes antigos de `test_habits_tasks_finance.py` ainda usam `data/lifestyle.db` real.
+
 ## Entregue em 7/11/2026 (lotes 1 e 2)
 
 - Painel novo servido pelo desktop; `npm run build` só web e `npm run build:mobile` para Android; versão visível na barra lateral.

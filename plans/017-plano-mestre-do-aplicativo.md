@@ -365,6 +365,7 @@ Regra: cada fase deixa algo que a usuária **usa** no fim dela, e não quebra o 
 - **Depende de:** nada.
 - **Aceitação:** o app abre por `python -m app.main` com o painel novo e a versão no rodapé; chave da Fish trocada e `test_fish_audio.py`/`.mp3` apagados; "Parar pedido" cancela um Run em andamento.
 - **Fica pronto para usar:** painel novo no desktop, botão de parar.
+- **Progresso (lote 3, 8/11/2026):** C4 entregue (`77213fe`: Parar pedido no chat, na paleta e em `/parar`, por consulta periódica a `/api/runs`), com a retirada da orb da ligação e do Painel pessoal. V1 a V5 continuam pendentes (validação manual da usuária). V6 avançou pouco: o `conftest.py` agora isola as lápides da sincronização, mas `test_habits_tasks_finance.py` ainda usa `data/lifestyle.db`.
 
 ### F1. Controle verdadeiro (peças PB1, PB4, PB5; G, dividir em 4 entregas)
 - **Objetivo:** tudo que age passa por um só lugar, com alvo, efeito e histórico.
@@ -372,6 +373,7 @@ Regra: cada fase deixa algo que a usuária **usa** no fim dela, e não quebra o 
 - **Depende de:** F0.
 - **Aceitação:** teste que lista as ferramentas e reprova qualquer uma sem metadado; aprovação de "fechar app" mostra os processos; voz e `/api/browser/run` geram ação na Central com origem; o executor só recebe as ferramentas do modo; Integrações mostra "desligado" para o que não está instalado; contador de chamadas ao modelo por turno.
 - **Fica pronto para usar:** aprovações que explicam o que vão fazer; Central completa; Integrações honesta.
+- **Progresso (lote 3, 8/11/2026):** primeiras 4 entregas feitas. AQ2 e C12 (`9ca78f6`: ferramentas pessoais no catálogo com risco por operação, leituras das janelas fora das listas da Central por padrão), C1 (`308b557`: propostas com alvo, mudança, reversibilidade e escopo; fechar app lista os processos) e C3 (`0c0e413`: o executor só aceita as ferramentas do modo e do turno). Faltam C10/AQ1, C6, O1 a O5, AQ6 e AQ8.
 
 ### F2. Comandos e rotinas (peça PB2; G)
 - **Objetivo:** um cadastro de comandos com gatilhos, e a primeira rotina agendada.
@@ -379,6 +381,7 @@ Regra: cada fase deixa algo que a usuária **usa** no fim dela, e não quebra o 
 - **Depende de:** F1 (Kernel e Runs com origem).
 - **Aceitação:** a mesma frase (`/foco`, "modo foco", horário 08:00) dispara o mesmo comando; cada disparo cria Run com origem `rotina`/`voz`/`comando`; rotina com passo de risco alto espera aprovação e não executa sozinha; "rodar agora" funciona; wake word abre a ligação e mostra se o detector está ativo.
 - **Fica pronto para usar:** rotinas por horário e por voz, criadas e testadas na janela Automações.
+- **Progresso (lote 3, 8/11/2026):** primeira metade feita em `9336be0`. AQ3 só na base do frontend (contrato serializável, origens e `runCommandById`), A6 (escape `//`) e A4 (wake word abre a ligação e há indicador do detector). Faltam o lado backend de AQ3, A5, A1, A2, AQ4 e A9.
 
 ### F3. Dados seguros (peça PB7; M)
 - **Objetivo:** nada some nem volta sem querer na sincronização.
@@ -386,6 +389,7 @@ Regra: cada fase deixa algo que a usuária **usa** no fim dela, e não quebra o 
 - **Depende de:** F0 (V3). Pode andar junto com F2.
 - **Aceitação:** teste de mesclagem com dois dispositivos: apagar em um não ressuscita no outro; editar hábito em um chega ao outro; registro manual feito sem servidor entra depois sem duplicar.
 - **Fica pronto para usar:** PC e celular com os mesmos dados, confiável.
+- **Progresso (lote 3, 8/11/2026):** S1 e S2 entregues em `8066a5c`. Lápides para finanças, hábitos (e registros), tarefas da rotina e do painel e notas do cofre, com limpeza após 90 dias; hábitos com `updated_at` e "mais recente vence". Os dois primeiros critérios de aceitação têm teste com dois dispositivos simulados. Faltam S3, S4 e AQ7 (terceiro critério) e o teste com o Supabase real (V3).
 
 ### F4. Janelas e conhecimento (PB3; G em várias entregas)
 - **Objetivo:** módulos de vida como janelas sob demanda, com memória citada.

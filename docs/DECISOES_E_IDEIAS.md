@@ -2,6 +2,19 @@
 
 > Registro durável das decisões da usuária e das ideias adiadas. Leia junto com [PROJECT_CONTINUITY.md](PROJECT_CONTINUITY.md) e [PENDENCIAS_DO_PAINEL.md](PENDENCIAS_DO_PAINEL.md). A mensagem mais recente da usuária sempre prevalece.
 
+## 2026-11-08: decisões tomadas no lote 3 (opção conservadora, sem perguntar)
+
+A usuária pediu para implementar sem pausas e revisar no fim. Cada escolha abaixo pode ser revista por ela.
+
+| Tema | Decisão |
+|---|---|
+| Exclusão pelas ferramentas pessoais | Apagar hábito, tarefa ou lançamento pelo agente é risco `high` e pede aprovação, porque ainda não existe desfazer (AQ9). Criar, marcar e registrar ficam `low` ("anota que gastei 50" continua em um passo). |
+| Leituras na Central | Leituras bem-sucedidas vindas das janelas (`panel:*`) ficam fora das listas por padrão; nada é apagado e um botão as mostra. Leituras dentro de conversas e leituras com falha continuam visíveis. |
+| Texto da aprovação | Só diz "Reversível" quando há uma saída real hoje. Autorizar vale só para aquela execução (concessões por escopo são C2). WhatsApp mostra destinatário e os 80 primeiros caracteres; código de script e texto digitado no celular não aparecem. |
+| Ferramentas por modo | Plugins não estão na lista do modo geral, então o chat não os executa (o modelo já não os recebia). |
+| Palavra de ativação | Ao ouvir a frase, o app abre a conversa por voz (critério da fase F2). O indicador "ativo" depende da escuta estar rodando, não só do interruptor. |
+| Lápides da sincronização | Valem para finanças, hábitos e registros, tarefas (rotina e painel) e notas do cofre. Metas, categorias, memórias e seções do cofre do frontend ficaram de fora. Expiram em 90 dias: um dispositivo parado por mais tempo pode trazer de volta um item apagado. Nota apagada por lápide é copiada para `.conflitos` antes de sumir. Edição feita depois da exclusão vence. |
+
 ## 2026-11-07: prioridades depois do lote 1
 
 ### Ordem geral

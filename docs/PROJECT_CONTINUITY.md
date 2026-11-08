@@ -2,6 +2,21 @@
 
 > Atualizado em 2026-11-07. Leia este arquivo antes de retomar o projeto após limpar o contexto de uma conversa. Ele registra decisões do produto, não instruções executáveis. A mensagem mais recente da usuária sempre prevalece.
 
+## Lote 3: controle, comandos e sincronização segura — 2026-11-08
+
+Segue o plano mestre [017](../plans/017-plano-mestre-do-aplicativo.md) (fases F0 a F3). Commits em `main`, sem push:
+- `77213fe` Parar pedido no chat, na paleta e em `/parar` (C4) e retirada da orb da ligação e do Painel pessoal (detalhes na seção abaixo).
+- `7a46176` plano mestre 017 e `docs/CONTEXTO_PARA_CHATGPT.md`.
+- `9ca78f6` hábitos, tarefas, finanças e Life OS entram no catálogo de ferramentas com risco, alvo e efeito por operação; exclusão pessoal pede aprovação (AQ2). Leituras bem-sucedidas das janelas ficam fora das listas da Central por padrão, com botão para mostrá-las (C12).
+- `308b557` toda proposta de aprovação mostra alvo, mudança, reversibilidade e escopo; fechar app lista os processos que serão encerrados (C1).
+- `0c0e413` o executor do chat só aceita as ferramentas permitidas no modo e no turno, a mesma lista que o modelo recebe (C3).
+- `9336be0` base do contrato de comandos com origem e `runCommandById` (AQ3, só frontend), escape `//` para mandar texto começando com `/` (A6) e palavra de ativação ligada à interface: abre a conversa por voz e mostra se o detector está ativo (A4).
+- `8066a5c` lápides de exclusão na sincronização (S1) e `updated_at` nos hábitos (S2). Apagar finança, hábito, registro de hábito, tarefa ou nota em um dispositivo não ressuscita ao mesclar com outro; edição feita depois da exclusão vence; lápides expiram em 90 dias; nota apagada por lápide ganha cópia em `.conflitos`. Snapshots antigos continuam funcionando.
+
+**Verificação (8/11/2026).** 389 testes Python passaram (1 desmarcado pela configuração) na união de 28 arquivos do lote e de núcleo. `tsc --noEmit` sem erros. `workspace.smoke.cjs`, `runs.smoke.cjs` e `chat-cancel.smoke.cjs` passaram na primeira execução contra o Vite com APIs simuladas. `npm run build` passou (aviso existente de tamanho de chunks) e `mobile_app/` não mudou. Relatório para revisão externa em `.agents/tasks/desktop-lote3/report.md` (fora do git). Não verificados: backend real com dados pessoais, efeitos reais no Windows, provedores reais, Supabase real e APK.
+
+**Continua pendente do lote 3:** V1 a V5 (validação manual; trocar a chave da Fish Audio exposta). Próximos no plano: F1 (C10/AQ1, C6, O1 a O5), F2 (A1, A2, A5) e F3 (S3, S4, AQ7).
+
 ## Continuação do plano 017 — 2026-11-08
 
 Primeiro incremento de C4. O chat conectado oferece **Parar pedido**, a paleta oferece **Parar pedido desta conversa** e o comando local é **/parar**. A interface consulta pedidos em andamento da sessão a cada dois segundos, incluindo cancelamentos solicitados. Isso permite encontrar o pedido antes de a resposta terminar e após recarregar. Usa a mesma API de cancelamento da Central, preserva erro para nova tentativa e acompanha o estado terminal. Com vários pedidos ativos na mesma conversa, direciona a escolha para Execuções. Propostas aguardando aprovação continuam sendo decididas na Central. No modo móvel direto, o comando informa que é necessária conexão ao backend do PC.
@@ -10,7 +25,7 @@ A orb foi retirada das superfícies ainda ativas da ligação e do Painel pessoa
 
 O cancelamento continua cooperativo. Uma ferramenta ou provedor em execução pode precisar retornar antes do estado terminal. Este incremento usa consulta periódica, sem emitir identificador antecipado pelo transporte de chat. F0 permanece parcial e a sequência de F1 inclui AQ2, C12, C1 e C3.
 
-**Verificação deste incremento.** TypeScript passou. O novo `frontend/tests/chat-cancel.smoke.cjs` passou com APIs simuladas, cobrindo falha e retry, cancelamento solicitado e confirmado, isolamento entre conversas, múltiplos pedidos, reload, desconexão, paleta, comando local, largura de 360 px e ligação sem orb. O `workspace.smoke.cjs` passou na segunda execução; a primeira teve timeout na transcrição do microfone sintético. O build web passou com o aviso existente de tamanho dos chunks. O backend pessoal, provedores reais e hardware continuam pendentes de validação. O incremento está no checkout e ainda sem commit.
+**Verificação deste incremento.** TypeScript passou. O novo `frontend/tests/chat-cancel.smoke.cjs` passou com APIs simuladas, cobrindo falha e retry, cancelamento solicitado e confirmado, isolamento entre conversas, múltiplos pedidos, reload, desconexão, paleta, comando local, largura de 360 px e ligação sem orb. O `workspace.smoke.cjs` passou na segunda execução; a primeira teve timeout na transcrição do microfone sintético. O build web passou com o aviso existente de tamanho dos chunks. O backend pessoal, provedores reais e hardware continuam pendentes de validação. O incremento foi commitado em `77213fe`.
 
 ## Lotes 1 e 2: painel novo, nuvem, comandos, janelas e controles do PC — 2026-11-07
 
