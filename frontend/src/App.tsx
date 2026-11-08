@@ -225,7 +225,7 @@ export default function App() {
     setNotice('Configuração Oxyy salva.')
   }
 
-  const setSttProvider = async (stt_provider: 'groq' | 'oxyy' | 'google') => {
+  const setSttProvider = async (stt_provider: 'local' | 'groq' | 'oxyy' | 'google') => {
     const response = await fetch('/api/settings/stt', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

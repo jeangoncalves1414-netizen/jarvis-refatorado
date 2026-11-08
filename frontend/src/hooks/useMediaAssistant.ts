@@ -888,6 +888,15 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       recordDiagnostic('fallback_vad_started')
       setLiveAudioDiagnostics({ mode: 'fallback-vad', rms: 0, threshold: 0.012, noiseFloor: fallbackNoiseFloorRef.current })
 
+      // Sensibilidade, silêncio para encerrar a fala e ganho vêm de Configurações (/api/settings/mic).
+      let mic = { sensitivity: 75, silence_ms: 700, gain: 1 }
+      try {
+        const micResponse = await fetch('/api/settings/mic')
+        if (micResponse.ok) mic = { ...mic, ...(await micResponse.json()) }
+      } catch { /* mantém os padrões */ }
+      const thresholdFloor = 0.03 - 0.026 * (mic.sensitivity / 100)
+      const noiseMultiplier = 3.5 - 1.5 * (mic.sensitivity / 100)
+
       const data = new Uint8Array(analyser.fftSize)
       const startUtterance = () => {
         if (!liveCallActiveRef.current || liveCallProcessingRef.current || liveCallRecorderRef.current?.state === 'recording') return
@@ -908,7 +917,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
           liveCallProcessingRef.current = true
           setLiveCallRecording(false)
           try {
-            setLiveCallStatus('Transcrevendo via Groq Whisper…')
+            setLiveCallStatus('Transcrevendo…')
             if (isMobileStandalone()) {
               const text = await transcribeMobileAudio(audio)
               liveCallSttFailureCountRef.current = 0
@@ -979,11 +988,11 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         analyser.getByteTimeDomainData(data)
         let squareSum = 0
         for (const value of data) { const normalized = (value - 128) / 128; squareSum += normalized * normalized }
-        const rms = Math.sqrt(squareSum / data.length)
+        const rms = Math.sqrt(squareSum / data.length) * mic.gain
         if (!isSpeakingRef.current && !liveCallProcessingRef.current && liveCallRecorderRef.current?.state !== 'recording') {
           fallbackNoiseFloorRef.current = fallbackNoiseFloorRef.current * 0.97 + rms * 0.03
         }
-        const threshold = Math.max(0.012, fallbackNoiseFloorRef.current * 3)
+        const threshold = Math.max(thresholdFloor, fallbackNoiseFloorRef.current * noiseMultiplier)
         if (performance.now() - fallbackLastDiagnosticsUpdateRef.current >= 180) {
           fallbackLastDiagnosticsUpdateRef.current = performance.now()
           setLiveAudioDiagnostics({ mode: 'fallback-vad', rms, threshold, noiseFloor: fallbackNoiseFloorRef.current, turnId: voiceTurnIdRef.current || undefined, speakerName: liveSpeakerRef.current.name, speakerConfidence: liveSpeakerRef.current.confidence, speakerUnknown: liveSpeakerRef.current.unknown })
@@ -994,7 +1003,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
           fallbackSilenceStartedAtRef.current = null
         } else if (recordingNow) {
           if (fallbackSilenceStartedAtRef.current === null) fallbackSilenceStartedAtRef.current = performance.now()
-          if (performance.now() - fallbackSilenceStartedAtRef.current >= 750) liveCallRecorderRef.current?.stop()
+          if (performance.now() - fallbackSilenceStartedAtRef.current >= mic.silence_ms) liveCallRecorderRef.current?.stop()
         }
         fallbackAnimationFrameRef.current = window.requestAnimationFrame(monitor)
       }

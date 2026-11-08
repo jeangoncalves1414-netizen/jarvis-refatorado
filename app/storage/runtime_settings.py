@@ -512,14 +512,13 @@ def set_stt_local(model: str | None = None, device: str | None = None) -> dict[s
 
 
 # Microfone: parametros do detector de fala (usados pelo navegador na ligacao e no ditado).
-# Padroes baseados no Projeto AI (energy 1100, pausa 0.8s, 0.35s minimo), um pouco mais sensiveis.
+# Padroes baseados no Projeto AI (energy 1100, pausa 0.8s), um pouco mais sensiveis.
 MIC_DEFAULTS: dict[str, Any] = {
     "sensitivity": 75,      # 1-100: quanto maior, mais facil detectar fala
     "silence_ms": 700,      # silencio para encerrar a fala
     "gain": 1.0,            # ganho aplicado ao nivel medido (0.5-4)
-    "min_speech_ms": 350,   # fala mais curta que isso e descartada
 }
-_MIC_LIMITS = {"sensitivity": (1, 100), "silence_ms": (300, 3000), "gain": (0.5, 4.0), "min_speech_ms": (100, 2000)}
+_MIC_LIMITS = {"sensitivity": (1, 100), "silence_ms": (300, 3000), "gain": (0.5, 4.0)}
 
 
 def get_mic_settings() -> dict[str, Any]:
