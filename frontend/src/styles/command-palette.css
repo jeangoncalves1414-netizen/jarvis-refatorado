@@ -1,0 +1,29 @@
+/* Buscar no workspace (Ctrl+K) no tema do workspace. Usa tokens de ws-tokens.css. */
+.ws-command-dialog[open] { display: flex; align-items: flex-start; justify-content: center; padding: clamp(40px, 12vh, 120px) 16px 16px; background: rgba(0, 0, 0, .55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); animation: none; }
+.ws-command-dialog::backdrop { background: transparent; }
+.ws-command-dialog .cmd-palette-container { width: min(640px, 100%); max-height: min(560px, 80vh); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--ws-border); border-radius: calc(var(--ws-radius, 12px) + 2px); background: var(--ws-panel); color: var(--ws-text); font-family: inherit; box-shadow: 0 24px 64px -12px rgba(0, 0, 0, .7); animation: cmd-pop-in .16s ease-out both; }
+.ws-command-dialog .cmd-palette-header { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--ws-border); background: var(--ws-bg); }
+.ws-command-dialog .cmd-search-icon { flex: none; color: var(--ws-accent); }
+.ws-command-dialog .cmd-palette-input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ws-text); font: inherit; font-size: 15px; }
+.ws-command-dialog .cmd-palette-input::placeholder { color: var(--ws-muted); }
+.ws-command-dialog .cmd-close-btn { border: 0; background: transparent; padding: 0; cursor: pointer; }
+.ws-command-dialog kbd { display: inline-block; padding: 2px 6px; border: 1px solid var(--ws-border); border-radius: 6px; background: var(--ws-field, var(--ws-bg)); color: var(--ws-muted); font-family: inherit; font-size: 10.5px; }
+.ws-command-dialog .cmd-close-btn:hover kbd, .ws-command-dialog .cmd-close-btn:focus-visible kbd { color: var(--ws-text); border-color: var(--ws-accent-line, var(--ws-border)); }
+.ws-command-dialog .cmd-palette-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 8px; scrollbar-width: thin; scrollbar-color: var(--ws-border) transparent; }
+.ws-command-dialog .cmd-empty-state { padding: 32px 16px; text-align: center; color: var(--ws-muted); font-size: 13px; }
+.ws-command-dialog .cmd-empty-state p { margin: 6px 0 0; }
+.ws-command-dialog .cmd-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 12px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--ws-text); text-align: left; cursor: pointer; transform: none; transition: background .12s, border-color .12s; }
+.ws-command-dialog .cmd-item:hover, .ws-command-dialog .cmd-item.selected { transform: none; background: var(--ws-accent-soft, var(--ws-hover)); border-color: var(--ws-accent-line, var(--ws-border)); color: var(--ws-text); }
+.ws-command-dialog .cmd-item-icon { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--ws-border); border-radius: 8px; background: var(--ws-bg); color: var(--ws-muted); transform: none; filter: none; }
+.ws-command-dialog .cmd-item.selected .cmd-item-icon { transform: none; filter: none; color: var(--ws-accent); border-color: var(--ws-accent-line, var(--ws-border)); }
+.ws-command-dialog .cmd-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ws-command-dialog .cmd-item-title { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ws-command-dialog .cmd-item-subtitle { color: var(--ws-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ws-command-dialog .cmd-item-category { flex: none; padding: 2px 8px; border: 1px solid var(--ws-border); border-radius: 999px; color: var(--ws-muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
+.ws-command-dialog .cmd-item.selected .cmd-item-category { color: var(--ws-accent); border-color: var(--ws-accent-line, var(--ws-border)); }
+.ws-command-dialog .cmd-item-enter { flex: none; display: grid; place-items: center; color: var(--ws-accent); }
+.ws-command-dialog .cmd-palette-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--ws-border); background: var(--ws-bg); color: var(--ws-muted); font-size: 11px; }
+.ws-command-dialog .cmd-footer-hints { display: flex; flex-wrap: wrap; gap: 14px; }
+.ws-command-dialog .cmd-footer-hints span { display: inline-flex; align-items: center; gap: 4px; }
+.ws-command-dialog .cmd-footer-tag { color: var(--ws-muted); }
+@media (max-width: 640px) { .ws-command-dialog .cmd-footer-tag, .ws-command-dialog .cmd-item-category { display: none; } }

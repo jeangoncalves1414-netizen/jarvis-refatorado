@@ -10,6 +10,7 @@ import './styles/ws-tokens.css'
 import './styles/workspace.css'
 import './styles/settings.css'
 import './styles/lifeos.css'
+import './styles/command-palette.css'
 import './styles/windows.css'
 
 createRoot(document.getElementById('root')!).render(
