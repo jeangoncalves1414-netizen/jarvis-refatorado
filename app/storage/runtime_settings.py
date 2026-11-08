@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any
 
 DATA_DIR = os.path.join(os.getcwd(), "data")
@@ -33,9 +34,55 @@ def _read() -> dict[str, Any]:
         return {}
 
 
-def _write(data: dict[str, Any]) -> None:
+# Carimbos por campo para a sincronização com a nuvem. Cada campo plano
+# ("api_keys.groq", "llm_provider", "agent_profile.name"...) guarda o instante
+# da última alteração local; a mesclagem entre dispositivos usa esses carimbos.
+SYNC_META_KEY = "_field_ts"
+_MISSING = object()
+
+
+def flatten_settings(data: dict[str, Any]) -> dict[str, Any]:
+    """Achata o JSON em até dois níveis: 'secao.campo' (valores internos ficam inteiros)."""
+    flat: dict[str, Any] = {}
+    for key, value in data.items():
+        if key == SYNC_META_KEY:
+            continue
+        if isinstance(value, dict) and value:
+            for sub, sub_value in value.items():
+                flat[f"{key}.{sub}"] = sub_value
+        else:
+            flat[key] = value
+    return flat
+
+
+def unflatten_into(data: dict[str, Any], path: str, value: Any) -> None:
+    section, dot, field = path.partition(".")
+    if not dot:
+        data[section] = value
+        return
+    bucket = data.get(section)
+    if not isinstance(bucket, dict):
+        bucket = {}
+        data[section] = bucket
+    bucket[field] = value
+
+
+def _write_raw(data: dict[str, Any]) -> None:
     with open(RUNTIME_SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _write(data: dict[str, Any]) -> None:
+    previous = _read()
+    stamps = previous.get(SYNC_META_KEY) if isinstance(previous.get(SYNC_META_KEY), dict) else {}
+    stamps = dict(stamps)
+    old_flat = flatten_settings(previous)
+    now = int(time.time() * 1000)
+    for path, value in flatten_settings(data).items():
+        if old_flat.get(path, _MISSING) != value:
+            stamps[path] = now
+    data[SYNC_META_KEY] = stamps
+    _write_raw(data)
 
 
 def sync_api_keys_to_env() -> None:

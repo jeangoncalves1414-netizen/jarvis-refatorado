@@ -20,6 +20,8 @@ from app.storage.runtime_settings import (
     set_oxyy_models,
     set_stt_provider,
     set_tts_provider,
+    sync_api_keys_to_env,
+    sync_settings_to_obj,
 )
 
 
@@ -41,17 +43,50 @@ def _save_agent_profile(body: bytes) -> tuple[int, dict[str, Any]]:
     if check.get("supported") is False:
         return 400, {"ok": False, "error": check["message"], "wake_phrase_check": check}
     saved = set_agent_profile(profile if profile["wake_phrase_custom"] else {**profile, "wake_phrase": ""})
-    # Atualiza o detector em execução, se houver, sem importar o servidor.
+    _refresh_wake_detector(saved["wake_phrase"])
+    return 200, {"ok": True, "profile": saved, "wake_phrase_check": check}
+
+
+def _refresh_wake_detector(wake_phrase: str) -> None:
+    """Atualiza o detector em execução, se houver, sem importar o servidor."""
     server = sys.modules.get("app.ui.panel.server")
     detector = getattr(server, "_wake_word_detector", None) if server else None
     if detector is not None and hasattr(detector, "set_wake_phrase"):
-        detector.set_wake_phrase(saved["wake_phrase"])
-    return 200, {"ok": True, "profile": saved, "wake_phrase_check": check}
+        detector.set_wake_phrase(wake_phrase)
+
+
+def _sync_merge(body: bytes, handler: Any) -> tuple[int, dict[str, Any]]:
+    """Mescla o snapshot vindo da nuvem com os dados locais e grava o resultado.
+
+    A resposta traz o snapshot mesclado (inclui as chaves completas, para o
+    cliente enviar de volta à nuvem) e só contagens no resumo.
+    """
+    from app.storage import backend_sync
+
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return 400, {"ok": False, "error": "JSON inválido."}
+    remote = payload.get("snapshot") if isinstance(payload, dict) else None
+    if remote is not None and not isinstance(remote, dict):
+        return 400, {"ok": False, "error": "snapshot deve ser um objeto."}
+    try:
+        merged, summary = backend_sync.sync_with_remote(remote or {})
+    except Exception as exc:  # noqa: BLE001 - nenhuma exceção pode carregar valores sensíveis
+        return 500, {"ok": False, "error": f"Falha ao mesclar dados: {type(exc).__name__}"}
+    sync_api_keys_to_env()
+    sync_settings_to_obj(handler.settings)
+    _refresh_wake_detector(get_agent_profile()["wake_phrase"])
+    return 200, {"ok": True, "snapshot": merged, "summary": summary}
 
 
 def handle_settings_get(parts: list[str], handler: Any) -> tuple[int, dict[str, Any]] | None:
     if len(parts) == 3 and parts[1] == "settings" and parts[2] == "agent-profile":
         return 200, {"ok": True, "profile": get_agent_profile()}
+    if len(parts) == 3 and parts[1] == "settings" and parts[2] == "sync-snapshot":
+        from app.storage import backend_sync
+
+        return 200, {"ok": True, "snapshot": backend_sync.collect_snapshot()}
     if len(parts) >= 3 and parts[1] == "settings" and parts[2] == "keys":
         return 200, {"ok": True, "keys": get_api_keys()}
     if len(parts) >= 3 and parts[1] == "settings" and parts[2] == "ai":
@@ -121,6 +156,8 @@ def handle_settings_get(parts: list[str], handler: Any) -> tuple[int, dict[str, 
 def handle_settings_post(path: str, body: bytes, handler: Any) -> tuple[int, dict[str, Any]] | None:
     if path in {"/api/settings/agent-profile", "/api/settings/agent-profile/"}:
         return _save_agent_profile(body)
+    if path in {"/api/settings/sync-merge", "/api/settings/sync-merge/"}:
+        return _sync_merge(body, handler)
     if path in {"/api/settings/keys", "/api/settings/keys/"}:
         try:
             payload = json.loads(body.decode("utf-8") or "{}")

@@ -20,14 +20,66 @@ import {
   type EvoluteSettings,
 } from './evoluteCloud'
 import { JARVIS_MEMORIES_KEY, JARVIS_PROFILE_KEY, JARVIS_VAULT_KEY } from './jarvisVaultKeys'
+import {
+  fingerprint,
+  mergeSection,
+  mergeStampedFields,
+  recordStamp,
+  redactForLog,
+  stampValue,
+  type StampedFields,
+  type StampState,
+} from './syncMerge'
 
 export { JARVIS_MEMORIES_KEY, JARVIS_PROFILE_KEY, JARVIS_VAULT_KEY }
 
 const CLOUD_REVISION_KEY = 'lifeos_cloud_revision'
 const LOCAL_LAST_SYNC_KEY = 'jarvis_local_last_sync'
 const LOCAL_FIELD_TIMESTAMPS_KEY = 'jarvis_field_timestamps'
+const LOCAL_STAMP_STATE_KEY = 'jarvis_stamp_state'
 const SYNC_LOCK_KEY = 'jarvis_sync_lock'
 const BACKUP_VAULT_KEY = 'jarvis_backup_vault'
+const MOBILE_KEYS_STORAGE = 'jarvis-mobile-api-keys'
+const MOBILE_PROVIDER_STORAGE = 'jarvis-mobile-provider'
+const KEY_IDS = ['oxyy', 'groq', 'gemini', 'openrouter', 'fish'] as const
+const PROVIDER_MODEL_STORAGE: Record<string, string> = {
+  groq: 'jarvis-mobile-groq-model',
+  gemini: 'jarvis-mobile-gemini-model',
+  oxyy: 'jarvis-mobile-oxyy-model',
+}
+
+// Log seguro: passa tudo por redactForLog e nunca recebe o vault, linhas da nuvem ou URLs.
+function log(message: string, detail?: unknown): void {
+  if (detail === undefined) console.log(`[JarvisCloud] ${message}`)
+  else console.log(`[JarvisCloud] ${message}`, redactForLog(detail))
+}
+
+function loadStampState(): StampState {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_STAMP_STATE_KEY) || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveStampState(state: StampState): void {
+  try { localStorage.setItem(LOCAL_STAMP_STATE_KEY, JSON.stringify(state)) } catch { /* ignore */ }
+}
+
+function readRawMobileKeys(): Record<string, string> {
+  const result: Record<string, string> = {}
+  try {
+    const parsed = JSON.parse(localStorage.getItem(MOBILE_KEYS_STORAGE) || '{}')
+    for (const id of KEY_IDS) {
+      const value = parsed?.[id]
+      result[id] = typeof value === 'string' ? value.trim() : ''
+    }
+  } catch {
+    for (const id of KEY_IDS) result[id] = ''
+  }
+  return result
+}
 
 // ============ NOVA ARQUITETURA DE SINCRONIZAÇÃO ============
 // Baseado em: Obsidian Sync, Simplenote, Notion
@@ -58,6 +110,7 @@ export type FieldTimestamps = {
   summaries?: number
   flashcards?: number
   extraData?: number
+  [section: string]: number | undefined
 }
 
 // Item versionado (para arrays como hábitos)
@@ -95,6 +148,13 @@ export type JarvisVault = {
   flashcards?: any  // Flashcards
   // Outros dados localStorage dinâmicos
   extraData?: Record<string, any>  // Quaisquer outros dados do localStorage
+  // Campos de configuração com carimbo por campo (api_keys.groq, llm_provider, oxyy_models.chat...).
+  // É a fonte da mesclagem; keys/provider/oxyyModels/providerModels continuam sendo gravados
+  // para o APK antigo ler.
+  fields?: StampedFields
+  // Snapshot do backend do PC (configurações completas, perfil do agente, memórias, notas,
+  // tarefas, metas, hábitos e finanças). Dispositivos sem backend apenas o repassam.
+  backend?: Record<string, any>
   updatedAt: number
   source: 'pc' | 'mobile'
   fieldTimestamps?: FieldTimestamps
@@ -120,6 +180,68 @@ export function keysHaveValue(keys?: Record<string, string> | null): boolean {
   return Object.values(keys || {}).some(value => String(value || '').trim().length > 0)
 }
 
+// ============ CAMPOS DE CONFIGURAÇÃO (carimbo por campo) ============
+
+/** Campos de configuração deste dispositivo (localStorage), com carimbo por mudança de valor. */
+function collectLocalSettingsFields(state: StampState, now: number): StampedFields {
+  const fields: StampedFields = {}
+  const put = (path: string, value: unknown, defaultValue?: unknown) => {
+    fields[path] = { v: value, ts: stampValue(state, path, value, now, defaultValue) }
+  }
+  const keys = readRawMobileKeys()
+  for (const id of KEY_IDS) put(`api_keys.${id}`, keys[id])
+  put('llm_provider', localStorage.getItem(MOBILE_PROVIDER_STORAGE) || '')
+  const models = getMobileOxyyModels() as Record<string, string>
+  for (const [name, value] of Object.entries(models)) {
+    put(`oxyy_models.${name}`, value, (DEFAULT_OXXY_MODELS as Record<string, string>)[name])
+  }
+  for (const [provider, storageKey] of Object.entries(PROVIDER_MODEL_STORAGE)) {
+    put(`provider_models.${provider}`, localStorage.getItem(storageKey) || '')
+  }
+  return fields
+}
+
+/** Vaults gravados antes dos campos carimbados: deriva os campos das chaves antigas. */
+function fieldsFromLegacyVault(vault: JarvisVault): StampedFields {
+  const fields: StampedFields = {}
+  const ts = (name: string) => Number(vault.fieldTimestamps?.[name] || vault.updatedAt || 0)
+  for (const [id, value] of Object.entries(vault.keys || {})) fields[`api_keys.${id}`] = { v: value, ts: ts('keys') }
+  if (vault.provider) fields.llm_provider = { v: vault.provider, ts: ts('provider') }
+  for (const [name, value] of Object.entries(vault.oxyyModels || {})) fields[`oxyy_models.${name}`] = { v: value, ts: ts('oxyyModels') }
+  for (const [name, value] of Object.entries(vault.providerModels || {})) fields[`provider_models.${name}`] = { v: value, ts: ts('providerModels') }
+  return fields
+}
+
+function vaultFields(vault: JarvisVault): StampedFields {
+  return mergeStampedFields(fieldsFromLegacyVault(vault), vault.fields || {})
+}
+
+function fieldValue(fields: StampedFields, path: string): string {
+  const value = fields[path]?.v
+  return typeof value === 'string' ? value : ''
+}
+
+/** Preenche as chaves antigas (APK) a partir dos campos mesclados. */
+function applyFieldsToLegacy(vault: JarvisVault): void {
+  const fields = vault.fields || {}
+  const keys: Record<string, string> = { ...DEFAULT_MOBILE_KEYS }
+  for (const id of KEY_IDS) {
+    const value = fieldValue(fields, `api_keys.${id}`)
+    if (value || id in DEFAULT_MOBILE_KEYS) keys[id] = value
+  }
+  vault.keys = keys as typeof DEFAULT_MOBILE_KEYS
+  const provider = fieldValue(fields, 'llm_provider')
+  vault.provider = (provider === 'gemini' || provider === 'groq' || provider === 'oxyy' ? provider : 'oxyy') as DirectChatProvider
+  const models: Record<string, string> = { ...DEFAULT_OXXY_MODELS }
+  const providerModels: Record<string, string> = {}
+  for (const [path, entry] of Object.entries(fields)) {
+    if (path.startsWith('oxyy_models.') && typeof entry.v === 'string' && entry.v) models[path.slice('oxyy_models.'.length)] = entry.v
+    if (path.startsWith('provider_models.') && typeof entry.v === 'string' && entry.v) providerModels[path.slice('provider_models.'.length)] = entry.v
+  }
+  vault.oxyyModels = models as typeof DEFAULT_OXXY_MODELS
+  vault.providerModels = providerModels
+}
+
 // ============ SYNC LOCK ============
 // Impede modificações durante sincronização
 
@@ -129,37 +251,31 @@ function acquireSyncLock(): boolean {
     const lockTime = Number(lock)
     // Lock expira após 30 segundos (caso de crash)
     if (Date.now() - lockTime < 30000) {
-      console.log('[JarvisCloud] Sync lock already acquired, skipping')
+      log('Sincronização já em andamento, ignorando')
       return false
     }
   }
   localStorage.setItem(SYNC_LOCK_KEY, String(Date.now()))
-  console.log('[JarvisCloud] Sync lock acquired')
   return true
 }
 
 function releaseSyncLock(): void {
   localStorage.removeItem(SYNC_LOCK_KEY)
-  console.log('[JarvisCloud] Sync lock released')
 }
 
 // ============ BACKUP ============
 // Backup automático antes de sync
 
 function createBackup(vault: JarvisVault): void {
-  localStorage.setItem(BACKUP_VAULT_KEY, JSON.stringify(vault))
-  console.log('[JarvisCloud] Backup created')
+  try { localStorage.setItem(BACKUP_VAULT_KEY, JSON.stringify(vault)) } catch { log('Backup local não coube no armazenamento') }
 }
 
 function restoreBackup(): JarvisVault | null {
   try {
     const backup = localStorage.getItem(BACKUP_VAULT_KEY)
-    if (backup) {
-      console.log('[JarvisCloud] Backup restored')
-      return JSON.parse(backup)
-    }
-  } catch (e) {
-    console.error('[JarvisCloud] Failed to restore backup:', e)
+    if (backup) return JSON.parse(backup)
+  } catch {
+    log('Falha ao ler o backup local')
   }
   return null
 }
@@ -170,199 +286,144 @@ function restoreBackup(): JarvisVault | null {
 function mergeVersionedArrays<T>(
   local: VersionedItem<T>[],
   remote: VersionedItem<T>[],
-  localTs: number,
-  remoteTs: number
 ): VersionedItem<T>[] {
   const merged = new Map<string, VersionedItem<T>>()
-  
-  // Indexar por ID
+
   local.forEach(item => merged.set(item.id, item))
   remote.forEach(item => {
     const existing = merged.get(item.id)
     if (!existing) {
-      // Item novo no remote
       merged.set(item.id, item)
-    } else {
-      // Merge item por item baseado em updatedAt
-      if (item.updatedAt > existing.updatedAt) {
-        merged.set(item.id, item)
-      }
-      // Se mesmo timestamp, prefere não-deletado
-      else if (item.updatedAt === existing.updatedAt && !item.deleted) {
-        merged.set(item.id, item)
-      }
+    } else if (item.updatedAt > existing.updatedAt) {
+      merged.set(item.id, item)
+    } else if (item.updatedAt === existing.updatedAt && !item.deleted && existing.deleted) {
+      // Mesmo carimbo: prefere o não-deletado
+      merged.set(item.id, item)
     }
   })
-  
-  // Remover itens deletados
-  const result = Array.from(merged.values()).filter(item => !item.deleted)
-  console.log(`[JarvisCloud] Merged ${result.length} items (local: ${local.length}, remote: ${remote.length})`)
+
+  return Array.from(merged.values()).filter(item => !item.deleted)
+}
+
+// ============ MERGE CAMPO A CAMPO ============
+// Regras: vazio nunca vence preenchido; campo que só um lado conhece é preservado;
+// no mesmo campo vence o carimbo mais recente (empate: este dispositivo).
+
+const MERGED_SECTIONS = [
+  'memories', 'profile', 'dashboard', 'proactive', 'climate', 'finance',
+  'habitLogs', 'mentalLogs', 'waterLogs', 'viceLogs', 'studyLogs', 'readingLogs',
+  'cognitive', 'subjects', 'summaries', 'flashcards', 'extraData',
+] as const
+
+export function mergeVaults(local: JarvisVault, remote: JarvisVault): JarvisVault {
+  log(`Mesclando cofres (local v${local.version || 0}, nuvem v${remote.version || 0})`)
+
+  const now = Date.now()
+  const localTs = local.fieldTimestamps || {}
+  const remoteTs = remote.fieldTimestamps || {}
+  const merged: JarvisVault = {
+    ...emptyVault(),
+    ...remote,
+    ...local,
+    updatedAt: now,
+    version: Math.max(local.version || 0, remote.version || 0) + 1,
+    fieldTimestamps: {},
+  }
+
+  // Configurações (chaves de API, provedor, modelos): campo a campo.
+  merged.fields = mergeStampedFields(vaultFields(local), vaultFields(remote))
+  applyFieldsToLegacy(merged)
+
+  // Seções com dados do usuário.
+  for (const section of MERGED_SECTIONS) {
+    const lts = Number(localTs[section] || 0)
+    const rts = Number(remoteTs[section] || 0)
+    ;(merged as Record<string, unknown>)[section] = mergeSection(
+      (local as Record<string, unknown>)[section],
+      (remote as Record<string, unknown>)[section],
+      lts,
+      rts,
+    )
+    merged.fieldTimestamps![section] = Math.max(lts, rts)
+  }
+
+  // Arrays versionados (item por item)
+  if (local.habits || remote.habits) {
+    merged.habits = mergeVersionedArrays(local.habits || [], remote.habits || [])
+    merged.fieldTimestamps!.habits = Math.max(localTs.habits || 0, remoteTs.habits || 0)
+  }
+  if (local.training || remote.training) {
+    merged.training = mergeVersionedArrays(local.training || [], remote.training || [])
+    merged.fieldTimestamps!.training = Math.max(localTs.training || 0, remoteTs.training || 0)
+  }
+
+  // Carimbos antigos (APK): maior carimbo dos campos de cada grupo.
+  const maxTs = (prefix: string) =>
+    Math.max(0, ...Object.entries(merged.fields || {}).filter(([path]) => path.startsWith(prefix)).map(([, entry]) => entry.ts))
+  merged.fieldTimestamps!.keys = maxTs('api_keys.')
+  merged.fieldTimestamps!.provider = maxTs('llm_provider')
+  merged.fieldTimestamps!.oxyyModels = maxTs('oxyy_models.')
+  merged.fieldTimestamps!.providerModels = maxTs('provider_models.')
+
+  // O snapshot do backend é mesclado pelo servidor (ver syncBackend); aqui só não perdemos nenhum lado.
+  merged.backend = local.backend ?? remote.backend
+
+  log(`Mesclagem concluída (v${merged.version})`)
+  return merged
+}
+
+// ============ BACKEND (PC) ============
+// O backend do PC guarda configurações completas, perfil do agente, memórias, notas,
+// tarefas, metas, hábitos e finanças. Quem mescla é o servidor (app/storage/backend_sync.py).
+
+function settingsFieldsForBackend(fields: StampedFields): StampedFields {
+  const result: StampedFields = {}
+  for (const [path, entry] of Object.entries(fields)) {
+    if (path.startsWith('api_keys.') || path === 'llm_provider' || path.startsWith('oxyy_models.')) result[path] = entry
+  }
   return result
 }
 
-// ============ THREE-WAY MERGE ============
-// Merge determinístico: base + local + remote
+async function fetchBackendSnapshot(): Promise<Record<string, any> | undefined> {
+  if (isMobileStandalone()) return undefined
+  try {
+    const response = await fetch('/api/settings/sync-snapshot')
+    if (!response.ok) return undefined
+    const data = await response.json()
+    return data?.ok && data.snapshot && typeof data.snapshot === 'object' ? data.snapshot : undefined
+  } catch {
+    log('Backend local indisponível; os dados dele ficam fora desta sincronização')
+    return undefined
+  }
+}
 
-function mergeVaults(
-  base: JarvisVault,
-  local: JarvisVault,
-  remote: JarvisVault
-): JarvisVault {
-  console.log('[JarvisCloud] Starting three-way merge...')
-  console.log('[JarvisCloud] Base version:', base.version)
-  console.log('[JarvisCloud] Local version:', local.version)
-  console.log('[JarvisCloud] Remote version:', remote.version)
-  
-  const now = Date.now()
-  const merged: JarvisVault = {
-    ...emptyVault(),
-    ...base,
-    ...local,
-    ...remote,
-    updatedAt: now,
-    version: Math.max(base.version || 0, local.version || 0, remote.version || 0) + 1,
-    fieldTimestamps: {},
+/** Mescla o snapshot da nuvem com o backend local e grava o resultado nele. Devolve o snapshot final. */
+async function syncBackend(merged: JarvisVault, cloudBackend?: Record<string, any>): Promise<void> {
+  if (isMobileStandalone()) {
+    merged.backend = cloudBackend ?? merged.backend
+    return
   }
-  
-  // Merge de campos simples (last-write-wins por timestamp)
-  const mergeField = <T>(
-    field: keyof JarvisVault,
-    localValue: T,
-    remoteValue: T,
-    localTs: number,
-    remoteTs: number
-  ): T => {
-    const localHasData = Array.isArray(localValue) ? localValue.length > 0 : localValue !== null && localValue !== undefined && localValue !== ''
-    const remoteHasData = Array.isArray(remoteValue) ? remoteValue.length > 0 : remoteValue !== null && remoteValue !== undefined && remoteValue !== ''
-    
-    // Se local tem dados e remote não, usa local
-    if (localHasData && !remoteHasData) {
-      console.log(`[JarvisCloud] Field ${String(field)}: using local (has data, remote empty)`)
-      return localValue
+  try {
+    const snapshot = {
+      ...(cloudBackend || {}),
+      settings: mergeStampedFields(cloudBackend?.settings || {}, settingsFieldsForBackend(merged.fields || {})),
     }
-    // Se remote tem dados e local não, usa remote
-    if (!localHasData && remoteHasData) {
-      console.log(`[JarvisCloud] Field ${String(field)}: using remote (has data, local empty)`)
-      return remoteValue
-    }
-    // Se ambos têm dados, usa timestamp
-    if (localHasData && remoteHasData) {
-      const useLocal = (localTs || 0) >= (remoteTs || 0)
-      console.log(`[JarvisCloud] Field ${String(field)}: using ${useLocal ? 'local' : 'remote'} (timestamp)`)
-      return useLocal ? localValue : remoteValue
-    }
-    // Se nenhum tem dados, usa local
-    console.log(`[JarvisCloud] Field ${String(field)}: using local (both empty)`)
-    return localValue
-  }
-  
-  const localTs = local.fieldTimestamps || {}
-  const remoteTs = remote.fieldTimestamps || {}
-  
-  // Merge de campos simples
-  // Para 'keys': verificar se realmente tem valores preenchidos (não apenas defaults vazios)
-  const localKeysHaveValue = keysHaveValue(local.keys)
-  const remoteKeysHaveValue = keysHaveValue(remote.keys)
-  if (!localKeysHaveValue && remoteKeysHaveValue) {
-    // Local só tem padrões vazios, remote tem chaves reais → usar remote
-    console.log('[JarvisCloud] Keys: using remote (local is default/empty, remote has real keys)')
-    merged.keys = remote.keys
-  } else if (localKeysHaveValue && !remoteKeysHaveValue) {
-    merged.keys = local.keys
-    console.log('[JarvisCloud] Keys: using local (remote is empty)')
-  } else {
-    // Ambos têm ou ambos não têm → resolver por timestamp
-    merged.keys = mergeField('keys', local.keys, remote.keys, localTs.keys || 0, remoteTs.keys || 0)
-  }
-  merged.provider = mergeField('provider', local.provider, remote.provider, localTs.provider || 0, remoteTs.provider || 0)
-  merged.oxyyModels = mergeField('oxyyModels', local.oxyyModels, remote.oxyyModels, localTs.oxyyModels || 0, remoteTs.oxyyModels || 0)
-  merged.providerModels = mergeField('providerModels', local.providerModels, remote.providerModels, localTs.providerModels || 0, remoteTs.providerModels || 0)
-  merged.memories = mergeField('memories', local.memories, remote.memories, localTs.memories || 0, remoteTs.memories || 0)
-  merged.profile = mergeField('profile', local.profile, remote.profile, localTs.profile || 0, remoteTs.profile || 0)
-  merged.dashboard = mergeField('dashboard', local.dashboard, remote.dashboard, localTs.dashboard || 0, remoteTs.dashboard || 0)
-  merged.proactive = mergeField('proactive', local.proactive, remote.proactive, localTs.proactive || 0, remoteTs.proactive || 0)
-  merged.climate = mergeField('climate', local.climate, remote.climate, localTs.climate || 0, remoteTs.climate || 0)
-  merged.finance = mergeField('finance', local.finance, remote.finance, localTs.finance || 0, remoteTs.finance || 0)
-  
-  // Merge de dados do Life OS (deep merge para objetos)
-  const deepMerge = (local: any, remote: any): any => {
-    // If either side is not a plain object, prefer the non-null side
-    const localIsObj = local !== null && local !== undefined && typeof local === 'object' && !Array.isArray(local)
-    const remoteIsObj = remote !== null && remote !== undefined && typeof remote === 'object' && !Array.isArray(remote)
-    if (!localIsObj || !remoteIsObj) {
-      // For primitives: prefer remote if it has a value, else keep local
-      if (remote !== null && remote !== undefined) return remote
-      return local
-    }
-    const result = { ...local }
-    Object.keys(remote).forEach(key => {
-      result[key] = deepMerge(local[key], remote[key])
+    const response = await fetch('/api/settings/sync-merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ snapshot }),
     })
-    return result
+    const data = await response.json().catch(() => null)
+    if (!response.ok || !data?.ok || !data.snapshot) throw new Error(`status ${response.status}`)
+    merged.backend = data.snapshot
+    merged.fields = mergeStampedFields(merged.fields || {}, settingsFieldsForBackend(data.snapshot.settings || {}))
+    applyFieldsToLegacy(merged)
+    log('Backend local mesclado', data.summary)
+  } catch (error) {
+    // Sem backend: preserva o que já está na nuvem em vez de sobrescrevê-lo com dados parciais.
+    merged.backend = cloudBackend ?? merged.backend
+    log(`Não foi possível mesclar com o backend local (${error instanceof Error ? error.message : 'erro'})`)
   }
-  
-  merged.habitLogs = deepMerge(local.habitLogs || {}, remote.habitLogs || {})
-  merged.mentalLogs = deepMerge(local.mentalLogs || {}, remote.mentalLogs || {})
-  merged.waterLogs = deepMerge(local.waterLogs || {}, remote.waterLogs || {})
-  merged.viceLogs = deepMerge(local.viceLogs || {}, remote.viceLogs || {})
-  merged.studyLogs = deepMerge(local.studyLogs || {}, remote.studyLogs || {})
-  merged.readingLogs = deepMerge(local.readingLogs || {}, remote.readingLogs || {})
-  merged.cognitive = deepMerge(local.cognitive || {}, remote.cognitive || {})
-  merged.subjects = deepMerge(local.subjects || {}, remote.subjects || {})
-  merged.summaries = deepMerge(local.summaries || {}, remote.summaries || {})
-  merged.flashcards = deepMerge(local.flashcards || {}, remote.flashcards || {})
-  merged.extraData = deepMerge(local.extraData || {}, remote.extraData || {})
-  
-  // Merge de arrays versionados (item por item)
-  if (local.habits || remote.habits) {
-    merged.habits = mergeVersionedArrays(
-      local.habits || [],
-      remote.habits || [],
-      localTs.habits || 0,
-      remoteTs.habits || 0
-    )
-    console.log(`[JarvisCloud] Merged habits: ${merged.habits?.length || 0} items`)
-  }
-  
-  if (local.training || remote.training) {
-    merged.training = mergeVersionedArrays(
-      local.training || [],
-      remote.training || [],
-      localTs.training || 0,
-      remoteTs.training || 0
-    )
-    console.log(`[JarvisCloud] Merged training: ${merged.training?.length || 0} items`)
-  }
-  
-  // Atualizar timestamps de campos
-  merged.fieldTimestamps = {
-    keys: Math.max(localTs.keys || 0, remoteTs.keys || 0, now),
-    provider: Math.max(localTs.provider || 0, remoteTs.provider || 0, now),
-    oxyyModels: Math.max(localTs.oxyyModels || 0, remoteTs.oxyyModels || 0, now),
-    providerModels: Math.max(localTs.providerModels || 0, remoteTs.providerModels || 0, now),
-    memories: Math.max(localTs.memories || 0, remoteTs.memories || 0, now),
-    profile: Math.max(localTs.profile || 0, remoteTs.profile || 0, now),
-    habits: Math.max(localTs.habits || 0, remoteTs.habits || 0, now),
-    training: Math.max(localTs.training || 0, remoteTs.training || 0, now),
-    dashboard: Math.max(localTs.dashboard || 0, remoteTs.dashboard || 0, now),
-    proactive: Math.max(localTs.proactive || 0, remoteTs.proactive || 0, now),
-    climate: Math.max(localTs.climate || 0, remoteTs.climate || 0, now),
-    finance: Math.max(localTs.finance || 0, remoteTs.finance || 0, now),
-    habitLogs: Math.max(localTs.habitLogs || 0, remoteTs.habitLogs || 0, now),
-    mentalLogs: Math.max(localTs.mentalLogs || 0, remoteTs.mentalLogs || 0, now),
-    waterLogs: Math.max(localTs.waterLogs || 0, remoteTs.waterLogs || 0, now),
-    viceLogs: Math.max(localTs.viceLogs || 0, remoteTs.viceLogs || 0, now),
-    studyLogs: Math.max(localTs.studyLogs || 0, remoteTs.studyLogs || 0, now),
-    readingLogs: Math.max(localTs.readingLogs || 0, remoteTs.readingLogs || 0, now),
-    cognitive: Math.max(localTs.cognitive || 0, remoteTs.cognitive || 0, now),
-    subjects: Math.max(localTs.subjects || 0, remoteTs.subjects || 0, now),
-    summaries: Math.max(localTs.summaries || 0, remoteTs.summaries || 0, now),
-    flashcards: Math.max(localTs.flashcards || 0, remoteTs.flashcards || 0, now),
-    extraData: Math.max(localTs.extraData || 0, remoteTs.extraData || 0, now),
-  }
-  
-  console.log('[JarvisCloud] Three-way merge complete, version:', merged.version)
-  return merged
 }
 
 // ============ HELPER FUNCTIONS ============
@@ -410,38 +471,29 @@ function headers(settings = getEvoluteSettings()): HeadersInit {
 }
 
 async function pullSnapshot(settings = getEvoluteSettings()) {
-  console.log('[JarvisCloud] Pulling snapshot from cloud...')
-  console.log('[JarvisCloud] Supabase URL:', baseUrl(settings))
+  log('Lendo o snapshot da nuvem...')
   // Supabase usa RLS (Row Level Security) para filtrar por usuário automaticamente
   // Não precisamos filtrar por user_id manualmente
-  const url = `${baseUrl(settings)}/rest/v1/evolute_snapshots?select=data,revision&order=revision.desc&limit=1`
-  console.log('[JarvisCloud] Request URL:', url)
-  const response = await fetch(url, {
+  const response = await fetch(`${baseUrl(settings)}/rest/v1/evolute_snapshots?select=data,revision&order=revision.desc&limit=1`, {
     headers: headers(settings),
   })
-  console.log('[JarvisCloud] Response status:', response.status)
-  console.log('[JarvisCloud] Response ok:', response.ok)
   if (!response.ok) {
-    const errorText = await response.text()
-    console.error('[JarvisCloud] Error response:', errorText)
+    // Nunca registrar o corpo da resposta: pode ecoar cabeçalhos ou dados do snapshot.
+    log(`Falha ao ler a nuvem (status ${response.status})`)
     throw new Error(`Não foi possível ler a nuvem. Status: ${response.status}`)
   }
   const rows = await response.json()
-  console.log('[JarvisCloud] Response rows:', rows)
   const row = Array.isArray(rows) ? rows[0] : null
   if (!row || typeof row.data !== 'object') {
-    console.log('[JarvisCloud] No valid snapshot found in cloud')
+    log('Nenhum snapshot válido na nuvem')
     return null
   }
-  console.log('[JarvisCloud] Snapshot found, revision:', row.revision)
-  console.log('[JarvisCloud] Snapshot data keys:', Object.keys(row.data || {}))
+  log(`Snapshot encontrado (revisão ${Number(row.revision || 0)}, ${Object.keys(row.data || {}).length} chaves)`)
   return { data: row.data as Record<string, unknown>, revision: Number(row.revision || 0) }
 }
 
 async function pushSnapshot(data: Record<string, unknown>, baseRevision: number, settings = getEvoluteSettings()) {
-  console.log('[JarvisCloud] Pushing snapshot to cloud...')
-  console.log('[JarvisCloud] Data keys being pushed:', Object.keys(data))
-  console.log('[JarvisCloud] Base revision:', baseRevision)
+  log(`Enviando snapshot à nuvem (${Object.keys(data).length} chaves, revisão base ${baseRevision})`)
   const response = await fetch(`${baseUrl(settings)}/rest/v1/rpc/sync_evolute_snapshot`, {
     method: 'POST',
     headers: headers(settings),
@@ -449,8 +501,8 @@ async function pushSnapshot(data: Record<string, unknown>, baseRevision: number,
   })
   if (!response.ok) throw new Error('Não foi possível salvar na nuvem.')
   const rows = await response.json()
-  console.log('[JarvisCloud] Push response:', rows)
   const result = Array.isArray(rows) ? rows[0] : rows
+  log(`Resposta da nuvem: revisão ${Number(result?.revision || 0)}, conflito ${Boolean(result?.conflict)}`)
   return { revision: Number(result?.revision || 0), conflict: Boolean(result?.conflict) }
 }
 
@@ -503,10 +555,10 @@ function readVaultFromSnapshot(data: Record<string, unknown> | undefined): Jarvi
     const vaultRaw = data[JARVIS_VAULT_KEY]
     if (!vaultRaw || typeof vaultRaw !== 'object') return null
     const vault = sanitizeVaultArrays(vaultRaw as JarvisVault)
-    console.log('[JarvisCloud] Vault read from snapshot, version:', vault.version)
+    log(`Cofre lido do snapshot (versão ${vault.version})`)
     return vault
-  } catch (e) {
-    console.error('[JarvisCloud] Failed to read vault from snapshot:', e)
+  } catch {
+    log('Falha ao ler o cofre do snapshot')
     return null
   }
 }
@@ -516,109 +568,68 @@ function readVaultFromSnapshot(data: Record<string, unknown> | undefined): Jarvi
 export async function collectJarvisVaultFromThisDevice(): Promise<JarvisVault> {
   const now = Date.now()
   const vault: JarvisVault = emptyVault()
-  
-  // Coletar dados básicos
-  vault.keys = getMobileApiKeys()
-  if (!isMobileStandalone()) {
-    try {
-      const [keysRes, settingsRes] = await Promise.all([
-        fetch('/api/settings/keys').then(r => r.json()).catch(() => null),
-        fetch('/api/settings').then(r => r.json()).catch(() => null),
-      ])
-      if (keysRes && keysRes.keys && keysHaveValue(keysRes.keys)) {
-        vault.keys = { ...vault.keys, ...keysRes.keys }
-        setMobileApiKeys(vault.keys)
-      }
-      if (settingsRes) {
-        if (settingsRes.llm_provider) {
-          vault.provider = settingsRes.llm_provider
-          setMobileProvider(settingsRes.llm_provider)
-        }
-        if (settingsRes.oxyy_models) {
-          vault.oxyyModels = { ...vault.oxyyModels, ...settingsRes.oxyy_models }
-          setMobileOxyyModels(vault.oxyyModels)
-        }
-      }
-    } catch (e) {
-      console.warn('[JarvisCloud] Falha ao coletar dados do backend local no PC:', e)
-    }
+  const state = loadStampState()
+
+  // Configurações deste dispositivo (localStorage) somadas às do backend do PC, campo a campo.
+  // Nunca se sobrescreve um campo preenchido por um vazio: a regra vive em mergeStampedFields.
+  vault.backend = await fetchBackendSnapshot()
+  vault.fields = mergeStampedFields(
+    collectLocalSettingsFields(state, now),
+    settingsFieldsForBackend(vault.backend?.settings || {}),
+  )
+  applyFieldsToLegacy(vault)
+
+  fillSectionsFromLocalStorage(vault)
+  stampSections(vault, state, now)
+  saveStampState(state)
+
+  vault.source = isMobileStandalone() ? 'mobile' : 'pc'
+  vault.updatedAt = now
+  vault.version = (vault.version || 0) + 1
+
+  return vault
+}
+
+/** Carimba cada seção só quando o conteúdo muda; assim o carimbo reflete a edição real. */
+function stampSections(vault: JarvisVault, state: StampState, now: number): void {
+  vault.fieldTimestamps = vault.fieldTimestamps || {}
+  for (const section of [...MERGED_SECTIONS, 'habits', 'training'] as const) {
+    vault.fieldTimestamps[section] = stampValue(state, `section.${section}`, (vault as Record<string, unknown>)[section], now)
   }
-  vault.fieldTimestamps!.keys = now
-  
-  if (!vault.provider) {
-    vault.provider = getMobileProvider()
-  }
-  vault.fieldTimestamps!.provider = now
-  
-  if (!vault.oxyyModels || Object.keys(vault.oxyyModels).length === 0) {
-    vault.oxyyModels = getMobileOxyyModels()
-  }
-  vault.fieldTimestamps!.oxyyModels = now
-  
-  // Coletar provider models do localStorage
-  const groqModel = localStorage.getItem('jarvis-mobile-groq-model')
-  const geminiModel = localStorage.getItem('jarvis-mobile-gemini-model')
-  const oxyyModel = localStorage.getItem('jarvis-mobile-oxyy-model')
-  if (groqModel) vault.providerModels.groq = groqModel
-  if (geminiModel) vault.providerModels.gemini = geminiModel
-  if (oxyyModel) vault.providerModels.oxyy = oxyyModel
-  vault.fieldTimestamps!.providerModels = now
-  
+}
+
+function fillSectionsFromLocalStorage(vault: JarvisVault): void {
   try { vault.memories = JSON.parse(localStorage.getItem(JARVIS_MEMORIES_KEY) || '[]') } catch { vault.memories = [] }
-  vault.fieldTimestamps!.memories = now
-  
   vault.profile = localStorage.getItem(JARVIS_PROFILE_KEY) || ''
-  vault.fieldTimestamps!.profile = now
-  
   // Coletar hábitos com versionamento
-  console.log('[JarvisCloud] Checking localStorage for habits...')
-  console.log('[JarvisCloud] All localStorage keys:', Object.keys(localStorage))
   const habitsRaw = localStorage.getItem('lifeos_habits') || localStorage.getItem('jarvis-habits')
-  console.log('[JarvisCloud] Raw habits from localStorage:', habitsRaw)
-  console.log('[JarvisCloud] Using key:', habitsRaw ? (localStorage.getItem('lifeos_habits') ? 'lifeos_habits' : 'jarvis-habits') : 'none')
   try {
     const habits = JSON.parse(habitsRaw || '[]') as any[]
     // Converter para versioned items
     vault.habits = habits.map(h => ({
-      id: h.id || `h_${Date.now()}_${Math.random()}`,
+      id: h.id || `h_${fingerprint(JSON.stringify(h))}`,
       data: h,
-      updatedAt: h.updatedAt || h.createdAt || Date.now(),
+      updatedAt: h.updatedAt || h.createdAt || 0,
       deleted: false,
     }))
-    console.log('[JarvisCloud] Habits count:', vault.habits?.length || 0)
   } catch { vault.habits = [] }
-  vault.fieldTimestamps!.habits = now
-  
   // Coletar treino com versionamento
   const trainingRaw = localStorage.getItem('lifeos_workouts') || localStorage.getItem('jarvis-training')
-  console.log('[JarvisCloud] Raw training from localStorage:', trainingRaw)
-  console.log('[JarvisCloud] Using training key:', trainingRaw ? (localStorage.getItem('lifeos_workouts') ? 'lifeos_workouts' : 'jarvis-training') : 'none')
   try {
     const training = JSON.parse(trainingRaw || '[]') as any[]
     vault.training = training.map(t => ({
-      id: t.id || `t_${Date.now()}_${Math.random()}`,
+      id: t.id || `t_${fingerprint(JSON.stringify(t))}`,
       data: t,
-      updatedAt: t.updatedAt || t.createdAt || Date.now(),
+      updatedAt: t.updatedAt || t.createdAt || 0,
       deleted: false,
     }))
-    console.log('[JarvisCloud] Training count:', vault.training?.length || 0)
   } catch { vault.training = [] }
-  vault.fieldTimestamps!.training = now
-  
   // Coletar outros dados
   try { vault.dashboard = JSON.parse(localStorage.getItem('jarvis-dashboard') || '{}') } catch { vault.dashboard = {} }
-  vault.fieldTimestamps!.dashboard = now
-  
   try { vault.proactive = JSON.parse(localStorage.getItem('jarvis-proactive') || '{}') } catch { vault.proactive = {} }
-  vault.fieldTimestamps!.proactive = now
-  
   try { vault.climate = JSON.parse(localStorage.getItem('jarvis-climate') || '{}') } catch { vault.climate = {} }
-  vault.fieldTimestamps!.climate = now
-  
   const financeRaw = localStorage.getItem('jarvis-finance') || localStorage.getItem('lifeos_finance')
   try { vault.finance = JSON.parse(financeRaw || '{}') } catch { vault.finance = {} }
-  vault.fieldTimestamps!.finance = now
-  
   // Coletar dados do Life OS (logs por dia e outros dados)
   const lifeosPrefixes = ['lifeos_hlog_', 'lifeos_mental_', 'lifeos_water_']
   vault.habitLogs = {}
@@ -649,53 +660,35 @@ export async function collectJarvisVaultFromThisDevice(): Promise<JarvisVault> {
       } catch { vault.waterLogs![key] = {} }
     }
   })
-  vault.fieldTimestamps!.habitLogs = now
-  vault.fieldTimestamps!.mentalLogs = now
-  vault.fieldTimestamps!.waterLogs = now
-  
   // Coletar outros dados do Life OS
   try {
     const viceLogs = JSON.parse(localStorage.getItem('lifeos_vice_logs') || '[]')
     vault.viceLogs = Array.isArray(viceLogs) ? viceLogs : []
   } catch { vault.viceLogs = [] }
-  vault.fieldTimestamps!.viceLogs = now
-  
   try {
     const studyLogs = JSON.parse(localStorage.getItem('lifeos_study_logs') || '[]')
     vault.studyLogs = Array.isArray(studyLogs) ? studyLogs : []
   } catch { vault.studyLogs = [] }
-  vault.fieldTimestamps!.studyLogs = now
-  
   try {
     const readingLogs = JSON.parse(localStorage.getItem('lifeos_reading_logs') || '[]')
     vault.readingLogs = Array.isArray(readingLogs) ? readingLogs : []
   } catch { vault.readingLogs = [] }
-  vault.fieldTimestamps!.readingLogs = now
-  
   try {
     const cognitive = JSON.parse(localStorage.getItem('lifeos_cognitive') || '[]')
     vault.cognitive = Array.isArray(cognitive) ? cognitive : []
   } catch { vault.cognitive = [] }
-  vault.fieldTimestamps!.cognitive = now
-  
   try {
     const subjects = JSON.parse(localStorage.getItem('lifeos_subjects') || '[]')
     vault.subjects = Array.isArray(subjects) ? subjects : []
   } catch { vault.subjects = [] }
-  vault.fieldTimestamps!.subjects = now
-  
   try {
     const summaries = JSON.parse(localStorage.getItem('lifeos_summaries') || '[]')
     vault.summaries = Array.isArray(summaries) ? summaries : []
   } catch { vault.summaries = [] }
-  vault.fieldTimestamps!.summaries = now
-  
   try {
     const flashcards = JSON.parse(localStorage.getItem('lifeos_flashcards') || '[]')
     vault.flashcards = Array.isArray(flashcards) ? flashcards : []
   } catch { vault.flashcards = [] }
-  vault.fieldTimestamps!.flashcards = now
-  
   // Coletar dados adicionais do Life OS que ficam em extraData
   vault.extraData = {}
 
@@ -774,13 +767,6 @@ export async function collectJarvisVaultFromThisDevice(): Promise<JarvisVault> {
       } catch { /* ignore */ }
     }
   })
-  vault.fieldTimestamps!.extraData = now
-  
-  vault.source = isMobileStandalone() ? 'mobile' : 'pc'
-  vault.updatedAt = now
-  vault.version = (vault.version || 0) + 1
-  
-  return vault
 }
 
 function buildCloudSnapshotPayload(existingData: Record<string, unknown> | undefined, vault: JarvisVault): Record<string, unknown> {
@@ -810,43 +796,44 @@ function buildCloudSnapshotPayload(existingData: Record<string, unknown> | undef
 // ============ APPLY DATA LOCALLY ============
 
 export function applyJarvisVaultLocally(vault: JarvisVault) {
-  console.log('[JarvisCloud] Applying vault locally:', vault)
+  log(`Aplicando o cofre localmente (versão ${vault.version || 0})`)
   const now = Date.now()
   sanitizeVaultArrays(vault)
-  
-  setMobileApiKeys(vault.keys)
-  setLocalFieldTimestamp('keys', now)
-  
-  setMobileProvider(vault.provider || 'oxyy')
-  setLocalFieldTimestamp('provider', now)
-  
-  setMobileOxyyModels(vault.oxyyModels || DEFAULT_OXXY_MODELS)
-  setLocalFieldTimestamp('oxyyModels', now)
-  
-  // Apply provider models
-  if (vault.providerModels) {
-    console.log('[JarvisCloud] Applying provider models:', vault.providerModels)
-    if (vault.providerModels.groq) {
-      localStorage.setItem('jarvis-mobile-groq-model', vault.providerModels.groq)
-      console.log('[JarvisCloud] Set groq model:', vault.providerModels.groq)
-    }
-    if (vault.providerModels.gemini) {
-      localStorage.setItem('jarvis-mobile-gemini-model', vault.providerModels.gemini)
-      console.log('[JarvisCloud] Set gemini model:', vault.providerModels.gemini)
-    }
-    if (vault.providerModels.oxyy) {
-      localStorage.setItem('jarvis-mobile-oxyy-model', vault.providerModels.oxyy)
-      console.log('[JarvisCloud] Set oxyy model:', vault.providerModels.oxyy)
-    }
-    setLocalFieldTimestamp('providerModels', now)
+  const fields = vaultFields(vault)
+  vault.fields = fields
+
+  // Chaves: grava as que o cofre conhece e mantém as locais que ele não conhece (nunca apaga por vazio).
+  const keys = readRawMobileKeys()
+  for (const id of KEY_IDS) {
+    const value = fieldValue(fields, `api_keys.${id}`)
+    if (value) keys[id] = value
   }
-  
+  setMobileApiKeys(keys)
+  setLocalFieldTimestamp('keys', now)
+
+  const provider = fieldValue(fields, 'llm_provider')
+  if (provider === 'gemini' || provider === 'groq' || provider === 'oxyy') setMobileProvider(provider)
+  setLocalFieldTimestamp('provider', now)
+
+  const oxyyModels: Record<string, string> = {}
+  for (const [path, entry] of Object.entries(fields)) {
+    if (path.startsWith('oxyy_models.') && typeof entry.v === 'string' && entry.v) oxyyModels[path.slice('oxyy_models.'.length)] = entry.v
+  }
+  if (Object.keys(oxyyModels).length) setMobileOxyyModels(oxyyModels)
+  setLocalFieldTimestamp('oxyyModels', now)
+
+  for (const [name, storageKey] of Object.entries(PROVIDER_MODEL_STORAGE)) {
+    const value = fieldValue(fields, `provider_models.${name}`)
+    if (value) localStorage.setItem(storageKey, value)
+  }
+  setLocalFieldTimestamp('providerModels', now)
+
   localStorage.setItem(JARVIS_MEMORIES_KEY, JSON.stringify(vault.memories || []))
   setLocalFieldTimestamp('memories', now)
-  
+
   localStorage.setItem(JARVIS_PROFILE_KEY, vault.profile || '')
   setLocalFieldTimestamp('profile', now)
-  
+
   // Aplicar hábitos (des-versionar de forma segura)
   if (vault.habits) {
     const rawHabits = Array.isArray(vault.habits) ? vault.habits : []
@@ -899,7 +886,7 @@ export function applyJarvisVaultLocally(vault: JarvisVault) {
     })
     setLocalFieldTimestamp('habitLogs', now)
   } else {
-    console.log('[JarvisCloud] No habitLogs in vault or invalid type, keeping local')
+    log('Cofre sem habitLogs válidos; mantendo os locais')
   }
   
   if (vault.mentalLogs && typeof vault.mentalLogs === 'object') {
@@ -980,7 +967,25 @@ export function applyJarvisVaultLocally(vault: JarvisVault) {
     window.dispatchEvent(new Event('jarvis-sync-applied'))
   } catch { /* ignore */ }
   
-  console.log('[JarvisCloud] Vault applied locally')
+  recordAppliedStamps(vault, now)
+  log('Cofre aplicado localmente')
+}
+
+/** Depois de gravar no localStorage, guarda os carimbos do cofre para a próxima coleta reconhecê-los. */
+function recordAppliedStamps(vault: JarvisVault, now: number): void {
+  const state = loadStampState()
+  for (const [path, entry] of Object.entries(vault.fields || {})) recordStamp(state, path, entry.v, entry.ts)
+  const current = emptyVault()
+  fillSectionsFromLocalStorage(current)
+  for (const section of [...MERGED_SECTIONS, 'habits', 'training'] as const) {
+    const ts = Number(vault.fieldTimestamps?.[section] || 0) || now
+    recordStamp(state, `section.${section}`, (current as Record<string, unknown>)[section], ts)
+  }
+  saveStampState(state)
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'erro desconhecido'
 }
 
 // ============ PUSH/PULL OPERATIONS ============
@@ -989,65 +994,37 @@ export async function pushJarvisVault(incoming = collectJarvisVaultFromThisDevic
   if (!acquireSyncLock()) {
     throw new Error('Sincronização em andamento. Aguarde.')
   }
-  
+
   try {
     const local = await incoming
-    console.log('[JarvisCloud] Starting push, local version:', local.version)
-    
+    log(`Iniciando envio (versão local ${local.version})`)
+
     // Criar backup antes de sync
     createBackup(local)
-    
-    const snapshot = await pullSnapshot()
-    const cloudVault = readVaultFromSnapshot(snapshot?.data)
-    
-    // Se não há snapshot na nuvem, criar um novo
-    if (!snapshot || !cloudVault) {
-      console.log('[JarvisCloud] No snapshot in cloud, creating new one with local data')
-      const data = buildCloudSnapshotPayload(snapshot?.data, local)
-      const result = await pushSnapshot(data, 0)
-      if (result.conflict) {
-        throw new Error('Conflito ao criar snapshot na nuvem. Tente novamente.')
+
+    // Mesclagem campo a campo com o que já está na nuvem; em conflito de revisão, baixa a mais recente e repete.
+    let snapshot = await pullSnapshot()
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const cloudVault = readVaultFromSnapshot(snapshot?.data)
+      const merged = cloudVault ? mergeVaults(local, cloudVault) : local
+      await syncBackend(merged, cloudVault?.backend)
+      const data = buildCloudSnapshotPayload(snapshot?.data, merged)
+      const result = await pushSnapshot(data, snapshot ? snapshot.revision : 0)
+      if (!result.conflict) {
+        localStorage.setItem(CLOUD_REVISION_KEY, String(result.revision))
+        applyJarvisVaultLocally(merged)
+        return merged
       }
-      localStorage.setItem(CLOUD_REVISION_KEY, String(result.revision))
-      applyJarvisVaultLocally(local)
-      return local
+      log('Conflito de revisão; baixando a versão mais recente e tentando de novo')
+      snapshot = await pullSnapshot()
     }
-    
-    // Three-way merge: base (cloud) + local + remote (cloud)
-    console.log('[JarvisCloud] Performing three-way merge...')
-    const merged = mergeVaults(cloudVault, local, cloudVault)
-    
-    const data = buildCloudSnapshotPayload(snapshot?.data, merged)
-    const baseRevision = snapshot?.revision || Number(localStorage.getItem(CLOUD_REVISION_KEY) || '0')
-    const result = await pushSnapshot(data, baseRevision)
-    
-    if (result.conflict) {
-      console.log('[JarvisCloud] Conflict detected, pulling latest and retrying...')
-      // Em caso de conflito, baixar latest e tentar novamente
-      const latestSnapshot = await pullSnapshot()
-      const latestVault = readVaultFromSnapshot(latestSnapshot?.data)
-      if (latestVault) {
-        const retryMerged = mergeVaults(latestVault, local, latestVault)
-        const retryData = buildCloudSnapshotPayload(latestSnapshot?.data, retryMerged)
-        const retryResult = await pushSnapshot(retryData, latestSnapshot?.revision || 0)
-        if (retryResult.conflict) {
-          throw new Error('Conflito persistente. Tente novamente mais tarde.')
-        }
-        localStorage.setItem(CLOUD_REVISION_KEY, String(retryResult.revision))
-        applyJarvisVaultLocally(retryMerged)
-        return retryMerged
-      }
-    }
-    
-    localStorage.setItem(CLOUD_REVISION_KEY, String(result.revision))
-    applyJarvisVaultLocally(merged)
-    return merged
+    throw new Error('Conflito persistente. Tente novamente mais tarde.')
   } catch (e) {
-    console.error('[JarvisCloud] Push failed:', e)
+    log(`Falha no envio: ${errorMessage(e)}`)
     // Restaurar backup em caso de erro
     const backup = restoreBackup()
     if (backup) {
-      console.log('[JarvisCloud] Restored from backup after error')
+      log('Backup local restaurado após o erro')
       applyJarvisVaultLocally(backup)
     }
     throw e
@@ -1060,36 +1037,31 @@ export async function downloadJarvisVault(): Promise<JarvisVault> {
   if (!acquireSyncLock()) {
     throw new Error('Sincronização em andamento. Aguarde.')
   }
-  
+
   try {
-    console.log('[JarvisCloud] Starting download from cloud...')
+    log('Iniciando download da nuvem')
     const local = await collectJarvisVaultFromThisDevice()
-    console.log('[JarvisCloud] Local vault collected, version:', local.version)
-    
+
     // Criar backup
     createBackup(local)
-    
+
     const snapshot = await pullSnapshot()
     const cloudVault = readVaultFromSnapshot(snapshot?.data)
-    
+
     if (!snapshot || !cloudVault) {
-      console.log('[JarvisCloud] No snapshot in cloud')
       throw new Error('Ainda não há dados na nuvem. Use "Salvar na nuvem" primeiro.')
     }
-    
-    console.log('[JarvisCloud] Vault pulled from cloud:', cloudVault)
-    console.log('[JarvisCloud] Vault habits count:', cloudVault.habits?.length || 0)
-    
-    // Three-way merge: base (cloud) + local + remote (cloud)
-    const merged = mergeVaults(cloudVault, local, cloudVault)
-    
+
+    const merged = mergeVaults(local, cloudVault)
+    await syncBackend(merged, cloudVault.backend)
+
     applyJarvisVaultLocally(merged)
     return merged
   } catch (e) {
-    console.error('[JarvisCloud] Download failed:', e)
+    log(`Falha no download: ${errorMessage(e)}`)
     const backup = restoreBackup()
     if (backup) {
-      console.log('[JarvisCloud] Restored from backup after error')
+      log('Backup local restaurado após o erro')
       applyJarvisVaultLocally(backup)
     }
     throw e
@@ -1102,55 +1074,54 @@ export async function downloadJarvisVault(): Promise<JarvisVault> {
 
 export async function autoSyncOnOpen(): Promise<void> {
   if (!isEvoluteCloudConnected()) {
-    console.log('[JarvisCloud] Not connected to cloud, skipping auto-sync')
+    log('Sem conexão com a nuvem; sincronização automática ignorada')
     return
   }
-  
+
   // Renovar token se expirado
   if (isTokenExpired()) {
-    console.log('[JarvisCloud] Token expired, refreshing...')
+    log('Token expirado; renovando')
     await refreshAccessToken()
   }
-  
+
   const lastSync = getLocalLastSync()
   const now = Date.now()
   const oneHour = 60 * 60 * 1000
-  
+
   // Auto-sync apenas se passou mais de 1 hora
   if (now - lastSync < oneHour) {
-    console.log('[JarvisCloud] Auto-sync skipped (synced recently)')
+    log('Sincronização automática ignorada (sincronizado há pouco)')
     return
   }
-  
+
   try {
-    console.log('[JarvisCloud] Starting auto-sync...')
+    log('Iniciando sincronização automática')
     await downloadJarvisVault()
-    console.log('[JarvisCloud] Auto-sync complete')
+    log('Sincronização automática concluída')
   } catch (e) {
-    console.error('[JarvisCloud] Auto-sync failed:', e)
+    log(`Sincronização automática falhou: ${errorMessage(e)}`)
     // Não lançar erro em auto-sync
   }
+}
+
+function countConfiguredProviders(vault: JarvisVault): number {
+  return Object.values(vault.keys || {}).filter(value => value && typeof value === 'string' && value.trim()).length
 }
 
 export async function syncJarvisAfterLogin(role: 'pc' | 'mobile'): Promise<string> {
   try {
     if (role === 'mobile') {
       const vault = await downloadJarvisVault()
-      const count = Object.values(vault.keys || {}).filter(value => value && typeof value === 'string' && value.trim()).length
-      return `Chaves e memórias baixadas (${count} provedor(es), ${vault.memories?.length || 0} memórias). Rotação por vírgula igual ao PC.`
+      return `Chaves e memórias baixadas (${countConfiguredProviders(vault)} provedor(es), ${vault.memories?.length || 0} memórias). Rotação por vírgula igual ao PC.`
     }
-    const collected = await collectJarvisVaultFromThisDevice()
-    if (!keysHaveValue(collected.keys)) {
-      return 'Conta conectada. Este PC ainda não tem chaves para enviar.'
-    }
-    const vault = await pushJarvisVault(Promise.resolve(collected))
-    return `Jarvis do PC enviado à nuvem (${Object.values(vault.keys || {}).filter(value => value && typeof value === 'string' && value.trim()).length} provedor(es)). No celular, entre com a mesma conta.`
+    // O envio sempre mescla com a nuvem antes de gravar: dados de outro dispositivo não são sobrescritos.
+    const vault = await pushJarvisVault()
+    return `Jarvis do PC sincronizado com a nuvem (${countConfiguredProviders(vault)} provedor(es) com chave). No celular, entre com a mesma conta.`
   } catch (error) {
-    console.error('[JarvisCloud] Erro na sincronização:', error)
+    log(`Erro na sincronização: ${errorMessage(error)}`)
     if (error instanceof Error) {
       throw error
     }
     throw new Error('Erro desconhecido na sincronização.')
   }
 }
-

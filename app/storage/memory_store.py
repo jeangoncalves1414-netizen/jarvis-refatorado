@@ -23,17 +23,21 @@ class MemoryStore:
         self.storage_path.write_text(json.dumps(self._data, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def add_preference(self, key: str, value: str) -> None:
+        self._load()  # a sincronização pode ter alterado o arquivo por fora
         self._data.setdefault("preferences", [])
         self._data["preferences"].append({"key": key, "value": value})
         self._save()
 
     def add_fact(self, fact: str) -> None:
+        self._load()
         self._data.setdefault("facts", [])
         self._data["facts"].append(fact)
         self._save()
 
     def get_preferences(self) -> list[dict[str, str]]:
+        self._load()
         return list(self._data.get("preferences", []))
 
     def get_facts(self) -> list[str]:
+        self._load()
         return list(self._data.get("facts", []))

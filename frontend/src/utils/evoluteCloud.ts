@@ -57,16 +57,17 @@ async function supabaseAuth(
     body: JSON.stringify({ email: email.trim(), password }),
   })
   const payload = await response.json().catch(() => ({}))
-  console.log(`[SupabaseAuth] Response status: ${response.status}`, payload)
+  console.log(`[SupabaseAuth] Response status: ${response.status}`)
 
   if (!response.ok) {
     const errorMsg = payload.msg || payload.error_description || payload.error || 'Falha ao autenticar no Supabase.'
-    console.error(`[SupabaseAuth] Erro: ${errorMsg}`, payload)
+    console.error(`[SupabaseAuth] Erro: ${errorMsg}`)
     throw new Error(`${signup ? 'Erro ao criar conta' : 'Erro ao entrar'}: ${errorMsg}`)
   }
   const session = payload.session || payload
   if (!session?.access_token) {
-    console.error(`[SupabaseAuth] Sem access_token. Payload:`, payload)
+    // Não registrar o payload: pode conter refresh_token e dados da conta.
+    console.error('[SupabaseAuth] Resposta sem access_token. Campos recebidos:', Object.keys(payload || {}))
     if (signup) {
       // Signup sem access_token pode significar que precisa confirmação de email
       // ou que o Supabase está configurado para não retornar session no signup
@@ -129,7 +130,7 @@ export async function refreshAccessToken(settings = getEvoluteSettings()): Promi
   console.log('[SupabaseAuth] Refresh response status:', response.status)
 
   if (!response.ok || !payload.access_token) {
-    console.error('[SupabaseAuth] Falha ao renovar token:', payload)
+    console.error('[SupabaseAuth] Falha ao renovar token (status', response.status, ')')
     // Limpa tokens expirados
     saveEvoluteSettings({
       supabaseAccessToken: '',

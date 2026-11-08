@@ -24,6 +24,7 @@ import {
   autoSyncOnOpen,
   syncJarvisAfterLogin,
 } from '../utils/jarvisCloud'
+import { maskKeyList } from '../utils/syncMerge'
 
 type SettingsPageProps = {
   ttsSettings: TtsSettings | null
@@ -261,14 +262,14 @@ export function SettingsPage({
                   </span>
                   {keyValues.oxyy && (
                     <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
-                      {keyValues.oxyy.split(',').filter(k => k.trim()).length} chave(s) configurada(s)
+                      {keyValues.oxyy.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.oxyy ? ` · ${maskKeyList(keyValues.oxyy)}` : ''}
                     </span>
                   )}
                 </div>
                 <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                   <input
-                    type={visibleKeys.oxyy ? 'text' : 'password'}
+                    type="password"
                     value={keyValues.oxyy}
                     onChange={e => handleKeyChange('oxyy', e.target.value)}
                     placeholder="sk-oxyy-...,sk-oxyy-..."
@@ -278,7 +279,7 @@ export function SettingsPage({
                     type="button"
                     className="outline-button"
                     onClick={() => toggleKeyVisibility('oxyy')}
-                    title={visibleKeys.oxyy ? 'Ocultar chave' : 'Desocultar chave'}
+                    title={visibleKeys.oxyy ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
                     style={{ padding: '6px 10px' }}
                   >
                     {visibleKeys.oxyy ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -294,14 +295,14 @@ export function SettingsPage({
                   </span>
                   {keyValues.groq && (
                     <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
-                      {keyValues.groq.split(',').filter(k => k.trim()).length} chave(s) configurada(s)
+                      {keyValues.groq.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.groq ? ` · ${maskKeyList(keyValues.groq)}` : ''}
                     </span>
                   )}
                 </div>
                 <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                   <input
-                    type={visibleKeys.groq ? 'text' : 'password'}
+                    type="password"
                     value={keyValues.groq}
                     onChange={e => handleKeyChange('groq', e.target.value)}
                     placeholder="gsk_...,gsk_..."
@@ -311,7 +312,7 @@ export function SettingsPage({
                     type="button"
                     className="outline-button"
                     onClick={() => toggleKeyVisibility('groq')}
-                    title={visibleKeys.groq ? 'Ocultar chave' : 'Desocultar chave'}
+                    title={visibleKeys.groq ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
                     style={{ padding: '6px 10px' }}
                   >
                     {visibleKeys.groq ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -327,14 +328,14 @@ export function SettingsPage({
                   </span>
                   {keyValues.gemini && (
                     <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
-                      {keyValues.gemini.split(',').filter(k => k.trim()).length} chave(s) configurada(s)
+                      {keyValues.gemini.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.gemini ? ` · ${maskKeyList(keyValues.gemini)}` : ''}
                     </span>
                   )}
                 </div>
                 <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                   <input
-                    type={visibleKeys.gemini ? 'text' : 'password'}
+                    type="password"
                     value={keyValues.gemini}
                     onChange={e => handleKeyChange('gemini', e.target.value)}
                     placeholder="AIzaSy...,AIzaSy..."
@@ -344,7 +345,7 @@ export function SettingsPage({
                     type="button"
                     className="outline-button"
                     onClick={() => toggleKeyVisibility('gemini')}
-                    title={visibleKeys.gemini ? 'Ocultar chave' : 'Desocultar chave'}
+                    title={visibleKeys.gemini ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
                     style={{ padding: '6px 10px' }}
                   >
                     {visibleKeys.gemini ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -360,14 +361,14 @@ export function SettingsPage({
                   </span>
                   {keyValues.openrouter && (
                     <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
-                      {keyValues.openrouter.split(',').filter(k => k.trim()).length} chave(s) configurada(s)
+                      {keyValues.openrouter.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.openrouter ? ` · ${maskKeyList(keyValues.openrouter)}` : ''}
                     </span>
                   )}
                 </div>
                 <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                   <input
-                    type={visibleKeys.openrouter ? 'text' : 'password'}
+                    type="password"
                     value={keyValues.openrouter}
                     onChange={e => handleKeyChange('openrouter', e.target.value)}
                     placeholder="sk-or-v1-...,sk-or-v1-..."
@@ -377,7 +378,7 @@ export function SettingsPage({
                     type="button"
                     className="outline-button"
                     onClick={() => toggleKeyVisibility('openrouter')}
-                    title={visibleKeys.openrouter ? 'Ocultar chave' : 'Desocultar chave'}
+                    title={visibleKeys.openrouter ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
                     style={{ padding: '6px 10px' }}
                   >
                     {visibleKeys.openrouter ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -393,14 +394,14 @@ export function SettingsPage({
                   </span>
                   {keyValues.fish && (
                     <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
-                      {keyValues.fish.split(',').filter(k => k.trim()).length} chave(s) configurada(s)
+                      {keyValues.fish.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.fish ? ` · ${maskKeyList(keyValues.fish)}` : ''}
                     </span>
                   )}
                 </div>
                 <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                   <input
-                    type={visibleKeys.fish ? 'text' : 'password'}
+                    type="password"
                     value={keyValues.fish}
                     onChange={e => handleKeyChange('fish', e.target.value)}
                     placeholder="key-...,key-..."
@@ -410,7 +411,7 @@ export function SettingsPage({
                     type="button"
                     className="outline-button"
                     onClick={() => toggleKeyVisibility('fish')}
-                    title={visibleKeys.fish ? 'Ocultar chave' : 'Desocultar chave'}
+                    title={visibleKeys.fish ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
                     style={{ padding: '6px 10px' }}
                   >
                     {visibleKeys.fish ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -871,13 +872,13 @@ function MobileApiConfig() {
                 <label style={{ fontSize: 11, color: '#cbd5e1', fontWeight: 600 }}>{item.label}</label>
                 {keys[item.id] && (
                   <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
-                    {countKeys(item.id as DirectChatProvider)} chave(s) configurada(s)
+                    {countKeys(item.id as DirectChatProvider)} chave(s) configurada(s){showKey[item.id] ? ` · ${maskKeyList(keys[item.id] || '')}` : ''}
                   </span>
                 )}
               </div>
               <div style={{ position: 'relative' }}>
                 <input
-                  type={showKey[item.id] ? 'text' : 'password'}
+                  type="password"
                   value={keys[item.id] || ''}
                   onChange={e => setKeys(prev => ({ ...prev, [item.id]: e.target.value }))}
                   placeholder={item.placeholder}
