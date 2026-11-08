@@ -19,6 +19,9 @@ from app.storage.runtime_settings import (
     set_ai_routes,
     set_oxyy_models,
     set_stt_provider,
+    set_stt_local,
+    get_mic_settings,
+    set_mic_settings,
     set_tts_provider,
     sync_api_keys_to_env,
     sync_settings_to_obj,
@@ -93,7 +96,7 @@ def handle_settings_get(parts: list[str], handler: Any) -> tuple[int, dict[str, 
         defaults = {
             "llm_provider": getattr(handler.settings, "llm_provider", "gemini"),
             "tts_provider": getattr(handler.settings, "tts_provider", "fish"),
-            "stt_provider": getattr(handler.settings, "stt_provider", "groq"),
+            "stt_provider": getattr(handler.settings, "stt_provider", "local"),
         }
         return 200, get_ai_settings(defaults)
     if len(parts) >= 3 and parts[1] == "settings" and parts[2] == "llm":
@@ -117,8 +120,10 @@ def handle_settings_get(parts: list[str], handler: Any) -> tuple[int, dict[str, 
     if len(parts) >= 3 and parts[1] == "settings" and parts[2] == "tts":
         default = getattr(handler.settings, "tts_provider", "fish")
         return 200, get_tts_settings(default)
+    if len(parts) >= 3 and parts[1] == "settings" and parts[2] == "mic":
+        return 200, {"ok": True, **get_mic_settings()}
     if len(parts) >= 3 and parts[1] == "settings" and parts[2] == "stt":
-        default = getattr(handler.settings, "stt_provider", "groq")
+        default = getattr(handler.settings, "stt_provider", "local")
         return 200, get_stt_settings(default)
     if len(parts) >= 3 and parts[1] == "settings" and parts[2] == "oxyy":
         defaults = {
@@ -283,14 +288,25 @@ def handle_settings_post(path: str, body: bytes, handler: Any) -> tuple[int, dic
         data["ok"] = True
         return 200, data
 
+    if path == "/api/settings/mic":
+        try:
+            payload = json.loads(body.decode("utf-8") or "{}")
+            return 200, {"ok": True, **set_mic_settings(payload)}
+        except ValueError as exc:
+            return 400, {"ok": False, "error": str(exc)}
+
     if path == "/api/settings/stt":
         try:
             payload = json.loads(body.decode("utf-8") or "{}")
             provider = payload.get("stt_provider")
-            if not provider:
-                return 400, {"ok": False, "error": "Campo stt_provider é obrigatório."}
-            set_stt_provider(str(provider))
-            handler.settings.stt_provider = str(provider).lower()
+            has_local = payload.get("local_model") or payload.get("local_device")
+            if not provider and not has_local:
+                return 400, {"ok": False, "error": "Informe stt_provider, local_model ou local_device."}
+            if has_local:
+                set_stt_local(payload.get("local_model"), payload.get("local_device"))
+            if provider:
+                set_stt_provider(str(provider))
+                handler.settings.stt_provider = str(provider).lower()
             # A pipeline nova garante que a seleção seja aplicada à próxima fala.
             from app.services.voice.pipeline import VoicePipeline
             handler.__class__.voice_pipeline = VoicePipeline(settings=handler.settings)

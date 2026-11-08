@@ -12,7 +12,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 _VALID_PROVIDERS = {"gemini", "groq", "oxyy"}
 _VALID_TTS_PROVIDERS = {"fish", "gemini", "edge", "oxyy"}
-_VALID_STT_PROVIDERS = {"groq", "oxyy", "google", "whisper_local"}
+_VALID_STT_PROVIDERS = {"local", "groq", "oxyy", "google", "whisper_local"}
 _OXYY_MODEL_DEFAULTS = {
     "chat": "gpt-4o-mini",
     "tts": "tts-1-hd",
@@ -450,7 +450,7 @@ def get_tts_settings(default_provider: str = "fish") -> dict[str, Any]:
     }
 
 
-def get_stt_provider(default: str = "groq") -> str:
+def get_stt_provider(default: str = "local") -> str:
     data = _read()
     value = data.get("stt_provider", os.getenv("STT_PROVIDER", default))
     value = str(value).lower()
@@ -468,18 +468,90 @@ def set_stt_provider(provider: str) -> str:
     return normalized
 
 
-def get_stt_settings(default_provider: str = "groq") -> dict[str, Any]:
-    try:
-        from app.services.voice.whisper_stt import WHISPER_AVAILABLE
-    except Exception:
-        WHISPER_AVAILABLE = False
+def get_stt_settings(default_provider: str = "local") -> dict[str, Any]:
+    from app.services.voice.stt import local_whisper
+
+    available = local_whisper.is_available()
+    model = local_whisper.configured_model()
     return {
         "stt_provider": get_stt_provider(default_provider),
         "groq_configured": bool(os.getenv("GROQ_API_KEY", "") or os.getenv("GROQ_API_KEYS", "")),
         "oxyy_configured": bool(os.getenv("OXYY_API_KEY", "") or os.getenv("OXYY_API_KEYS", "")),
         "oxyy_model": os.getenv("OXYY_STT_MODEL", "whisper-1"),
-        "whisper_local_available": WHISPER_AVAILABLE,
+        "local_available": available,
+        "local_reason": "" if available else local_whisper.unavailable_reason(),
+        "local_model": model,
+        "local_device": local_whisper.configured_device(),
+        "local_model_downloaded": local_whisper.model_cached(model) if available else False,
+        "local_models": list(local_whisper.VALID_MODELS),
+        "local_download_hint": (
+            "" if not available or local_whisper.model_cached(model)
+            else f"O modelo '{model}' ({local_whisper.MODEL_SIZE_HINT.get(model, '')}) será baixado na primeira transcrição."
+        ),
     }
+
+
+def set_stt_local(model: str | None = None, device: str | None = None) -> dict[str, Any]:
+    from app.services.voice.stt import local_whisper
+
+    data = _read()
+    if model is not None:
+        model = str(model).lower()
+        if model not in local_whisper.VALID_MODELS:
+            raise ValueError(f"Modelo STT local inválido: {model}")
+        data["stt_local_model"] = model
+        os.environ["STT_LOCAL_MODEL"] = model
+    if device is not None:
+        device = str(device).lower()
+        if device not in local_whisper.VALID_DEVICES:
+            raise ValueError(f"Dispositivo STT local inválido: {device}")
+        data["stt_local_device"] = device
+        os.environ["STT_LOCAL_DEVICE"] = device
+    _write(data)
+    return get_stt_settings()
+
+
+# Microfone: parametros do detector de fala (usados pelo navegador na ligacao e no ditado).
+# Padroes baseados no Projeto AI (energy 1100, pausa 0.8s, 0.35s minimo), um pouco mais sensiveis.
+MIC_DEFAULTS: dict[str, Any] = {
+    "sensitivity": 75,      # 1-100: quanto maior, mais facil detectar fala
+    "silence_ms": 700,      # silencio para encerrar a fala
+    "gain": 1.0,            # ganho aplicado ao nivel medido (0.5-4)
+    "min_speech_ms": 350,   # fala mais curta que isso e descartada
+}
+_MIC_LIMITS = {"sensitivity": (1, 100), "silence_ms": (300, 3000), "gain": (0.5, 4.0), "min_speech_ms": (100, 2000)}
+
+
+def get_mic_settings() -> dict[str, Any]:
+    saved = _read().get("mic")
+    saved = saved if isinstance(saved, dict) else {}
+    result: dict[str, Any] = {}
+    for key, default in MIC_DEFAULTS.items():
+        low, high = _MIC_LIMITS[key]
+        try:
+            value = float(saved.get(key, default))
+        except (TypeError, ValueError):
+            value = float(default)
+        value = max(low, min(high, value))
+        result[key] = round(value, 2) if key == "gain" else int(round(value))
+    return result
+
+
+def set_mic_settings(values: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(values, dict):
+        raise ValueError("Configuração de microfone inválida.")
+    data = _read()
+    current = dict(data.get("mic")) if isinstance(data.get("mic"), dict) else {}
+    for key in MIC_DEFAULTS:
+        if key in values:
+            try:
+                float(values[key])
+            except (TypeError, ValueError):
+                raise ValueError(f"Valor inválido para {key}.")
+            current[key] = values[key]
+    data["mic"] = current
+    _write(data)
+    return get_mic_settings()
 
 
 # ---------------------------------------------------------------------------
@@ -492,7 +564,7 @@ _CAPABILITIES = ("chat", "tts", "stt", "image", "video", "embedding")
 _CAPABILITY_PROVIDERS = {
     "chat": ("gemini", "groq", "oxyy"),
     "tts": ("fish", "gemini", "edge", "oxyy"),
-    "stt": ("groq", "oxyy", "google", "whisper_local"),
+    "stt": ("local", "groq", "oxyy", "google"),
     "image": ("oxyy", "gemini"),
     "video": ("oxyy",),
     "embedding": ("oxyy", "gemini"),
@@ -518,6 +590,9 @@ def _configured(provider: str) -> bool:
     # Edge is local and does not require an API key; all other remote routes
     # need credentials.  Google STT is intentionally marked unavailable when
     # no explicit key is present rather than pretending browser APIs are live.
+    if provider == "local":
+        from app.services.voice.stt import local_whisper
+        return local_whisper.is_available()
     return provider == "edge" or bool(_keys_for(provider))
 
 
@@ -532,6 +607,7 @@ def _model_for(capability: str, provider: str, defaults: dict[str, Any] | None =
         ("tts", "gemini"): os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts"),
         ("tts", "edge"): "edge-tts",
         ("tts", "oxyy"): oxyy.get("tts", "tts-1-hd"),
+        ("stt", "local"): "faster-whisper " + os.getenv("STT_LOCAL_MODEL", "base"),
         ("stt", "groq"): os.getenv("GROQ_STT_MODEL", "whisper-large-v3-turbo"),
         ("stt", "oxyy"): oxyy.get("stt", "whisper-1"),
         ("stt", "google"): os.getenv("GOOGLE_STT_MODEL", "google-speech"),
@@ -579,10 +655,12 @@ def _route(capability: str, primary_provider: str, *, primary_model: str | None 
     effective = primary if primary_configured else next((item for item in fallback if item["configured"]), None)
     if primary_configured:
         reason = "Rota principal configurada."
-    elif effective:
-        reason = f"{primary_provider} sem chave/configuração; fallback efetivo em {effective['provider']}."
     else:
-        reason = f"{primary_provider} sem chave/configuração e nenhum fallback disponível."
+        missing = "faster-whisper não instalado (pip install faster-whisper)" if primary_provider == "local" else "sem chave/configuração"
+        if effective:
+            reason = f"{primary_provider}: {missing}; fallback efetivo em {effective['provider']}."
+        else:
+            reason = f"{primary_provider}: {missing} e nenhum fallback disponível."
     return {
         "capability": capability,
         "primary": primary,
@@ -602,7 +680,7 @@ def resolve_ai_routes(defaults: dict[str, Any] | None = None) -> dict[str, dict[
     providers = {
         "chat": get_llm_provider(str(defaults.get("llm_provider", os.getenv("LLM_PROVIDER", "gemini")))),
         "tts": get_tts_provider(str(defaults.get("tts_provider", os.getenv("TTS_PROVIDER", "fish")))),
-        "stt": get_stt_provider(str(defaults.get("stt_provider", os.getenv("STT_PROVIDER", "groq")))),
+        "stt": get_stt_provider(str(defaults.get("stt_provider", os.getenv("STT_PROVIDER", "local")))),
         "image": str(saved.get("image", {}).get("provider", os.getenv("IMAGE_PROVIDER", "oxyy"))).lower(),
         "video": str(saved.get("video", {}).get("provider", os.getenv("VIDEO_PROVIDER", "oxyy"))).lower(),
         "embedding": str(saved.get("embedding", {}).get("provider", os.getenv("EMBEDDING_PROVIDER", "oxyy"))).lower(),

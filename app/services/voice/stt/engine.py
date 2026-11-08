@@ -28,6 +28,7 @@ class STTEngine:
     - 'google': Google Speech Recognition (gratuito, sem chave, funciona offline)
     - 'oxyy': Oxyy Whisper API (cloud, requer OXYY_API_KEYS)
     - 'groq': Groq Whisper (cloud, requer GROQ_API_KEY)
+    - 'local': faster-whisper offline (sem chave)
     Fallback automático: qualquer falha cloud → Google Speech.
     """
 
@@ -106,39 +107,18 @@ class STTEngine:
         raw_text: str | None = None
         self.last_attempts = []
 
-        # ── Provider 'whisper_local': Whisper offline local com fallback Google Speech ──
-        if self.stt_provider == "whisper_local":
-            raw_text, err = self._transcribe_whisper_local(file_path)
+        # -- Provider 'local': faster-whisper offline; se falhar, segue para Groq/Google --
+        if self.stt_provider in ("local", "whisper_local"):
+            from . import local_whisper
+            raw_text, err = local_whisper.transcribe_file(file_path, self.language)
+            self._record_attempt("local", "success" if raw_text else "failed")
             if raw_text:
-                self._record_attempt("whisper_local", "success")
                 filtered = filter_stt_hallucinations(raw_text)
                 if not filtered:
                     return None, "Áudio descartado pelo filtro de ruído/silêncio."
                 return filtered, None
-            self._record_attempt("whisper_local", "failed")
-            print(f"[STT Engine] whisper_local falhou/indisponível ({err}); acionando fallback Google Speech...")
-            wav_temp = None
-            try:
-                try:
-                    stt_path, is_temp = prepare_audio_for_stt(file_path)
-                    if is_temp:
-                        wav_temp = stt_path
-                except AudioConversionError as exc:
-                    return None, f"Erro na conversão de áudio: {exc.message}"
-                raw_text = self._transcribe_google(stt_path)
-                self._record_attempt("google", "success" if raw_text else "failed")
-            finally:
-                if wav_temp:
-                    try:
-                        os.remove(wav_temp)
-                    except OSError:
-                        pass
-            if not raw_text:
-                return None, f"whisper_local indisponível ({err}) e Google Speech não conseguiu entender o áudio."
-            filtered = filter_stt_hallucinations(raw_text)
-            if not filtered:
-                return None, "Áudio descartado pelo filtro de ruído/silêncio."
-            return filtered, None
+            if err:
+                print(f"[STT Engine] STT local indisponível ({err}); usando fallback em nuvem...")
 
         # ── Provider 'google': vai direto ao Google Speech (gratuito, sem chave) ──
         if self.stt_provider == "google":
@@ -346,15 +326,3 @@ class STTEngine:
         except Exception as e:
             print(f"[STT Engine] Google Speech erro: {e}")
             return None
-
-    def _transcribe_whisper_local(self, file_path: str) -> tuple[str | None, str | None]:
-        try:
-            from app.services.voice.whisper_stt import WhisperSTT, WHISPER_AVAILABLE
-            if not WHISPER_AVAILABLE:
-                return None, "pacote openai-whisper não instalado (pip install openai-whisper)"
-            lang_code = self.language.split("-")[0] if self.language else "pt"
-            stt = WhisperSTT(model_size=os.getenv("WHISPER_MODEL_SIZE", "base"))
-            text = stt.transcribe_file(file_path, language=lang_code)
-            return text, None
-        except Exception as e:
-            return None, str(e)
