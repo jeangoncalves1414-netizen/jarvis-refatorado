@@ -68,6 +68,7 @@ mkdirSync(output, { recursive: true })
       }
       else if (url.pathname === '/api/chat') { chatCalls++; sent = route.request().postDataJSON(); data = { ok: true, reply: 'Resposta de teste recebida. Podemos organizar o projeto em etapas.', context: { run_id: 'run-linked' } } }
       else if (url.pathname.endsWith('/approve')) { approvals++; status = 410; data = { ok: false, error: 'Ação expirou; solicite novamente pela conversa.' } }
+      else if (url.pathname === '/api/wake-word') data = { enabled: true, available: true, running: true, active: true, phrase: 'ei assistente' }
       else if (url.pathname === '/api/goals') { status = 500; data = { ok: false, error: 'Não foi possível salvar o objetivo.' } }
       else if (url.pathname === '/api/planning') data = { ok: true, workspace: { session_id: '', title: 'Plano', content: '', is_open: false }, preferences: { auto_open_for_planning: false } }
       else if (url.pathname === '/api/voice/stt' && method === 'POST') { sttCalls++; data = { ok: true, text: 'Texto ditado pela paleta' } }
@@ -326,6 +327,22 @@ mkdirSync(output, { recursive: true })
     await composerInput.fill('')
     assert.equal(chatCalls, chatCallsBefore)
     console.log('PASS: menu "/" abre só ao digitar "/", filtra, executa local (setas, enter, esc, mouse), avisa comando desconhecido e não envia nada à API de chat')
+
+    // A4: indicador do detector de palavra de ativação (estado vem de /api/wake-word).
+    await page.getByText('Ativação por voz ativa', { exact: false }).waitFor()
+    assert.match(await page.locator('.ws-wake-indicator').innerText(), /“ei assistente”/)
+    // A6: "//" é texto comum: sem menu, sem dica de comando, enviado ao chat sem a primeira barra.
+    await composerInput.fill('//clima de hoje')
+    assert.equal(await slashMenu.count(), 0)
+    await page.getByRole('status').filter({ hasText: 'será enviado como texto' }).waitFor()
+    assert.equal(await page.getByRole('status').filter({ hasText: 'Comando desconhecido' }).count(), 0)
+    const escapedChat = page.waitForResponse(response => new URL(response.url()).pathname === '/api/chat')
+    await page.keyboard.press('Enter')
+    await escapedChat
+    assert.equal(chatCalls, chatCallsBefore + 1)
+    assert.equal(sent.message, '/clima de hoje')
+    assert.equal(await composerInput.inputValue(), '')
+    console.log('PASS: indicador de palavra de ativação e escape "//" (enviado como texto, sem a primeira barra)')
 
     await page.locator('.ws-sidebar').getByRole('button', { name: 'Automações', exact: true }).click()
     const bridgeCard = page.locator('.bridge-card')

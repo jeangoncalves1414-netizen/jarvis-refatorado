@@ -42,12 +42,14 @@ function getScriptRequest(summary: unknown): ScriptRequest | null {
   }
 }
 
-type UseChatOptions = { onOpenWindow?: (request: WindowOpenRequest) => void }
+type UseChatOptions = { onOpenWindow?: (request: WindowOpenRequest) => void; onWakeWord?: (phrase: string) => void }
 
 export function useChat(options: UseChatOptions = {}) {
   // O efeito da conexão roda uma vez; a referência mantém o callback sempre atual.
   const openWindowRef = useRef(options.onOpenWindow)
   openWindowRef.current = options.onOpenWindow
+  const wakeWordRef = useRef(options.onWakeWord)
+  wakeWordRef.current = options.onWakeWord
   const openRequestedWindow = (context: unknown) => {
     const request = extractWindowRequest(context)
     if (request) openWindowRef.current?.(request)
@@ -487,13 +489,15 @@ export function useChat(options: UseChatOptions = {}) {
         reconnectAttempts = 0
       }
       socket.onmessage = (event) => {
-        let data: { type?: string; text?: string; message?: string; summary?: string; payload?: SearchPayload; session_id?: string; context?: { run_id?: string } } = {}
+        let data: { type?: string; text?: string; message?: string; summary?: string; payload?: SearchPayload; session_id?: string; phrase?: string; context?: { run_id?: string } } = {}
         try {
           data = JSON.parse(String(event.data))
         } catch {
           return
         }
         const { type, text = '', message = '', summary = '' } = data
+        // Evento do detector local: vale para o aparelho todo, não para uma conversa.
+        if (type === 'wake_word') { wakeWordRef.current?.(typeof data.phrase === 'string' ? data.phrase : ''); return }
         if (data.session_id && data.session_id !== activeSessionRef.current) return
         if (type === 'reasoning') {
           reasoningBufferRef.current += text || message

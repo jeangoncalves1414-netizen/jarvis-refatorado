@@ -137,6 +137,57 @@ export function getCommand(id: string) {
   return commands.find(command => command.id === id)
 }
 
+// ── Contrato de comando (AQ3, base) ────────────────────────────────────────────
+// Descrição serializável de um comando, sem ícone nem função. É o formato que o backend, a voz,
+// as rotinas e o celular devem usar para apontar para um comando: sempre pelo `id` estável.
+// Ainda não há gatilho de voz, rotina ou palma; só o ponto de entrada comum (`runCommandById`).
+export const COMMAND_CONTRACT_VERSION = 1
+
+// Quem disparou o comando. Os nomes seguem a origem planejada para os Runs (PB4 do plano 017).
+export const COMMAND_ORIGINS = ['comando', 'paleta', 'voz', 'rotina', 'palma', 'janela', 'celular'] as const
+export type CommandOrigin = (typeof COMMAND_ORIGINS)[number]
+
+export type CommandContract = {
+  version: typeof COMMAND_CONTRACT_VERSION
+  id: string
+  label: string
+  slash: string | null
+  aliases: string[]
+  group: CommandGroup
+  action: CommandAction
+  worksOffline: boolean
+}
+
+export function toCommandContract(command: CommandDef): CommandContract {
+  return {
+    version: COMMAND_CONTRACT_VERSION,
+    id: command.id,
+    label: command.label,
+    slash: command.slash ?? null,
+    aliases: [...command.aliases],
+    group: command.group,
+    action: command.action,
+    worksOffline: command.worksOffline,
+  }
+}
+
+export function getCommandContracts() {
+  return commands.map(toCommandContract)
+}
+
+export type CommandRunResult =
+  | { ok: true; command: CommandDef; origin: CommandOrigin }
+  | { ok: false; reason: 'unknown-command'; id: string }
+
+// Ponto de entrada para gatilhos que só conhecem o id do comando (voz, rotina, palma, celular).
+// Id desconhecido nunca executa nada.
+export function runCommandById(id: string, handlers: CommandHandlers, options: { origin: CommandOrigin; args?: string }): CommandRunResult {
+  const command = getCommand(id)
+  if (!command) return { ok: false, reason: 'unknown-command', id }
+  runCommand(command, handlers, options.args ?? '')
+  return { ok: true, command, origin: options.origin }
+}
+
 export function getSlashCommands() {
   return commands.filter(command => command.slash)
 }
@@ -163,11 +214,24 @@ export function searchSlashCommands(query: string) {
 
 export type SlashParse =
   | { kind: 'none' }
+  | { kind: 'escaped'; text: string }
   | { kind: 'unknown'; word: string }
   | { kind: 'known'; command: CommandDef; args: string }
 
+// Escape: "//texto" é uma mensagem comum que começa com "/". Remove só a primeira barra.
+const ESCAPED_SLASH = /^(\s*)\/(\/[\s\S]*)$/
+
+export function isEscapedSlash(text: string) {
+  return ESCAPED_SLASH.test(text)
+}
+
+export function unescapeSlash(text: string) {
+  return text.replace(ESCAPED_SLASH, '$1$2')
+}
+
 // Reconhece "/palavra argumentos". Texto que não começa com "/" nunca é comando.
 export function parseSlashInput(text: string): SlashParse {
+  if (isEscapedSlash(text)) return { kind: 'escaped', text: unescapeSlash(text) }
   const match = /^\s*\/(\S*)\s*([\s\S]*)$/.exec(text)
   if (!match) return { kind: 'none' }
   const word = normalizeText(match[1])

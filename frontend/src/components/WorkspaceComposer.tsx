@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { ArrowUp, AudioLines, Film, LoaderCircle, Mic, Monitor, Paperclip, Square, X } from 'lucide-react'
 import type { ChatMode } from './ChatComposer'
-import { parseSlashInput, runCommand, searchSlashCommands, type CommandDef, type CommandHandlers } from '../commands/registry'
+import { isEscapedSlash, parseSlashInput, runCommand, searchSlashCommands, type CommandDef, type CommandHandlers } from '../commands/registry'
+import type { WakeWord } from '../types'
 
 type Props = {
   canStopRequest: boolean
   runStatus: string
   supportsRuns: boolean
   commandHandlers: CommandHandlers
+  wakeWord?: WakeWord | null
+  wakeHeard?: boolean
   value: string; loading: boolean; mode: ChatMode; recording: boolean
   attachment: { name: string; dataUrl: string } | null
   onChange: (value: string) => void; onModeChange: (mode: ChatMode) => void
@@ -23,10 +26,18 @@ export function WorkspaceComposer(props: Props) {
   const [hint, setHint] = useState('')
   const canSend = !props.loading && Boolean(props.value.trim() || props.attachment)
   // O menu "/" só existe enquanto o texto é "/" seguido de uma palavra ainda sem espaço.
-  const slashQuery = /^\/(\S*)$/.exec(props.value)
+  // "//" no início é o escape: a mensagem é enviada como texto comum, sem menu nem comando.
+  const slashQuery = /^\/(?!\/)(\S*)$/.exec(props.value)
+  const escaped = isEscapedSlash(props.value)
   const matches = slashQuery ? searchSlashCommands(slashQuery[1]) : []
   const isSlash = Boolean(slashQuery)
   const menuOpen = isSlash && !menuDismissed && matches.length > 0
+  // Indicador do detector de palavra de ativação: só aparece quando ele existe e está ligado.
+  const wakePhrase = props.wakeWord?.phrase ? ` “${props.wakeWord.phrase}”` : ''
+  const wakeLabel = props.wakeHeard ? `Ouvi${wakePhrase || ' a palavra de ativação'}`
+    : props.wakeWord?.active ? `● Ativação por voz ativa${wakePhrase}`
+    : props.wakeWord?.available && props.wakeWord.enabled ? 'Ativação por voz inativa'
+    : ''
   useEffect(() => { if (textarea.current) { textarea.current.style.height = 'auto'; textarea.current.style.height = `${Math.min(textarea.current.scrollHeight, 180)}px` } }, [props.value])
   useEffect(() => { setMenuIndex(0); setHint(''); setMenuDismissed(false) }, [props.value])
   useEffect(() => { menu.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }) }, [menuIndex, menuOpen])
@@ -39,6 +50,7 @@ export function WorkspaceComposer(props: Props) {
   const submit = () => {
     const parsed = parseSlashInput(props.value)
     if (parsed.kind === 'known') return runSlash(parsed.command, parsed.args)
+    if (parsed.kind === 'escaped') { if (canSend) props.onSubmit(); return }
     if (parsed.kind === 'unknown') return setHint(`Comando desconhecido: /${parsed.word}. Digite / para ver os comandos.`)
     if (canSend) props.onSubmit()
   }
@@ -71,6 +83,6 @@ export function WorkspaceComposer(props: Props) {
         <details className="ws-composer-more"><summary aria-label="Mais ferramentas">•••</summary><div><button type="button" onClick={props.onScreen}><Monitor size={15} /> Analisar tela</button><button type="button" onClick={props.onCinema}><Film size={15} /> Cinema</button></div></details>
       </div><div className="ws-composer-tools"><button type="button" className={`ws-icon-button ${props.recording ? 'recording' : ''}`} aria-label={props.recording ? 'Parar gravação' : 'Ditar mensagem'} aria-pressed={props.recording} onClick={props.onVoice}><Mic size={18} /></button><button type="button" className="ws-icon-button" aria-label="Abrir conversa por voz" title="Conversa por voz" onClick={props.onOpenLiveCall}><AudioLines size={19} /></button><button className="ws-send" disabled={!canSend} aria-label={props.loading ? 'Aguardando resposta' : 'Enviar mensagem'}>{props.loading ? <LoaderCircle size={19} className="ws-spin" /> : <ArrowUp size={20} />}</button></div></div>
     </form>
-    <div className="ws-composer-caption">{hint ? <span className="ws-slash-hint" role="status">{hint}</span> : <span>{props.recording ? 'Microfone em gravação' : props.loading ? 'Resposta em andamento · as ações podem ser acompanhadas em Execuções' : 'Você conduz. O agente ajuda a realizar.'}</span>}<span>Shift + Enter para nova linha · / para comandos</span></div>
+    <div className="ws-composer-caption">{hint ? <span className="ws-slash-hint" role="status">{hint}</span> : escaped ? <span className="ws-slash-hint" role="status">Começa com //: será enviado como texto, sem a primeira barra.</span> : <span>{props.recording ? 'Microfone em gravação' : props.loading ? 'Resposta em andamento · as ações podem ser acompanhadas em Execuções' : 'Você conduz. O agente ajuda a realizar.'}</span>}{wakeLabel && <span className={`ws-wake-indicator${props.wakeWord?.active ? ' active' : ''}${props.wakeHeard ? ' heard' : ''}`} title="Palavra de ativação por voz (detector local)">{wakeLabel}</span>}<span>Shift + Enter para nova linha · / para comandos</span></div>
   </div>
 }

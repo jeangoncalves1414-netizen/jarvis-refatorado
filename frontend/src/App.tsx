@@ -21,7 +21,7 @@ import { useCinema } from './hooks/useCinema'
 import { useMediaAssistant } from './hooks/useMediaAssistant'
 import { useStudy } from './hooks/useStudy'
 import { playToggle, playSuccess, toggleSfx } from './utils/sfx'
-import { WINDOW_CAMERAS, WINDOW_CINEMA, WINDOW_LIFE_OS, WINDOW_LIVE_CALL, type CommandHandlers } from './commands/registry'
+import { runCommandById, unescapeSlash, WINDOW_CAMERAS, WINDOW_CINEMA, WINDOW_LIFE_OS, WINDOW_LIVE_CALL, type CommandHandlers } from './commands/registry'
 import { isManagedWindow } from './windows/registry'
 import { useWindows } from './windows/WindowManager'
 import { broadcastSyncEvent } from './utils/syncChannel'
@@ -85,6 +85,8 @@ export default function App() {
   const [oxyySettings, setOxyySettings] = useState<OxyySettings | null>(null)
   const [oxyyCatalog, setOxyyCatalog] = useState<OxyyCatalog | null>(null)
   const [wakeWord, setWakeWord] = useState<WakeWord | null>(null)
+  const [wakeHeard, setWakeHeard] = useState(false)
+  const wakeHeardTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [tray, setTray] = useState<Tray | null>(null)
   const [briefingTime, setBriefingTime] = useState('08:00')
   const [briefingTopics, setBriefingTopics] = useState<string[]>(['weather', 'tasks', 'news'])
@@ -189,7 +191,7 @@ export default function App() {
   const taskInputRef = useRef<HTMLInputElement>(null)
   const windows = useWindows()
   // Pedido de janela vindo da ferramenta open_window do agente: o id e os parâmetros são validados de novo aqui.
-  const pcChat = useChat({ onOpenWindow: request => { if (!windows.open(request.windowId, request.params)) setNotice('O agente pediu uma janela que não existe ou com parâmetros inválidos.') } })
+  const pcChat = useChat({ onOpenWindow: request => { if (!windows.open(request.windowId, request.params)) setNotice('O agente pediu uma janela que não existe ou com parâmetros inválidos.') }, onWakeWord: phrase => handleWakeWord(phrase) })
   const mobileChat = useDirectChat()
   const { answer, chatError, copySession, createSession, deleteSession, exportSession, loading, liveReasoning, liveSearch, messages, pendingScript, query, runPendingScript, selectSession, sendText, sendVisionQuestion, sessionId, sessions, setAnswer, setChatError, setPendingScript, setQuery, streamingReply } = IS_MOBILE ? mobileChat : pcChat
   const conversationRun = useConversationRun(sessionId, !IS_MOBILE, loading)
@@ -311,6 +313,14 @@ export default function App() {
     const refreshBridge = () => fetch('/api/bridge').then(response => response.json()).then(setBridge).catch(() => undefined)
     const interval = window.setInterval(refreshBridge, 5_000)
     return () => window.clearInterval(interval)
+  }, [])
+
+  // O estado "ativo" do detector pode mudar sem a interface saber (modelo ausente, frase nova): reconsulta.
+  useEffect(() => {
+    if (IS_MOBILE) return
+    const refreshWakeWord = () => fetch('/api/wake-word').then(response => response.json()).then(setWakeWord).catch(() => undefined)
+    const interval = window.setInterval(refreshWakeWord, 15_000)
+    return () => { window.clearInterval(interval); if (wakeHeardTimer.current) clearTimeout(wakeHeardTimer.current) }
   }, [])
 
   const refreshAnalytics = async (level = logLevel) => {
@@ -539,7 +549,18 @@ export default function App() {
     const response = await fetch('/api/wake-word', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) })
     const data = await response.json()
     if (!response.ok) { setNotice(data.error || 'Não foi possível alterar a palavra de ativação.'); return }
-    setWakeWord(previous => ({ ...previous, enabled: data.enabled }))
+    setWakeWord(previous => ({ ...previous, enabled: data.enabled, active: Boolean(data.enabled && previous?.running) }))
+  }
+
+  // Evento "wake_word" do detector local (chega pelo WebSocket do chat). Mostra o aviso e abre a
+  // conversa por voz pelo mesmo comando do registro, com origem "voz". Ignora se já há ligação ou ditado.
+  const handleWakeWord = (phrase: string) => {
+    if (wakeHeardTimer.current) clearTimeout(wakeHeardTimer.current)
+    setWakeHeard(true)
+    wakeHeardTimer.current = setTimeout(() => setWakeHeard(false), 6000)
+    if (phrase) setWakeWord(previous => ({ ...previous, phrase }))
+    if (liveCallOpen || recording) return
+    runCommandById('action-live-call', commandHandlers, { origin: 'voz' })
   }
 
   const setBootEnabled = async (enabled: boolean) => {
@@ -591,7 +612,8 @@ export default function App() {
   }
 
   const sendChatMessage = async () => {
-    const message = query.trim()
+    // "//texto" é mensagem comum que começa com "/": envia sem a primeira barra (A6).
+    const message = unescapeSlash(query.trim())
     const attachment = chatAttachment
     if (attachment) {
       setQuery('')
@@ -646,6 +668,8 @@ export default function App() {
           canStopRequest={conversationRun.canStop}
           runStatus={conversationRun.message}
           commandHandlers={commandHandlers}
+          wakeWord={wakeWord}
+          wakeHeard={wakeHeard}
           onOpenRun={IS_MOBILE ? undefined : id => { setLinkedRun(id); setActive('Central') }}
           sessions={sessions}
           sessionId={sessionId}

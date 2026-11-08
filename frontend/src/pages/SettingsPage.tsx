@@ -614,7 +614,7 @@ export function SettingsPage({
           <article className="settings-card">
             <p className="eyebrow">VOZ E INICIALIZAÇÃO</p>
             <h2>Disponibilidade</h2>
-            <Switch label="Palavra de ativação" description={wakeWord?.available ? 'Detector local disponível.' : 'Detector local não instalado.'} checked={Boolean(wakeWord?.enabled)} disabled={!wakeWord?.available} onChange={onSetWakeWordEnabled} glowColor="purple" />
+            <Switch label="Palavra de ativação" description={!wakeWord?.available ? 'Detector local não instalado.' : wakeWord.active ? `Ativo: ouvindo “${wakeWord.phrase || 'a frase do perfil'}”.` : wakeWord.enabled ? 'Ligado, mas a escuta local não está em execução.' : 'Detector local disponível, desligado.'} checked={Boolean(wakeWord?.enabled)} disabled={!wakeWord?.available} onChange={onSetWakeWordEnabled} glowColor="purple" />
             <Switch label="Iniciar com o Windows" description="Abre o Jarvis automaticamente no login." checked={Boolean(tray?.boot_enabled)} onChange={onSetBootEnabled} glowColor="blue" />
           </article>
 

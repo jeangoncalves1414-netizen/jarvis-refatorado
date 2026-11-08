@@ -148,6 +148,9 @@
 .ws-slash-text span { font-size: 10px; color: #98a39b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-slash-item code { font-size: 10px; color: #a0afa5; white-space: nowrap; }
 .ws-slash-hint { color: #eda594; }
+.ws-wake-indicator { white-space: nowrap; }
+.ws-wake-indicator.active { color: #8fcf9f; }
+.ws-wake-indicator.heard { color: #f0d58a; }
 @media (max-width: 640px) { .ws-slash-menu { left: 12px; right: 12px; } }
 .ws-message-list { max-width: 720px; margin: 0 auto; padding: 20px 0; }
 .ws-message { margin: 0 0 30px; font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }

@@ -41,6 +41,21 @@ _ws_loop: asyncio.AbstractEventLoop | None = None  # asyncio loop do WS para bro
 _ws_clients: set = set()  # connected WebSocket clients for broadcast
 
 
+def _wake_word_status() -> dict[str, Any]:
+    """Estado real do detector: `active` só é verdadeiro com o detector ligado e a thread de escuta viva."""
+    from app.services.voice.wake_word import VOSK_AVAILABLE, PYAUDIO_AVAILABLE
+    from app.storage.runtime_settings import get_agent_profile
+    detector = _wake_word_detector
+    running = bool(detector is not None and detector.is_running())
+    return {
+        "phrase": get_agent_profile()["wake_phrase"],
+        "enabled": _wake_word_enabled,
+        "available": bool(VOSK_AVAILABLE and PYAUDIO_AVAILABLE),
+        "running": running,
+        "active": bool(_wake_word_enabled and running),
+    }
+
+
 def _calendar_conversation_prefix() -> str:
     """Consumes calendar reminders deliberately configured for the next chat."""
     try:
@@ -431,13 +446,9 @@ class PanelHandler(BaseHTTPRequestHandler):
 
             if len(parts) == 2 and parts[1] == "wake-word":
                 try:
-                    from app.services.voice.wake_word import VOSK_AVAILABLE, PYAUDIO_AVAILABLE
-                    self._send_json(200, {
-                        "enabled": _wake_word_enabled,
-                        "available": VOSK_AVAILABLE and PYAUDIO_AVAILABLE,
-                    })
+                    self._send_json(200, _wake_word_status())
                 except Exception as exc:
-                    self._send_json(200, {"enabled": False, "available": False, "error": str(exc)})
+                    self._send_json(200, {"enabled": False, "available": False, "running": False, "active": False, "error": str(exc)})
                 return
 
             if len(parts) == 2 and parts[1] == "memories":
