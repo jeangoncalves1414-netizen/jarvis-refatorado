@@ -1,7 +1,5 @@
 /* Neutral workspace. Scoped so the existing personal modules retain their layout. */
 .agent-workspace {
-  --ws-bg: #191b1c; --ws-sidebar: #141617; --ws-panel: #202324; --ws-border: #303435;
-  --ws-text: #eceeed; --ws-muted: #a0a8a5; --ws-accent: #b4d9c6;
   --jarvis-cyan: #b4d9c6; --jarvis-accent: #b4d9c6; --jarvis-accent-soft: #b4d9c610;
   display: flex; height: 100vh; height: 100dvh; width: 100%; overflow: hidden;
   background: var(--ws-bg); color: var(--ws-text); font: 14px/1.5 Geist, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;

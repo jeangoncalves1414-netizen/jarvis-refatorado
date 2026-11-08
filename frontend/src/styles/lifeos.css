@@ -1,0 +1,102 @@
+/* LifeOS: HUD do painel, hub de resumo e moldura do app /evolute, no tema do workspace (tokens em ws-tokens.css). */
+.lo-card { padding: 20px; border: 1px solid var(--ws-border); border-radius: var(--ws-radius); background: var(--ws-panel); }
+.lo-card.is-done { border-color: var(--ws-accent-line); }
+.lo-eyebrow { display: flex; align-items: center; gap: 7px; margin: 0 0 14px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ws-muted); }
+.lo-eyebrow svg { color: var(--ws-accent); }
+.lo-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border: 1px solid var(--ws-border); border-radius: 999px; background: var(--ws-field); color: var(--ws-text); font-size: 11px; font-weight: 600; }
+.lo-pill.accent { border-color: var(--ws-accent-line); background: var(--ws-accent-soft); color: var(--ws-accent); }
+.lo-pill.warn { border-color: #5a4d33; background: #dfba7e12; color: var(--ws-warn); }
+.lo-btn { display: inline-flex; align-items: center; gap: 7px; padding: 8px 13px; border: 1px solid var(--ws-accent-line); border-radius: 8px; background: var(--ws-accent-soft); color: #e0eee5; font-size: 12px; cursor: pointer; }
+.lo-btn:hover:not(:disabled) { background: #b4d9c620; }
+.lo-btn.primary { border: 0; background: var(--ws-accent); color: var(--ws-accent-ink); font-weight: 600; }
+.lo-btn.ghost { border-color: var(--ws-border); background: transparent; color: var(--ws-muted); }
+.lo-btn.ghost:hover:not(:disabled) { background: var(--ws-hover); color: var(--ws-text); }
+.lo-bar { height: 4px; border-radius: 4px; background: #ffffff0d; overflow: hidden; }
+.lo-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--ws-accent); transition: width .6s ease; }
+
+/* HUD "Life OS - Hoje" no painel inicial */
+.lifeos-hud-card { padding: 16px 20px 14px; border: 1px solid var(--ws-border); border-radius: var(--ws-radius); background: var(--ws-panel); display: flex; flex-direction: column; gap: 12px; }
+.lifeos-hud-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.lifeos-hud-title { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ws-accent); }
+.lifeos-hud-score { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ws-text); }
+.lifeos-hud-open-btn { padding: 4px 10px; border: 1px solid var(--ws-accent-line); border-radius: 7px; background: var(--ws-accent-soft); color: var(--ws-accent); font-size: 11px; font-weight: 600; cursor: pointer; }
+.lifeos-hud-open-btn:hover { background: #b4d9c622; }
+.lifeos-hud-body { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.lifeos-priority-section, .lifeos-regular-section { display: flex; flex-direction: column; gap: 8px; flex: 1 1 200px; }
+.lifeos-section-label { display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ws-muted); }
+.lifeos-habit-row-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.lifeos-habit-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border: 1px solid var(--ws-border); border-radius: 999px; background: var(--ws-field); color: var(--ws-muted); font-size: 11px; white-space: nowrap; }
+.lifeos-habit-chip.done { border-color: var(--ws-accent-line); background: var(--ws-accent-soft); color: var(--ws-accent); }
+.lifeos-habit-chip.priority { border-color: #5a4d33; background: #dfba7e0d; color: var(--ws-warn); }
+.lifeos-habit-chip.priority.done { background: #dfba7e22; border-color: #7a6a45; }
+.lifeos-habit-chip.more { color: var(--ws-muted); }
+.lifeos-empty { font-size: 12px; color: var(--ws-muted); font-style: italic; }
+.lifeos-hud-bar-wrap { height: 3px; margin-top: 4px; border-radius: 999px; background: #ffffff0d; overflow: hidden; }
+.lifeos-hud-bar { height: 100%; border-radius: inherit; background: var(--ws-accent); transition: width .6s ease; }
+.lifeos-water-section, .lifeos-vice-section { display: flex; flex-direction: column; gap: 8px; flex: 0 1 auto; }
+.lifeos-water-row { display: inline-flex; align-items: center; gap: 10px; padding: 3px 10px; border: 1px solid var(--ws-border); border-radius: 999px; background: var(--ws-field); }
+.lifeos-water-amount { font-size: 12px; font-weight: 600; color: var(--ws-info); }
+.lifeos-water-btn { padding: 2px 9px; border: 1px solid var(--ws-accent-line); border-radius: 999px; background: var(--ws-accent-soft); color: var(--ws-accent); font-size: 11px; cursor: pointer; }
+.lifeos-water-btn:hover:not(:disabled) { background: #b4d9c622; }
+.lifeos-water-btn:disabled { opacity: .5; cursor: not-allowed; }
+.lifeos-vice-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid #5a3b36; border-radius: 999px; background: #d98f830d; color: var(--ws-danger); font-size: 11px; cursor: pointer; }
+.lifeos-vice-chip:hover { background: #d98f831c; }
+.lifeos-vice-chip strong { color: var(--ws-text); font-weight: 600; }
+
+/* Janela LifeOS: moldura do app /evolute */
+.lo-frame { position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; flex: 1 1 auto; min-height: 0; background: var(--ws-bg); overflow: hidden; }
+.lo-frame-bar { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-bottom: 1px solid var(--ws-border); background: var(--ws-sidebar); flex-shrink: 0; }
+.lo-frame-bar strong { margin-right: auto; font-size: 13px; font-weight: 550; color: var(--ws-text); }
+.lo-frame-bar small { color: var(--ws-muted); font-size: 11px; }
+.lo-frame-iframe { flex: 1 1 auto; width: 100%; min-height: 0; border: 0; display: block; background: var(--ws-bg); }
+.lo-frame-loader { position: absolute; inset: 45px 0 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: var(--ws-bg); color: var(--ws-muted); font-size: 13px; }
+.lo-spinner { width: 30px; height: 30px; border: 3px solid #b4d9c622; border-top-color: var(--ws-accent); border-radius: 50%; animation: lo-spin .8s linear infinite; }
+@keyframes lo-spin { to { transform: rotate(360deg); } }
+
+/* Hub de resumo */
+.lo-hub { max-width: 1180px; margin: 0 auto; padding: 24px; color: var(--ws-text); }
+.lo-hub-head { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 22px; }
+.lo-hub-head h1 { margin: 0; }
+.lo-hub-head p { margin: 4px 0 0; font-size: 12px; color: var(--ws-muted); }
+.lo-hub-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.lo-notice { margin-bottom: 16px; padding: 10px 14px; border: 1px solid var(--ws-accent-line); border-radius: 8px; background: var(--ws-accent-soft); color: #cbe6d7; font-size: 12px; }
+.lo-loading { padding: 60px; text-align: center; color: var(--ws-muted); }
+.lo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.lo-span { grid-column: 1 / -1; }
+.lo-col { display: flex; flex-direction: column; gap: 16px; }
+.lo-col > .lo-card { flex: 1; }
+.lo-card-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px; }
+.lo-card-head .lo-eyebrow { margin: 0; }
+.lo-row-group { display: flex; align-items: center; gap: 8px; }
+.lo-habits { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.lo-habit { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--ws-border); border-radius: 10px; background: var(--ws-field); cursor: pointer; transition: background .15s, border-color .15s; }
+.lo-habit:hover { background: var(--ws-hover); }
+.lo-habit.is-done { border-color: var(--ws-accent-line); background: var(--ws-accent-soft); }
+.lo-habit.is-priority { border-color: #5a4d33; }
+.lo-habit-check { width: 26px; height: 26px; flex-shrink: 0; display: grid; place-items: center; border: 2px solid #ffffff33; border-radius: 50%; font-size: 12px; font-weight: 700; color: var(--ws-accent-ink); }
+.lo-habit.is-done .lo-habit-check { background: var(--ws-accent); border-color: var(--ws-accent); }
+.lo-habit-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lo-habit.is-done .lo-habit-title span:last-child { text-decoration: line-through; opacity: .65; }
+.lo-crown { padding: 3px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ws-muted); cursor: pointer; font-size: 12px; opacity: .6; }
+.lo-crown:hover, .lo-crown.on { opacity: 1; border-color: #5a4d33; background: #dfba7e14; }
+.lo-water { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.lo-ring { position: relative; width: 120px; height: 120px; }
+.lo-ring svg { transform: rotate(-90deg); }
+.lo-ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.15; }
+.lo-ring-center b { font-size: 20px; font-weight: 600; }
+.lo-ring-center small { font-size: 10px; color: var(--ws-muted); }
+.lo-water-actions { display: flex; gap: 8px; }
+.lo-title-lg { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+.lo-stats { display: flex; gap: 24px; }
+.lo-stats b { display: block; font-size: 28px; font-weight: 600; line-height: 1; color: var(--ws-accent); }
+.lo-stats small { font-size: 11px; color: var(--ws-muted); }
+.lo-quote { margin: 0 0 8px; font-size: 13px; line-height: 1.6; font-style: italic; }
+.lo-quote-author { font-size: 11px; color: var(--ws-muted); }
+.lo-focus { margin-top: 12px; padding: 8px 12px; border: 1px solid var(--ws-accent-line); border-radius: 8px; background: var(--ws-accent-soft); color: var(--ws-accent); font-size: 12px; }
+.lo-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.lo-tile { padding: 14px; border: 1px solid var(--ws-border); border-radius: 10px; background: var(--ws-field); text-align: left; color: var(--ws-text); cursor: pointer; }
+.lo-tile:hover { background: var(--ws-hover); border-color: var(--ws-accent-line); }
+.lo-tile b { display: block; margin: 6px 0 4px; font-size: 13px; font-weight: 600; }
+.lo-tile small { display: block; font-size: 11px; line-height: 1.5; color: var(--ws-muted); }
+.lo-hint { margin-top: 22px; text-align: center; font-size: 12px; color: var(--ws-muted); }
+.lo-hint kbd { padding: 2px 7px; border: 1px solid var(--ws-border); border-radius: 4px; background: var(--ws-field); color: var(--ws-accent); font-weight: 600; }

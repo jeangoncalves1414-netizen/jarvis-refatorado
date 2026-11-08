@@ -1,0 +1,8 @@
+﻿/* Tokens do tema do workspace (chat, AppShell, Configuracoes, LifeOS...). Fonte unica: o app /evolute importa este arquivo. */
+:root, .agent-workspace {
+  --ws-bg: #191b1c; --ws-sidebar: #141617; --ws-panel: #202324; --ws-border: #303435;
+  --ws-text: #eceeed; --ws-muted: #a0a8a5; --ws-accent: #b4d9c6;
+  --ws-accent-ink: #19261f; --ws-accent-soft: #b4d9c611; --ws-accent-line: #3e4943;
+  --ws-warn: #dfba7e; --ws-danger: #d98f83; --ws-ok: #8fc7a5; --ws-info: #8fb8c7;
+  --ws-hover: #ffffff08; --ws-field: #ffffff05; --ws-radius: 12px;
+}

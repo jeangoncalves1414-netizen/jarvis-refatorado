@@ -6,8 +6,10 @@ import './memory-and-chat.css'
 import './profile-memory.css'
 import './camera-workspace.css'
 import './styles.css'
+import './styles/ws-tokens.css'
 import './styles/workspace.css'
 import './styles/settings.css'
+import './styles/lifeos.css'
 import './styles/windows.css'
 
 createRoot(document.getElementById('root')!).render(

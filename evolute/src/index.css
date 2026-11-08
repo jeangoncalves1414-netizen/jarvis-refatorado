@@ -1,30 +1,28 @@
 @import "tailwindcss";
+@import "../../frontend/src/styles/ws-tokens.css";
 
 @layer base {
   body {
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background-color: #000000;
-    color: #f5f5f5;
+    font-family: Geist, 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: var(--ws-bg);
+    color: var(--ws-text);
   }
-
   code, pre, .font-mono {
     font-family: 'JetBrains Mono', monospace;
   }
 }
 
-/* Custom Minimalist Monochrome Scrollbar */
+/* Scrollbar no tema do workspace */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
 }
-
 ::-webkit-scrollbar-track {
-  background: #050505;
+  background: var(--ws-sidebar);
 }
-
 ::-webkit-scrollbar-thumb {
-  background: #262626;
-  border-radius: 2px;
+  background: #444b47;
+  border-radius: 6px;
 }
 
 /* Embedded inside Jarvis mobile/desktop shell */
@@ -36,31 +34,37 @@ html:has(.jarvis-shell-embed) #root {
   overflow: hidden;
   margin: 0;
 }
+
 .jarvis-shell-embed {
   height: 100%;
   min-height: 0;
   max-height: 100%;
   overflow: hidden;
 }
+
 .jarvis-shell-embed header {
   position: relative;
   top: auto;
   flex-shrink: 0;
 }
+
 .jarvis-shell-embed main {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
+
 .jarvis-shell-embed header button[title="Buscar no Life OS (Ctrl+K)"] kbd {
   display: none;
 }
+
 html:has(.jarvis-shell-embed) .evolute-bottom-nav {
   position: relative !important;
   left: auto !important;
   right: auto !important;
   bottom: auto !important;
 }
+
 @media (max-width: 768px) {
   .jarvis-shell-embed header {
     padding-left: 8px;
@@ -76,12 +80,40 @@ html:has(.jarvis-shell-embed) .evolute-bottom-nav {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #404040;
+  background: #5a625e;
 }
 
 /* Ruled notepad line effect for infinite notes */
 .lined-paper {
   background-size: 100% 28px;
-  background-image: linear-gradient(to bottom, transparent 27px, #1a1a1a 28px);
+  background-image: linear-gradient(to bottom, transparent 27px, var(--ws-border) 28px);
   line-height: 28px;
 }
+
+/* Tema do workspace do Jarvis: remapeia a paleta monocromatica do Tailwind para os tokens --ws-* (mesmos do chat e do AppShell). */
+:root {
+  --color-black: var(--ws-bg);
+  --color-neutral-950: var(--ws-panel);
+  --color-neutral-900: #2a2e2f;
+  --color-neutral-850: #2d3233;
+  --color-neutral-800: var(--ws-border);
+  --color-neutral-700: #3e4547;
+  --color-neutral-600: #565e5b;
+  --color-neutral-500: #7f8884;
+  --color-neutral-400: var(--ws-muted);
+  --color-neutral-300: #b8c0bc;
+  --color-neutral-200: #d3dad6;
+  --color-neutral-100: var(--ws-text);
+}
+body, #root { background: var(--ws-bg); color: var(--ws-text); }
+.bg-white, .hover\:bg-white:hover { background-color: var(--ws-accent) !important; color: var(--ws-accent-ink); }
+.hover\:bg-neutral-200:hover { background-color: #cbe6d7 !important; }
+.border-white, .hover\:border-white:hover, .focus\:border-white:focus { border-color: var(--ws-accent) !important; }
+.text-black, .hover\:text-black:hover { color: var(--ws-accent-ink); }
+.selection\:bg-white *::selection, .selection\:bg-white::selection { background: #b4d9c635; color: var(--ws-text); }
+input, select, textarea { border-radius: 8px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--ws-accent); outline-offset: 2px; }
+.recharts-wrapper [stroke="#ffffff"], .recharts-wrapper [stroke="#fff"] { stroke: var(--ws-accent); }
+.recharts-wrapper [fill="#ffffff"], .recharts-wrapper [fill="#fff"] { fill: var(--ws-accent); }
+.recharts-wrapper stop[stop-color="#ffffff"] { stop-color: var(--ws-accent); }
+header, .evolute-bottom-nav { background-color: color-mix(in srgb, var(--ws-sidebar) 94%, transparent) !important; border-color: var(--ws-border) !important; }
