@@ -59,6 +59,8 @@ class WindowSpec:
 
 # Janelas que o agente pode pedir. Cada nova janela do frontend entra aqui e em windows/registry.ts.
 WINDOWS: dict[str, WindowSpec] = {
+    # Só abre o painel; brilho, bloqueio e volume são acionados pelo usuário na própria janela.
+    "pc-controls": WindowSpec("Controles do PC", {}),
     "finance": WindowSpec(
         "Finanças",
         {
@@ -118,6 +120,7 @@ class OpenWindowTool(BaseTool):
                 "params": {
                     "type": "object",
                     "description": (
+                        "A janela pc-controls não aceita parâmetros. "
                         "Parâmetros opcionais da janela finance: period (week|month|all) escolhe o período da lista; "
                         "type (expense|income), category, amount, description e date (AAAA-MM-DD) apenas "
                         "pré-preenchem o formulário. Nada é gravado até o usuário salvar."

@@ -1,9 +1,9 @@
 import {
-  AudioLines, Camera, CloudSun, Download, Droplets, Eye, Film, Flame, MessageSquare, Mic, Search, Sparkles, Volume2, Wallet, Zap,
+  AudioLines, Camera, CloudSun, Download, Droplets, Eye, Film, Flame, MessageSquare, Mic, MonitorCog, Search, Sparkles, Volume2, Wallet, Zap,
   type LucideIcon,
 } from 'lucide-react'
 import { navigation } from '../navigation'
-import { WINDOW_FINANCE } from '../windows/registry'
+import { WINDOW_FINANCE, WINDOW_PC_CONTROLS } from '../windows/registry'
 import type { ChatMode } from '../components/ChatComposer'
 
 // Registro único de comandos. A paleta (Ctrl+K) e o menu "/" do compositor são montados a partir
@@ -107,6 +107,7 @@ export const commands: CommandDef[] = [
   { id: 'action-weather', label: 'Clima', title: 'Perguntar o clima', description: 'Prepara a pergunta no compositor; você envia quando quiser', aliases: ['tempo', 'temperatura', 'previsao'], slash: 'clima', argHint: 'cidade', group: 'Ações Rápidas', action: { kind: 'local', operation: 'prefill-weather' }, worksOffline: true, icon: CloudSun },
 
   // Sistema
+  { id: 'window-pc-controls', label: 'Controles do PC', title: 'Abrir Controles do PC', description: 'Brilho, bloqueio de tela, volume e mídia, sem precisar da IA', aliases: ['brilho', 'bloquear', 'bloqueio', 'volume', 'monitor'], slash: 'controles', group: 'Sistema', action: { kind: 'open-window', windowId: WINDOW_PC_CONTROLS }, worksOffline: true, icon: MonitorCog },
   { id: 'system-backup', label: 'Backup', title: 'Exportar Backup Completo (ZIP)', description: 'Baixar memórias, bancos de hábitos e configurações', aliases: ['exportar', 'zip'], slash: 'backup', group: 'Sistema', action: { kind: 'backend', operation: 'backup' }, worksOffline: true, icon: Download },
   { id: 'system-sfx-toggle', label: 'Sons da interface', title: 'Alternar sons da interface', description: 'Feedback auditivo procedural da interface', aliases: ['sfx', 'mudo', 'silenciar'], slash: 'sons', group: 'Sistema', action: { kind: 'local', operation: 'toggle-sfx' }, worksOffline: true, icon: Volume2 },
 

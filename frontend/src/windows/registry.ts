@@ -1,5 +1,5 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
-import { Wallet, type LucideIcon } from 'lucide-react'
+import { MonitorCog, Wallet, type LucideIcon } from 'lucide-react'
 import type { OperationalState } from '../hooks/useOperationalSnapshot'
 
 // Registro de janelas do app. O agente (ferramenta open_window) e os comandos só escolhem ids
@@ -17,7 +17,12 @@ export type FinanceWindowParams = {
   date?: string
 }
 
-export type WindowParamsMap = { [WINDOW_FINANCE]: FinanceWindowParams }
+export const WINDOW_PC_CONTROLS = 'pc-controls'
+
+// A janela de controles do PC não recebe parâmetros: o agente só pede que ela abra.
+export type PcControlsWindowParams = Record<string, never>
+
+export type WindowParamsMap = { [WINDOW_FINANCE]: FinanceWindowParams; [WINDOW_PC_CONTROLS]: PcControlsWindowParams }
 export type WindowId = keyof WindowParamsMap
 
 export type WindowComponentProps<P> = { params: P; operational: OperationalState }
@@ -73,8 +78,19 @@ const financeDef: WindowDef<FinanceWindowParams> = {
   component: lazy(() => import('./FinanceWindow').then(module => ({ default: module.FinanceWindow }))),
 }
 
+const pcControlsDef: WindowDef<PcControlsWindowParams> = {
+  id: WINDOW_PC_CONTROLS,
+  title: 'Controles do PC',
+  icon: MonitorCog,
+  width: 460,
+  height: 560,
+  parseParams: parseWith({}) as WindowDef<PcControlsWindowParams>['parseParams'],
+  component: lazy(() => import('./PcControlsWindow').then(module => ({ default: module.PcControlsWindow }))),
+}
+
 export const windowRegistry: { [K in WindowId]: WindowDef<WindowParamsMap[K]> } = {
   [WINDOW_FINANCE]: financeDef,
+  [WINDOW_PC_CONTROLS]: pcControlsDef,
 }
 
 export function getWindowDef(id: string): WindowDef<unknown> | undefined {

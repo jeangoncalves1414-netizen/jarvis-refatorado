@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 from app.agent.tools.registry import ToolRegistry, GENERAL_TOOL_NAMES, TUTOR_TOOL_NAMES
 from app.agent.tools.file_manager import FileManagerTool
@@ -39,9 +41,11 @@ def test_system_control_tool_smoke():
     tool = SystemControlTool()
     assert tool.name == "system_control"
 
-    # Volume mute/unmute action
-    res = tool.execute({"action": "volume_mute"})
+    # Volume mute/unmute action (tecla de mídia simulada: o teste não mexe no volume real)
+    with patch("app.agent.tools.system_control._press_media_key") as press:
+        res = tool.execute({"action": "volume_mute"})
     assert res.ok is True
+    press.assert_called_once()
 
 
 def test_web_search_tool_smoke():

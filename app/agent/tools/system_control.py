@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import re
 import subprocess
 import sys
 import time
@@ -37,6 +38,52 @@ ALLOWED_APPS = {
     "edge": "msedge.exe",
 }
 
+# Brilho via WMI (sem dependência nova). Os comandos são fixos; o único valor variável é o nível,
+# um inteiro de 0 a 100 já validado. Monitor externo ou PC de mesa costuma não expor esta interface.
+_POWERSHELL = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command"]
+_GET_BRIGHTNESS_SCRIPT = (
+    "$ErrorActionPreference='Stop'; "
+    "$m = Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness | Select-Object -First 1; "
+    "if ($null -eq $m) { exit 3 }; [Console]::Out.Write($m.CurrentBrightness)"
+)
+_SET_BRIGHTNESS_SCRIPT = (
+    "$ErrorActionPreference='Stop'; "
+    "$m = Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods | Select-Object -First 1; "
+    "if ($null -eq $m) { exit 3 }; "
+    "Invoke-CimMethod -InputObject $m -MethodName WmiSetBrightness "
+    "-Arguments @{Timeout=[uint32]0; Brightness=[byte]%d} | Out-Null"
+)
+_LOCK_SCREEN_COMMAND = ["rundll32.exe", "user32.dll,LockWorkStation"]
+_COMMAND_TIMEOUT_SECONDS = 15
+_BRIGHTNESS_UNSUPPORTED = (
+    "Controle de brilho não suportado neste equipamento. Monitores externos e PCs de mesa normalmente "
+    "não expõem o brilho ao Windows."
+)
+
+
+def parse_brightness_level(value: Any) -> int | None:
+    """Aceita inteiro de 0 a 100 (também texto só com dígitos). Qualquer outra coisa é inválida."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        level = value
+    elif isinstance(value, float) and value.is_integer():
+        level = int(value)
+    elif isinstance(value, str) and re.fullmatch(r"\d{1,3}", value.strip()):
+        level = int(value.strip())
+    else:
+        return None
+    return level if 0 <= level <= 100 else None
+
+
+def _run_command(argv: list[str]) -> subprocess.CompletedProcess:
+    # shell=False e argumentos fixos: nada vindo do usuário ou do modelo vira linha de comando.
+    return subprocess.run(
+        argv, shell=False, capture_output=True, text=True, timeout=_COMMAND_TIMEOUT_SECONDS,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+
 def _press_media_key(vk: int, repeat: int = 1) -> None:
     try:
         user32 = ctypes.windll.user32
@@ -55,7 +102,7 @@ class SystemControlTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Controla funções do sistema local (CPU/RAM, abrir apps) e controle universal de mídia/volume (play, pause, próxima, anterior, volume)."
+        return "Controla funções do sistema local (CPU/RAM, abrir apps), mídia/volume (play, pause, próxima, anterior, volume), brilho da tela (get_brightness, set_brightness com level 0-100) e bloqueio de tela (lock_screen)."
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -67,9 +114,16 @@ class SystemControlTool(BaseTool):
                     "enum": [
                         "telemetry", "open_app", "list_processes",
                         "media_play_pause", "media_next", "media_prev",
-                        "volume_up", "volume_down", "volume_mute"
+                        "volume_up", "volume_down", "volume_mute",
+                        "get_brightness", "set_brightness", "lock_screen"
                     ],
-                    "description": "Ação a ser executada: 'telemetry', 'open_app', 'list_processes', 'media_play_pause', 'media_next', 'media_prev', 'volume_up', 'volume_down', 'volume_mute'."
+                    "description": "Ação a ser executada: 'telemetry', 'open_app', 'list_processes', 'media_play_pause', 'media_next', 'media_prev', 'volume_up', 'volume_down', 'volume_mute', 'get_brightness', 'set_brightness', 'lock_screen'."
+                },
+                "level": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "Nível de brilho de 0 a 100 (somente com action 'set_brightness')."
                 },
                 "app_name": {
                     "type": "string",
@@ -145,6 +199,45 @@ class SystemControlTool(BaseTool):
             except Exception as e:
                 logger.error(f"Failed to start application {app_name}: {e}")
                 return ToolResult(ok=False, message=f"Falha ao iniciar aplicativo: {e}")
+
+        # --- Brilho e bloqueio de tela ---
+        elif action == "get_brightness":
+            try:
+                completed = _run_command(_POWERSHELL + [_GET_BRIGHTNESS_SCRIPT])
+            except (OSError, subprocess.SubprocessError) as exc:
+                logger.warning("Brightness read failed: %s", type(exc).__name__)
+                return ToolResult(ok=False, message=_BRIGHTNESS_UNSUPPORTED, data={"supported": False})
+            if completed.returncode != 0:
+                return ToolResult(ok=False, message=_BRIGHTNESS_UNSUPPORTED, data={"supported": False})
+            level = parse_brightness_level((completed.stdout or "").strip())
+            if level is None:
+                return ToolResult(ok=False, message="O Windows retornou um valor de brilho inesperado; leitura não confirmada.")
+            return ToolResult(ok=True, message=f"Brilho atual da tela: {level}%.", data={"brightness": level, "supported": True})
+
+        elif action == "set_brightness":
+            level = parse_brightness_level(args.get("level"))
+            if level is None:
+                return ToolResult(ok=False, message="Brilho inválido: informe um número inteiro de 0 a 100.")
+            try:
+                completed = _run_command(_POWERSHELL + [_SET_BRIGHTNESS_SCRIPT % level])
+            except (OSError, subprocess.SubprocessError) as exc:
+                logger.warning("Brightness change failed: %s", type(exc).__name__)
+                return ToolResult(ok=False, message=_BRIGHTNESS_UNSUPPORTED, data={"supported": False})
+            if completed.returncode != 0:
+                return ToolResult(ok=False, message=_BRIGHTNESS_UNSUPPORTED, data={"supported": False})
+            logger.info("Brightness set to %s", level)
+            return ToolResult(ok=True, message=f"Brilho da tela ajustado para {level}%.", data={"brightness": level, "supported": True})
+
+        elif action == "lock_screen":
+            try:
+                completed = _run_command(_LOCK_SCREEN_COMMAND)
+            except (OSError, subprocess.SubprocessError) as exc:
+                logger.warning("Screen lock failed: %s", type(exc).__name__)
+                return ToolResult(ok=False, message="Não foi possível bloquear a tela neste equipamento.")
+            if completed.returncode != 0:
+                return ToolResult(ok=False, message="O Windows não confirmou o bloqueio da tela.")
+            logger.info("Screen lock requested")
+            return ToolResult(ok=True, message="Tela bloqueada.")
 
         # --- Controle Universal de Mídia & Volume ---
         elif action in ("media_play_pause", "play", "pause"):

@@ -40,8 +40,8 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         # O caminho de marcadores envia a operação em "command".
         operation_arguments=("action", "command"), default_operation="telemetry",
         operation_risks=_by_operation(
-            observe=("telemetry", "list_processes"),
-            low=("open_app", "media_play_pause", "play", "pause", "media_next", "next",
+            observe=("telemetry", "list_processes", "get_brightness"),
+            low=("open_app", "set_brightness", "lock_screen", "media_play_pause", "play", "pause", "media_next", "next",
                  "media_prev", "prev", "previous", "volume_up", "volume_down", "volume_mute"),
         ),
     ),

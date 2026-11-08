@@ -22,6 +22,7 @@ from app.ui.panel.api.voice import handle_voice_post, handle_voice_stream, handl
 from app.ui.panel.api.planning import handle_planning_get, handle_planning_post
 from app.ui.panel.api.actions import handle_actions_get, handle_actions_post
 from app.ui.panel.api.runs import handle_runs_get, handle_runs_post
+from app.ui.panel.api.controls import handle_controls_post
 from app.ui.panel.api.mission_control import handle_mission_control_get
 from app.ui.panel.api.goals import handle_goals_get, handle_goals_post
 from app.storage.vector.semantic_memory import is_technical_error_memory
@@ -1862,6 +1863,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             handle_planning_post,
             handle_actions_post,
             handle_runs_post,
+            handle_controls_post,
             handle_goals_post,
         ):
             result = handler_fn(path, body, self)
