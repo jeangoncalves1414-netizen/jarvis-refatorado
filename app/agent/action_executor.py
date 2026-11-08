@@ -13,6 +13,7 @@ from app.core.action_proposals import build_proposal_preview
 from app.core.actions import ActionRecord, ToolMetadata, arguments_digest, pending_action_broker, summarize_result
 from app.storage.action_store import ActionStore, action_store
 from app.core.runs import current_origin, current_run
+from app.core.capability_health import record_tool_result
 
 
 LegacyExecute = Callable[[str, dict, str], ToolResult]
@@ -111,9 +112,12 @@ class ActionExecutor:
                 result = ToolResult(False, "A ferramenta retornou um resultado inválido; conclusão não confirmada.")
         except Exception:
             self.last_action = self.store.transition(action_id, "failed", result_summary="A ferramenta lançou uma exceção; conclusão não confirmada.")
+            record_tool_result(name, False, "A ferramenta lançou uma exceção.")
             raise
         after = self.guardrails.after_call(name, args, result.message)
         message = result.message if after.allow else after.message
         succeeded = result.ok and after.allow
         self.last_action = self.store.transition(action_id, "succeeded" if succeeded else "failed", result_summary=summarize_result(message, args))
+        # O1: o resultado real alimenta a saúde da integração na página Integrações.
+        record_tool_result(name, result.ok, None if result.ok else summarize_result(result.message, args))
         return message

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
+from app.core.capability_health import track_model_call
 from app.storage.runtime_settings import get_llm_provider, resolve_ai_routes
 from app.services.stm_filters import stm_filter
 
@@ -139,6 +140,7 @@ class LLMService:
         result = str(defaults.get(active, defaults["gemini"]))
         return self._sanitize_model(result, active)
 
+    @track_model_call()
     def ask(
         self,
         prompt: str,
@@ -214,6 +216,7 @@ class LLMService:
             messages.append({"role": oai_role, "content": text})
         return messages
 
+    @track_model_call()
     def generate(
         self,
         contents: Any,
@@ -256,6 +259,7 @@ class LLMService:
                     return self._generate_gemini(contents, tools, system_instruction, fallback_key)
             raise
 
+    @track_model_call()
     def generate_stream(
         self,
         contents: Any,
@@ -299,6 +303,7 @@ class LLMService:
             kwargs["tool_choice"] = "auto"
         return kwargs
 
+    @track_model_call("oxyy")
     def _generate_oxyy(self, contents: Any, tools: list[dict[str, Any]] | None, system_instruction: str | None, api_key: str) -> LLMResponse:
         completion = self._oxyy_client(api_key).chat.completions.create(**self._oxyy_kwargs(contents, tools, system_instruction))
         message = completion.choices[0].message
@@ -312,6 +317,7 @@ class LLMService:
             calls.append(SimpleNamespace(name=fn.name, args=args, id=getattr(tc, "id", None)))
         return LLMResponse(text=getattr(message, "content", None), function_calls=calls)
 
+    @track_model_call("oxyy")
     def _generate_oxyy_stream(self, contents: Any, on_chunk: Any, tools: list[dict[str, Any]] | None, system_instruction: str | None, api_key: str, on_reasoning: Any = None) -> LLMResponse:
         kwargs = self._oxyy_kwargs(contents, tools, system_instruction)
         kwargs["stream"] = True
@@ -327,6 +333,7 @@ class LLMService:
                     on_chunk(piece)
         return LLMResponse(text=text)
 
+    @track_model_call("groq")
     def _generate_groq_stream(
         self,
         contents: Any,
@@ -382,6 +389,7 @@ class LLMService:
             print(f"[LLMStream Groq] Fallback devido a erro: {e}")
             return self._generate_groq(contents, tools, system_instruction, api_key)
 
+    @track_model_call("gemini")
     def _generate_gemini_stream(
         self,
         contents: Any,
@@ -491,6 +499,7 @@ class LLMService:
         # Para Gemini, precisaria implementar similar
         raise NotImplementedError("generate_with_messages não implementado para Gemini")
 
+    @track_model_call("gemini")
     def _generate_gemini(
         self,
         contents: Any,
@@ -557,6 +566,7 @@ class LLMService:
             candidates=list(candidates),
         )
 
+    @track_model_call("groq")
     def _generate_groq(
         self,
         contents: Any,
@@ -632,6 +642,7 @@ class LLMService:
             function_calls=function_calls,
         )
 
+    @track_model_call()
     def chat_with_functions_stream(
         self,
         system_instruction: str,
@@ -677,6 +688,7 @@ class LLMService:
             on_reasoning=on_reasoning,
         )
 
+    @track_model_call("gemini")
     def _chat_gemini_stream(
         self,
         system_instruction: str,
@@ -915,6 +927,7 @@ class LLMService:
 
 
 
+    @track_model_call("oxyy")
     def _chat_oxyy_stream(
         self,
         system_instruction: str,
@@ -991,6 +1004,7 @@ class LLMService:
                     return self._chat_oxyy_stream(system_instruction, messages, tools, on_function_call, on_chunk)
             raise
 
+    @track_model_call("groq")
     def _chat_groq_stream(
         self,
         system_instruction: str,

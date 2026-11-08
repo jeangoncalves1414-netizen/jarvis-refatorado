@@ -19,12 +19,27 @@ def build_mission_snapshot() -> dict[str, Any]:
         provider_reason = routes.get("chat", {}).get("reason", "")[:180]
     except Exception:
         provider_status, provider_reason = "unavailable", "Configuração de IA indisponível."
+    # O1: "Dispositivos" só fica saudável com algum dispositivo online; zero ou erro de leitura não.
+    device_count, device_error = 0, ""
     try:
         from app.services.device_bridge import DeviceBridgeService
-        bridge = DeviceBridgeService().get_status()
-        device_count = len(bridge.get("devices", []))
+        devices = DeviceBridgeService().get_status().get("devices", [])
+        device_count = len(devices)
+        online = sum(1 for device in devices if device.get("connected"))
+        if not devices:
+            bridge_status, bridge_reason = "off", "Nenhum dispositivo pareado."
+        elif not online:
+            bridge_status, bridge_reason = "degraded", f"{device_count} dispositivo(s) pareado(s), nenhum online."
+        else:
+            bridge_status, bridge_reason = "healthy", f"{device_count} dispositivo(s) pareado(s), {online} online."
+    except Exception as exc:
+        device_error = f"Não foi possível ler a ponte de dispositivos ({type(exc).__name__})."
+        bridge_status, bridge_reason = "unavailable", device_error
+    try:
+        from app.ui.panel.api.capabilities import build_capabilities, capabilities_meta
+        capabilities, capability_meta = build_capabilities(), capabilities_meta()
     except Exception:
-        device_count = 0
+        capabilities, capability_meta = [], {}
     try:
         from app.storage.goal_store import goal_store
         goals = goal_store.list()
@@ -36,9 +51,11 @@ def build_mission_snapshot() -> dict[str, Any]:
         "components": [
             {"id": "action_kernel", "label": "Ações", "status": "healthy", "reason": f"{awaiting + running} em andamento/aguardando confirmação."},
             {"id": "providers", "label": "IA e voz", "status": provider_status, "reason": provider_reason},
-            {"id": "bridge", "label": "Dispositivos", "status": "healthy", "reason": f"{device_count} dispositivo(s) registrado(s)."},
+            {"id": "bridge", "label": "Dispositivos", "status": bridge_status, "reason": bridge_reason},
         ],
-        "summary": {"pending_actions": awaiting + running, "awaiting_approvals": awaiting, "running_actions": running, "failed_actions": counts.get("failed", 0), "devices": device_count, "active_goals": len(active_goals)},
+        "capabilities": capabilities,
+        **capability_meta,
+        "summary": {"pending_actions": awaiting + running, "awaiting_approvals": awaiting, "running_actions": running, "failed_actions": counts.get("failed", 0), "devices": device_count, "devices_error": device_error, "active_goals": len(active_goals)},
         "goals": active_goals[:10],
         "pending_actions": [item.public_dict() for item in pending[:10]],
         "recent_actions": [item.public_dict() for item in actions[:20]],

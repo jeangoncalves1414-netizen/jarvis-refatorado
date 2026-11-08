@@ -209,3 +209,10 @@
 .ws-dot.interrupted, .ws-dot.cancel_requested { background: #d8ad74; }
 .ws-filters button[aria-pressed="true"] { border-color: #8caf9a; color: #cce8d7; }
 .ws-action-detail .ws-footnote { overflow-wrap: anywhere; }
+/* Integrações com estado real (O1). */
+.ws-dot.configured { background: #9fb8c9; }
+.ws-dot.off { background: #5d6660; }
+.ws-capability-group { margin: 26px 0 12px; font-size: 13px; font-weight: 500; color: #c2d2c7; }
+.ws-capability-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 14px 0; font-size: 11px; }
+.ws-capability-facts dt { color: #93a197; }
+.ws-capability-facts dd { margin: 0; color: #c9d6cd; overflow-wrap: anywhere; }

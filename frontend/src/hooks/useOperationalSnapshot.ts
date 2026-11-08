@@ -3,8 +3,16 @@ import { panelRequest } from '../utils/panelApi'
 
 export type AgentAction = { id: string; tool_name: string; preview: string; risk: string; status: string; result_summary?: string | null; updated_at: number; run_id?: string | null; source?: string }
 export type AgentGoal = { id: string; title: string; next_action: string; status: string }
+// Estado real de cada capacidade (O1, O2). "reachable" vem da última chamada real desde que o servidor iniciou.
+export type CapabilityFallback = { from: string; to: string; model?: string | null; reason: string; at: number }
+export type Capability = {
+  id: string; label: string; group: string; status: string; configured: boolean | null; reachable: boolean | null
+  last_success_at: number | null; last_failure_at: number | null; last_failure_reason: string | null
+  provider?: string | null; model?: string | null; latency_ms?: number | null; fallback?: CapabilityFallback | null; reason: string; target?: string
+}
 export type OperationalSnapshot = {
   components: { id: string; label: string; status: string; reason: string }[]
+  capabilities?: Capability[]; health_since?: number
   summary: { pending_actions: number; awaiting_approvals?: number; running_actions?: number; failed_actions: number; devices: number; active_goals?: number }
   pending_actions: AgentAction[]; recent_actions: AgentAction[]; goals: AgentGoal[]
 }

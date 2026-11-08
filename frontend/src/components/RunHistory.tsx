@@ -13,7 +13,7 @@ const modes: Record<string, string> = { general: 'Conversa', planning: 'Planejam
 // Quem disparou o pedido (C6). Rotina, palma e celular ficam prontos para os gatilhos futuros.
 const runOrigins: Record<string, string> = { chat: 'Chat', voice: 'Voz', routine: 'Rotina', clap: 'Palma', window: 'Janela', mobile: 'Celular', system: 'Segundo plano' }
 // Etapas internas sem ferramenta (Swarm, Racing, memória) aparecem com o próprio rótulo.
-const eventKinds: Record<string, string> = { step: 'Etapa interna', failure: 'Etapa com falha', background: 'Segundo plano', background_failed: 'Segundo plano com falha' }
+const eventKinds: Record<string, string> = { step: 'Etapa interna', failure: 'Etapa com falha', background: 'Segundo plano', background_failed: 'Segundo plano com falha', fallback: 'Troca de modelo' }
 const terminal = new Set(['succeeded', 'failed', 'cancelled', 'interrupted'])
 const when = (timestamp: number) => new Date(timestamp * 1000).toLocaleString('pt-BR')
 
