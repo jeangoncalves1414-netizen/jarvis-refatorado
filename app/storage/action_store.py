@@ -12,7 +12,7 @@ from pathlib import Path
 
 from app.core.actions import ALLOWED_TRANSITIONS, ActionRecord, TERMINAL_STATUSES, redact
 from app.core.diagnostics import record
-from app.core.runs import RUN_TERMINAL, RunCancelled, RunRecord
+from app.core.runs import RUN_TERMINAL, RunCancelled, RunRecord, run_origin
 
 # Leitura concluída pedida por uma janela do painel (origem "panel:..."), sem alterar nada.
 # Fica fora das listas da Central por padrão para não gerar ruído a cada abertura de janela.
@@ -205,8 +205,10 @@ class ActionStore:
                 status, summary = "failed", "Pedido encerrado com falha ou ação sem conclusão confirmada."
             elif counts.get("cancelled"):
                 status, summary = "cancelled", "Pedido encerrado com etapas recusadas ou bloqueadas."
+            elif counts:
+                status, summary = "succeeded", "Resposta encerrada e ações registradas concluídas."
             else:
-                status, summary = "succeeded", "Resposta encerrada e ações registradas concluídas." if counts else "Resposta encerrada; nenhuma ferramenta registrada."
+                status, summary = "succeeded", "Resposta encerrada; nenhuma ferramenta registrada." if run.source == "conversation" else "Concluído; nenhuma ferramenta registrada."
         elif run.cancel_requested:
             status, summary = "cancel_requested", "Cancelamento solicitado; aguardando a etapa em andamento retornar."
         elif run.turn_done and counts.get("awaiting_confirmation") and not counts.get("running") and not counts.get("authorized"):
@@ -268,9 +270,10 @@ class ActionStore:
                 run.result_summary = "Backend reiniciado; pedido interrompido e não reexecutado. Confira os efeitos das etapas iniciadas."
                 self._save_run(db, run, "recovery", run.result_summary)
 
-    def create_run(self, *, session_id: str | None, mode: str) -> RunRecord:
+    def create_run(self, *, session_id: str | None, mode: str, source: str = "conversation", origin: str = "chat") -> RunRecord:
         self.start_runtime()
-        run = RunRecord(session_id=session_id[:200] if session_id else None, mode=mode[:40])
+        run = RunRecord(session_id=session_id[:200] if session_id else None, mode=mode[:40],
+                        source=(source or "conversation")[:80], origin=run_origin(origin))
         with self._lock, closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             db.execute("INSERT INTO runs(id, status, session_id, payload) VALUES (?, ?, ?, ?)", (run.id, run.status, run.session_id, json.dumps(asdict(run))))
@@ -294,6 +297,21 @@ class ActionStore:
                 run.turn_done, run.turn_failed = True, failed
                 self._save_run(db, run, "response_finished", "Processamento da resposta encerrado." if not failed else "Processamento da resposta falhou.")
             return self._refresh_run(db, run_id)
+
+    def add_run_event(self, run_id: str, kind: str, summary: str) -> None:
+        """Etapa interna sem ferramenta (Swarm, Racing, memória): só um evento no pedido (C6).
+
+        Não muda o estado do pedido e pode ser gravada depois do encerramento, como uma
+        memória salva em segundo plano depois que a resposta terminou.
+        """
+        text = str(redact(str(summary or ""), limit=300))
+        with self._lock, closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            run = self._read_run(db, run_id)
+            if run is None:
+                return
+            db.execute("INSERT INTO run_events(run_id, kind, status, timestamp, summary) VALUES (?, ?, ?, ?, ?)",
+                       (run.id, kind[:40], run.status, time.time(), text))
 
     def check_cancelled(self, run_id: str) -> None:
         with self._lock, closing(self._connect()) as db:

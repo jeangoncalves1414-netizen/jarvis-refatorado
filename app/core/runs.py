@@ -19,6 +19,8 @@ class RunRecord:
     session_id: str | None
     mode: str
     source: str = "conversation"
+    # Quem disparou o pedido (C6): ver RUN_ORIGINS. Registros antigos sem o campo contam como chat.
+    origin: str = "chat"
     policy: str = "tool_metadata_confirmation_v1"
     id: str = field(default_factory=lambda: f"run_{uuid.uuid4().hex}")
     status: str = "running"
@@ -43,6 +45,16 @@ current_run: ContextVar[tuple[object, str] | None] = ContextVar("current_run", d
 # Origem do pedido de conversa (C10): ações registradas num turno de voz levam o prefixo "voice:".
 REQUEST_ORIGINS: frozenset[str] = frozenset({"chat", "voice"})
 current_origin: ContextVar[str] = ContextVar("current_origin", default="chat")
+
+# Origens que um Run pode ter (C6). Só chat e voz chegam do cliente hoje; rotina, palma e celular
+# ficam reservadas para os gatilhos futuros; janela é a rota direta do painel; "system" é trabalho
+# em segundo plano sem pedido da usuária (resumo diário, por exemplo).
+RUN_ORIGINS: tuple[str, ...] = ("chat", "voice", "routine", "clap", "window", "mobile", "system")
+
+
+def run_origin(value: object, default: str = "chat") -> str:
+    """Normaliza a origem gravada num Run; valor desconhecido vira ``default``."""
+    return value if isinstance(value, str) and value in RUN_ORIGINS else default
 
 
 def check_run_cancelled() -> None:

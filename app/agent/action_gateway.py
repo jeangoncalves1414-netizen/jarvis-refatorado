@@ -58,6 +58,7 @@ def run_action(
     execute: DirectExecute | None = None,
     context: dict[str, Any] | None = None,
     confirmed_by: str | None = None,
+    origin: str = "window",
 ) -> ActionOutcome:
     """Executa ``tool_name`` pelo Action Kernel e devolve a ação registrada e o resultado.
 
@@ -84,7 +85,8 @@ def run_action(
         return registry.get_tool_metadata(name) or TOOL_CATALOG.get(name)
 
     outcome = ActionOutcome(None, None)
-    run = store.create_run(session_id=source, mode=run_mode)
+    # Rotas diretas nascem de uma janela do painel, salvo quando a rota diz outra origem (C6).
+    run = store.create_run(session_id=source, mode=run_mode, source=source, origin=origin)
     token = current_run.set((store, run.id))
     try:
         executor = ActionExecutor(

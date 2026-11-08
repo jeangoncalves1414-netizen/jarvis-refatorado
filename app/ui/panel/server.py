@@ -25,6 +25,8 @@ from app.ui.panel.api.runs import handle_runs_get, handle_runs_post
 from app.ui.panel.api.controls import handle_controls_post
 from app.ui.panel.api.mission_control import handle_mission_control_get
 from app.agent.action_gateway import request_origin, run_action
+from app.agent.run_tracking import background_run, in_background
+from app.core.runs import current_run
 from app.ui.panel.api.goals import handle_goals_get, handle_goals_post
 from app.storage.vector.semantic_memory import is_technical_error_memory
 from app.core.control_plane import ControlPlanePolicy, RequestPrincipal
@@ -1157,7 +1159,14 @@ class PanelHandler(BaseHTTPRequestHandler):
                 payload = json.loads(body.decode("utf-8") or "{}")
                 task = payload.get("task", "")
                 t_type = payload.get("type", "auto")
-                res = agent_swarm.route_and_execute(task, task_type=t_type)
+                # C6: a rota direta vira pedido na Central, com as etapas do especialista.
+                with background_run(mode="swarm", source="api:swarm", origin="window") as job:
+                    res = agent_swarm.route_and_execute(task, task_type=t_type)
+                    if not (isinstance(res, dict) and res.get("ok") is True):
+                        job.failed = True
+                    run_context = current_run.get()
+                if isinstance(res, dict) and run_context:
+                    res = {**res, "run_id": run_context[1]}
                 self._send_json(200, res)
             except Exception as exc:
                 self._send_json(500, {"ok": False, "error": str(exc)})
@@ -1405,12 +1414,14 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self.end_headers()
 
                 full_summary = ""
+                full_run_id = None
                 origin = request_origin(payload.get("origin"))
                 for item in _orchestrator.handle_request_stream(message, session_id=session_id, mode=mode, profile_id=profile_id, origin=origin):
                     plan = item.get("plan")
                     if plan is not None:
                         if item.get("status") == "complete" and plan.intent != "cancelled" and plan.context.get("success") is not False:
                             full_summary = plan.summary
+                            full_run_id = plan.context.get("run_id")
                         item = {**item, "plan": {"intent": plan.intent, "summary": plan.summary, "actions": plan.actions,
                                                  "context": plan.context, "whiteboard_updated": plan.whiteboard_updated}}
                         if item["status"] == "error":
@@ -1429,7 +1440,8 @@ class PanelHandler(BaseHTTPRequestHandler):
                     try:
                         convo_text = f"Usuário: {message}\nJarvis: {full_summary}"
                         threading.Thread(
-                            target=_orchestrator.semantic_memory.add_memory,
+                            # C6: o salvamento aparece como evento do pedido na Central.
+                            target=in_background(_orchestrator.semantic_memory.add_memory, label="Conversa salva na memória", run_id=full_run_id),
                             args=("conversations", convo_text),
                             kwargs={"metadata": {"session_id": session_id or ""}},
                             daemon=True,
@@ -1638,6 +1650,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                     "script_runner", {"language": language, "code": code},
                     source="api:script", user_text=f"Script {language} confirmado no chat", run_mode="script",
                     execute=execute_script, confirmed_by="Confirmada no chat com recibo de uso único.",
+                    origin="chat",
                 )
                 action = outcome.action.public_dict() if outcome.action else None
                 if completed.get("timeout"):
@@ -2058,7 +2071,8 @@ async def _ws_chat_handler(websocket) -> None:
                         convo_text = f"Usuário: {message}\nJarvis: {getattr(plan, 'summary', '')}"
                         import threading as _t
                         _t.Thread(
-                            target=_orchestrator.semantic_memory.add_memory,
+                            # C6: o salvamento aparece como evento do pedido na Central.
+                            target=in_background(_orchestrator.semantic_memory.add_memory, label="Conversa salva na memória", run_id=plan.context.get("run_id")),
                             args=("conversations", convo_text),
                             kwargs={"metadata": {"session_id": session_id or ""}},
                             daemon=True

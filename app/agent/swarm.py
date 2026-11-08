@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import itertools
 import concurrent.futures
+import contextvars
 from typing import Any
 from app.agent.subagents.coder_subagent import CoderSubagent
 from app.agent.subagents.browser_subagent import BrowserSubagent
@@ -67,13 +68,34 @@ class AgentSwarmManager:
             kwargs["api_key"] = api_key
 
         if task_type == "coder" or any(kw in task_lower for kw in ("code", "python", "bug", "função", "script", "refatorar")):
-            return self.coder.execute_task(task_description, **kwargs)
+            specialist = self.coder
         elif task_type == "browser" or any(kw in task_lower for kw in ("site", "url", "http", "scraping", "navegar")):
-            return self.browser.execute_task(task_description, **kwargs)
+            specialist = self.browser
         elif task_type == "research" or any(kw in task_lower for kw in ("pesquisar", "buscar", "artigo", "resumo", "relatório")):
-            return self.researcher.execute_task(task_description, **kwargs)
+            specialist = self.researcher
         else:
-            return self.coder.execute_task(task_description, **kwargs)
+            specialist = self.coder
+        return self._run_specialist(specialist, task_description, **kwargs)
+
+    @staticmethod
+    def _run_specialist(specialist: Any, task_description: str, **kwargs: Any) -> dict[str, Any]:
+        """Executa o especialista e registra a etapa interna no pedido em andamento (C6)."""
+        from app.agent.run_tracking import record_run_step
+
+        name = str(getattr(specialist, "name", None) or type(specialist).__name__)
+        record_run_step(f"Especialista {name} acionado.")
+        try:
+            result = specialist.execute_task(task_description, **kwargs)
+        except Exception as exc:
+            record_run_step(f"Especialista {name} falhou ({type(exc).__name__}).", kind="failure")
+            raise
+        if isinstance(result, dict) and result.get("ok") is True:
+            record_run_step(f"Especialista {name} concluiu a tarefa.")
+        else:
+            reason = result.get("error") if isinstance(result, dict) else None
+            reason = str(reason or "resultado inválido").rstrip(".")
+            record_run_step(f"Especialista {name} não concluiu: {reason}.", kind="failure")
+        return result
 
     def execute_swarm_parallel(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Executa múltiplas sub-tarefas de enxame em paralelo com rotação de API Keys."""
@@ -87,7 +109,8 @@ class AgentSwarmManager:
             return self.route_and_execute(desc, task_type=t_type, **t)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(tasks), 5)) as executor:
-            future_to_task = {executor.submit(_worker, task): task for task in tasks}
+            # Cada tarefa leva uma cópia do contexto para as etapas caírem no pedido atual (C6).
+            future_to_task = {executor.submit(contextvars.copy_context().run, _worker, task): task for task in tasks}
             for future in concurrent.futures.as_completed(future_to_task):
                 try:
                     res = future.result()

@@ -4,12 +4,16 @@ import { actionLabels, type AgentAction } from '../hooks/useOperationalSnapshot'
 import { panelRequest } from '../utils/panelApi'
 import { ActionDetails, type Decisions } from './ActionHistory'
 
-type Run = { id: string; session_id: string | null; mode: string; status: string; created_at: number; finished_at: number | null; result_summary: string | null }
+type Run = { id: string; session_id: string | null; mode: string; status: string; created_at: number; finished_at: number | null; result_summary: string | null; source?: string; origin?: string }
 type RunEvent = { id: number; kind: string; status: string; timestamp: number; summary: string | null; action_id: string | null }
 type RunDetail = { run: Run; actions: AgentAction[]; events: RunEvent[] }
 type RunPage = { runs: Run[]; next_cursor: number | null }
 const labels: Record<string, string> = { running: 'Em andamento', awaiting_confirmation: 'Aguardando aprovação', cancel_requested: 'Cancelamento solicitado', cancelled: 'Cancelado', succeeded: 'Concluído', failed: 'Encerrado com falha', interrupted: 'Interrompido após reinício' }
-const modes: Record<string, string> = { general: 'Conversa', planning: 'Planejamento', research: 'Pesquisa', tutor: 'Estudo', react: 'Execução por etapas', swarm: 'Especialista' }
+const modes: Record<string, string> = { general: 'Conversa', planning: 'Planejamento', research: 'Pesquisa', tutor: 'Estudo', react: 'Execução por etapas', swarm: 'Especialista', memory: 'Memória em segundo plano', controls: 'Controles do PC', browser: 'Navegador automatizado', script: 'Script confirmado', terminal: 'Terminal', direct: 'Ação direta' }
+// Quem disparou o pedido (C6). Rotina, palma e celular ficam prontos para os gatilhos futuros.
+const runOrigins: Record<string, string> = { chat: 'Chat', voice: 'Voz', routine: 'Rotina', clap: 'Palma', window: 'Janela', mobile: 'Celular', system: 'Segundo plano' }
+// Etapas internas sem ferramenta (Swarm, Racing, memória) aparecem com o próprio rótulo.
+const eventKinds: Record<string, string> = { step: 'Etapa interna', failure: 'Etapa com falha', background: 'Segundo plano', background_failed: 'Segundo plano com falha' }
 const terminal = new Set(['succeeded', 'failed', 'cancelled', 'interrupted'])
 const when = (timestamp: number) => new Date(timestamp * 1000).toLocaleString('pt-BR')
 
@@ -60,7 +64,7 @@ function RunDetails({ id, revision, onClose, onOpenSession, onRefresh, ...decisi
     {(error || cancelError) && <p className="ws-error" role="alert">{cancelError || error}{error && data && ' Exibindo o último estado recebido.'}</p>}
     {!data && loading && <p role="status">Carregando pedido…</p>}
     {run && <>
-      <dl><dt>Estado registrado</dt><dd>{labels[run.status] || run.status}</dd><dt>Iniciado</dt><dd>{when(run.created_at)}</dd><dt>Resultado</dt><dd>{run.result_summary || 'Ainda em processamento.'}</dd><dt>Conversa</dt><dd>{run.session_id ? <button className="ws-text-button" onClick={() => onOpenSession(run.session_id!)}>Abrir conversa <ArrowUpRight size={14} /></button> : 'Sem conversa vinculada'}</dd>{run.finished_at && <><dt>Duração total</dt><dd>{Math.max(0, run.finished_at - run.created_at).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s</dd></>}</dl>
+      <dl><dt>Estado registrado</dt><dd>{labels[run.status] || run.status}</dd><dt>Origem</dt><dd>{runOrigins[run.origin || 'chat'] || run.origin}</dd><dt>Iniciado</dt><dd>{when(run.created_at)}</dd><dt>Resultado</dt><dd>{run.result_summary || 'Ainda em processamento.'}</dd><dt>Conversa</dt><dd>{run.session_id ? <button className="ws-text-button" onClick={() => onOpenSession(run.session_id!)}>Abrir conversa <ArrowUpRight size={14} /></button> : 'Sem conversa vinculada'}</dd>{run.finished_at && <><dt>Duração total</dt><dd>{Math.max(0, run.finished_at - run.created_at).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s</dd></>}</dl>
       {(run.status === 'cancel_requested' || (requested && !terminal.has(run.status))) && <p className="ws-warning" role="status">Cancelamento solicitado. Aguardando confirmação do encerramento; uma etapa já iniciada pode continuar até retornar.</p>}
       {!terminal.has(run.status) && <button className="ws-button" disabled={cancelling || requested || run.status === 'cancel_requested' || decisions.unavailable || !!error} onClick={() => void cancel()}><Square size={14} />{cancelling ? 'Solicitando…' : 'Cancelar pedido'}</button>}
       <h4>Etapas do pedido</h4>
@@ -68,7 +72,7 @@ function RunDetails({ id, revision, onClose, onOpenSession, onRefresh, ...decisi
       {!data.actions.length && <p className="ws-muted">Nenhuma ferramenta registrada neste pedido.</p>}
       {selectedAction && <ActionDetails key={selectedAction} id={selectedAction} revision={revision} onClose={() => setSelectedAction('')} {...decisions} />}
       <h4>Eventos do pedido</h4>
-      <ol className="ws-action-timeline">{data.events.map(event => <li key={event.id}><span className={`ws-dot ${event.status}`} /><div><strong>{event.action_id ? actionLabels[event.status] || event.status : labels[event.status] || event.status}</strong><time dateTime={new Date(event.timestamp * 1000).toISOString()}>{when(event.timestamp)}</time>{event.summary && <p>{event.summary}</p>}</div></li>)}</ol>
+      <ol className="ws-action-timeline">{data.events.map(event => <li key={event.id}><span className={`ws-dot ${event.status}`} /><div><strong>{event.action_id ? actionLabels[event.status] || event.status : eventKinds[event.kind] || labels[event.status] || event.status}</strong><time dateTime={new Date(event.timestamp * 1000).toISOString()}>{when(event.timestamp)}</time>{event.summary && <p>{event.summary}</p>}</div></li>)}</ol>
       <p className="ws-footnote">Cancelar impede novas etapas. Não desfaz efeitos anteriores. Identificador: {run.id}</p>
     </>}
   </section>
@@ -94,7 +98,7 @@ export function RunHistory({ revision, sessionId, onOpenSession, onRefresh, init
     <div className="ws-section-title"><h2>Pedidos de execução</h2><span className="ws-muted">{loading ? 'Atualizando…' : 'Cada pedido, suas etapas'}</span></div>
     <div className="ws-filters"><select aria-label="Filtrar pedidos por estado" value={status} onChange={event => { setStatus(event.target.value); reset() }}><option value="all">Todos os estados</option>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><button className="ws-button" aria-pressed={onlyCurrent} disabled={!sessionId} onClick={() => { setOnlyCurrent(!onlyCurrent); reset() }}>{onlyCurrent ? 'Conversa atual' : 'Todas as conversas'}</button><button className="ws-button" aria-pressed={showReads} onClick={() => { setShowReads(!showReads); reset() }}>{showReads ? 'Com leituras das janelas' : 'Ocultar leituras das janelas'}</button></div>
     {error && <p className="ws-error" role="alert">{error}{data && ' Exibindo a última lista recebida.'}</p>}
-    <div aria-busy={loading}>{data?.runs.map(run => <button key={run.id} className={`ws-run-row ${selectedId === run.id ? 'selected' : ''}`} aria-expanded={selectedId === run.id} onClick={() => setSelectedId(selectedId === run.id ? '' : run.id)}><span className={`ws-dot ${run.status}`} /><div><strong>{modes[run.mode] || 'Pedido do agente'}</strong><span>{when(run.created_at)}</span></div><span className="ws-tag">{labels[run.status] || run.status}</span><ArrowUpRight size={15} /></button>)}</div>
+    <div aria-busy={loading}>{data?.runs.map(run => <button key={run.id} className={`ws-run-row ${selectedId === run.id ? 'selected' : ''}`} aria-expanded={selectedId === run.id} onClick={() => setSelectedId(selectedId === run.id ? '' : run.id)}><span className={`ws-dot ${run.status}`} /><div><strong>{modes[run.mode] || 'Pedido do agente'}</strong><span>{runOrigins[run.origin || 'chat'] || run.origin} · {when(run.created_at)}</span></div><span className="ws-tag">{labels[run.status] || run.status}</span><ArrowUpRight size={15} /></button>)}</div>
     {!loading && !error && !data?.runs.length && <div className="ws-empty"><Layers size={25} /><h3>Nenhum pedido nesta seleção</h3><p>Novos pedidos processados pela Central aparecerão aqui. Ações anteriores continuam no histórico abaixo.</p></div>}
     <nav className="ws-history-pagination" aria-label="Páginas dos pedidos"><button className="ws-button" disabled={loading || cursors.length === 1} onClick={() => { setCursors(cursors.slice(0, -1)); setSelectedId('') }}><ChevronLeft size={15} /> Pedidos anteriores</button><span className="ws-muted">{cursors.length}</span><button className="ws-button" disabled={loading || !!error || data?.next_cursor == null} onClick={() => { if (data?.next_cursor != null) { setCursors([...cursors, data.next_cursor]); setSelectedId('') } }}>Mais pedidos <ChevronRight size={15} /></button></nav>
     {selectedId && <div ref={detailAnchor} tabIndex={-1}><RunDetails key={selectedId} id={selectedId} revision={revision} onClose={() => setSelectedId('')} onOpenSession={onOpenSession} onRefresh={onRefresh} {...decisions} /></div>}

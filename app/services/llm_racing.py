@@ -64,12 +64,15 @@ class MultiLLMRacingService:
                     "response": stm_filter.process(resp),
                     "elapsed_seconds": round(elapsed, 2),
                     "elapsed_ms": int(elapsed * 1000),
-                    "badge": f"⚡ {round(elapsed, 2)}s · {provider.capitalize()}"
+                    "badge": f"⚡ {round(elapsed, 2)}s · {provider.capitalize()}",
+                    "attempts": [{"provider": provider.capitalize(), "status": "winner", "elapsed_ms": int(elapsed * 1000)}],
                 }
             return {"ok": False, "error": "Nenhum provedor configurado para a corrida."}
 
         start_time = time.time()
         winner_data: dict[str, Any] | None = None
+        # Resultado de cada provedor na corrida, para a Central (C6). Sem o texto das respostas.
+        attempts: list[dict[str, Any]] = []
 
         def _worker(name: str, fn: Callable[[str], str]) -> dict[str, Any]:
             w_start = time.time()
@@ -89,13 +92,20 @@ class MultiLLMRacingService:
             }
 
             for future in concurrent.futures.as_completed(future_map, timeout=timeout):
+                name = future_map[future]
                 try:
                     res = future.result()
                     if res and res["response"] and len(res["response"].strip()) >= 5:
                         winner_data = res
+                        attempts.append({"provider": name, "status": "winner", "elapsed_ms": max(1, int(res["elapsed"] * 1000))})
                         break
-                except Exception:
+                    attempts.append({"provider": name, "status": "empty", "elapsed_ms": max(1, int(res["elapsed"] * 1000)) if res else None})
+                except Exception as exc:
+                    attempts.append({"provider": name, "status": "failed", "reason": type(exc).__name__})
                     continue
+
+        seen = {item["provider"] for item in attempts}
+        attempts.extend({"provider": name, "status": "discarded"} for name, _fn in targets if name not in seen)
 
         if winner_data:
             elapsed_sec = round(winner_data["elapsed"], 2)
@@ -107,14 +117,16 @@ class MultiLLMRacingService:
                 "response": winner_data["response"],
                 "elapsed_seconds": elapsed_sec,
                 "elapsed_ms": elapsed_ms,
-                "badge": f"⚡ {elapsed_sec}s · {provider_name}"
+                "badge": f"⚡ {elapsed_sec}s · {provider_name}",
+                "attempts": attempts,
             }
 
         total_elapsed = round(time.time() - start_time, 2)
         return {
             "ok": False,
             "error": "Nenhum provedor respondeu no tempo limite.",
-            "elapsed_seconds": total_elapsed
+            "elapsed_seconds": total_elapsed,
+            "attempts": attempts,
         }
 
 

@@ -16,7 +16,7 @@ from app.agent.runtime_modes import AgentMode
 from app.agent.mode_resolver import ModeResolver
 from app.agent.tool_guardrails import ToolCallGuardrailController
 from app.agent.action_executor import ActionExecutor
-from app.agent.run_tracking import track_run
+from app.agent.run_tracking import background_run, in_background, record_run_step, track_run
 from app.core.runs import REQUEST_ORIGINS, RunCancelled, check_run_cancelled, current_origin, current_run
 from app.core.actions import ToolMetadata
 from app.agent.tools.base import ToolResult
@@ -79,6 +79,23 @@ def _build_search_marker(tool_results: dict[str, dict[str, Any]]) -> str:
         return "__SEARCH__" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     except (TypeError, ValueError):
         return ""
+
+
+_RACE_STATUS = {"winner": "respondeu primeiro e foi usado", "empty": "devolveu resposta vazia", "failed": "falhou", "discarded": "descartado (outro respondeu antes)"}
+
+
+def _record_race_attempts(race_res: dict[str, Any]) -> None:
+    """Grava na Central o resultado de cada provedor da corrida, sem o texto das respostas (C6)."""
+    for attempt in race_res.get("attempts") or []:
+        status = attempt.get("status")
+        text = f"Corrida: {attempt.get('provider')} {_RACE_STATUS.get(status, status)}"
+        if attempt.get("elapsed_ms"):
+            text += f" em {attempt['elapsed_ms']} ms"
+        if attempt.get("reason"):
+            text += f" ({attempt['reason']})"
+        record_run_step(text + ".", kind="failure" if status == "failed" else "step")
+    if not race_res.get("ok"):
+        record_run_step(f"Corrida sem vencedor: {race_res.get('error') or 'motivo desconhecido'}", kind="failure")
 
 
 def _build_cinema_marker(tool_results: dict[str, dict[str, Any]]) -> str:
@@ -266,16 +283,22 @@ class AgentOrchestrator:
                         history_text += f"{role}: {content}\n"
                         
         if len(history_text.strip()) > 100:
-            try:
-                from app.agent.prompts import EPISODIC_MEMORY_PROMPT
-                prompt = f"{EPISODIC_MEMORY_PROMPT}\n\nHistórico do dia:\n{history_text[:30000]}"
-                summary = self.llm_service.ask(prompt)
-                if summary:
-                    self.semantic_memory.add_memory("episodic_memory", f"Resumo Diário (Episódico): {summary}")
-                    with open(summary_file, "w") as f:
-                        f.write(str(current_time))
-            except Exception as e:
-                print(f"Erro ao gerar resumo diário: {e}")
+            # C6: o resumo diário chama o modelo sem pedido da usuária; vira pedido de origem "system".
+            with background_run(mode="memory", source="background:daily_summary", origin="system") as job:
+                try:
+                    from app.agent.prompts import EPISODIC_MEMORY_PROMPT
+                    prompt = f"{EPISODIC_MEMORY_PROMPT}\n\nHistórico do dia:\n{history_text[:30000]}"
+                    summary = self.llm_service.ask(prompt)
+                    if summary:
+                        self.semantic_memory.add_memory("episodic_memory", f"Resumo Diário (Episódico): {summary}")
+                        with open(summary_file, "w") as f:
+                            f.write(str(current_time))
+                        job.step("Resumo diário gravado na memória.")
+                    else:
+                        job.fail("Resumo diário: o modelo não devolveu texto.")
+                except Exception as e:
+                    job.fail(f"Resumo diário falhou ({type(e).__name__}).")
+                    print(f"Erro ao gerar resumo diário: {e}")
 
     def _remember_preferences(self, text: str, normalized: str) -> None:
         # Detecta preferências explícitas em linguagem natural e salva no memory_store (síncrono)
@@ -315,9 +338,11 @@ class AgentOrchestrator:
                             self.semantic_memory.add_memory("user_memory", line)
             except Exception as e:
                 print(f"Erro ao extrair memória inteligente: {e}")
+                raise
                 
         import threading
-        threading.Thread(target=_extract, daemon=True).start()
+        # C6: a extração (uma chamada ao modelo) fica registrada no pedido que a disparou.
+        threading.Thread(target=in_background(_extract, label="Extração de memória da mensagem"), daemon=True).start()
 
 
     def _extract_function_calls(self, response: Any) -> list[Any]:
@@ -818,7 +843,9 @@ ter pesquisado se não pesquisou.
             try:
                 from app.services.llm_racing import MultiLLMRacingService
                 racing_svc = MultiLLMRacingService(llm_service=self.llm_service)
+                record_run_step("Corrida entre modelos iniciada.")
                 race_res = racing_svc.race_prompt(text)
+                _record_race_attempts(race_res)
                 if race_res.get("ok"):
                     summary = race_res.get("response", "")
                     badge = race_res.get("badge", "")
@@ -833,6 +860,7 @@ ter pesquisado se não pesquisou.
             except RunCancelled:
                 raise
             except Exception as exc:
+                record_run_step(f"Corrida entre modelos falhou ({type(exc).__name__}); seguindo pelo caminho normal.", kind="failure")
                 print(f"[Orchestrator] Falha no modo Racing: {exc}")
 
         check_run_cancelled()

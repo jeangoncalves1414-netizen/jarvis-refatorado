@@ -102,7 +102,8 @@ def panel_http_server(monkeypatch: pytest.MonkeyPatch, journal):
 
 
 def _post(address: str, path: str, payload: dict, headers: dict | None = None) -> tuple[int, dict]:
-    connection = http.client.HTTPConnection(address, timeout=3)
+    # 3 s estourava nesta máquina na primeira ação pelo Kernel (importações frias e SQLite em disco).
+    connection = http.client.HTTPConnection(address, timeout=15)
     try:
         connection.request("POST", path, json.dumps(payload), {"Content-Type": "application/json", **(headers or {})})
         response = connection.getresponse()
@@ -195,7 +196,7 @@ def test_run_routes_keep_control_plane_boundary(panel_http_server, tmp_path, mon
     monkeypatch.setattr(runs, "action_store", store)
     run = store.create_run(session_id="fixture-session", mode="general")
     address, calls = panel_http_server
-    connection = http.client.HTTPConnection(address, timeout=3)
+    connection = http.client.HTTPConnection(address, timeout=15)
     try:
         connection.request("GET", "/api/runs")
         response = connection.getresponse()
