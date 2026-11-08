@@ -13,7 +13,7 @@ import type { ChatMode } from '../components/ChatComposer'
 export type CommandGroup = 'Navegação' | 'Ações Rápidas' | 'Life OS' | 'Mídia & Ferramentas' | 'Sistema'
 
 export type BackendOperation = 'add-water' | 'briefing' | 'backup' | 'vision'
-export type LocalOperation = 'new-chat' | 'dictation' | 'toggle-sfx' | 'prefill-weather'
+export type LocalOperation = 'new-chat' | 'dictation' | 'toggle-sfx' | 'prefill-weather' | 'stop-request'
 
 export type CommandAction =
   | { kind: 'navigate'; screen: string }
@@ -46,6 +46,7 @@ export type CommandHandlers = {
   setMode: (mode: ChatMode) => void
   prefill: (text: string) => void
   newChat: () => void
+  stopRequest: () => void
   toggleDictation: () => void
   toggleSfx: () => void
   addWater: (ml: number) => void
@@ -89,6 +90,7 @@ const navigationCommands: CommandDef[] = navigation.map(item => ({
 }))
 
 export const commands: CommandDef[] = [
+  { id: 'action-stop-request', label: 'Parar pedido', title: 'Parar pedido desta conversa', description: 'Solicitar o cancelamento da execução atual no PC', aliases: ['cancelar', 'parar', 'interromper'], slash: 'parar', group: 'Ações Rápidas', action: { kind: 'local', operation: 'stop-request' }, worksOffline: true, icon: Zap },
   ...navigationCommands,
 
   // Life OS
@@ -207,7 +209,8 @@ export function runCommand(command: CommandDef, handlers: CommandHandlers, args 
       else handlers.captureVision()
       return
     case 'local':
-      if (action.operation === 'new-chat') { handlers.newChat(); handlers.navigate('Chat') }
+      if (action.operation === 'stop-request') { handlers.stopRequest(); handlers.navigate('Chat') }
+      else if (action.operation === 'new-chat') { handlers.newChat(); handlers.navigate('Chat') }
       else if (action.operation === 'dictation') { handlers.toggleDictation(); handlers.navigate('Chat') }
       else if (action.operation === 'toggle-sfx') handlers.toggleSfx()
       else handlers.prefill(args ? `Qual o clima em ${args}?` : 'Qual o clima em ')

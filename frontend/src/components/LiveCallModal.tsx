@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { isMobileStandalone } from '../hooks/useDirectChat'
-import { JarvisOrb3D } from './JarvisOrb3D'
 import type { LiveAudioDiagnostics } from '../hooks/useMediaAssistant'
 
 type LiveCallModalProps = {
@@ -57,7 +55,6 @@ export function LiveCallModal({
   const isListening = recording || orbState === 'listening'
   const isSpeaking = orbState === 'speaking'
   const isThinking = orbState === 'thinking'
-  const glowClass = isSpeaking ? 'speaking' : isThinking ? 'thinking' : isListening ? 'listening' : 'idle'
   const voiceTag = isSpeaking
     ? '« JARVIS: TRANSMITINDO »'
     : isThinking
@@ -108,7 +105,7 @@ export function LiveCallModal({
       className="live-call-backdrop"
       role="dialog"
       aria-modal="true"
-      aria-label="Chamada com Jarvis"
+      aria-label="Conversa por voz"
       onClick={() => setIsMinimized(true)}
     >
       <div
@@ -118,7 +115,7 @@ export function LiveCallModal({
         <div className="live-call-header">
           <span className="live-call-badge">
             <span className="live-call-ping" />
-            JARVIS · {fmt}
+            CONVERSA · {fmt}
           </span>
           <div className="live-call-header-controls">
             <button
@@ -148,35 +145,17 @@ export function LiveCallModal({
           </span>
         </div>
 
-        {/* Central Core: Jarvis 3D Orb */}
-        <div
-          className="live-call-orb-wrapper"
-          onClick={isSpeaking ? onBargeIn : undefined}
-          style={{ cursor: isSpeaking ? 'pointer' : 'default' }}
-          title={isSpeaking ? 'Toque para interromper o Jarvis' : undefined}
-        >
-          <div className={`live-call-orb-glow ${glowClass}`} />
-          <div style={{ position: 'relative', zIndex: 10 }}>
-            <JarvisOrb3D
-              size={isMobileStandalone() || (typeof window !== 'undefined' && window.innerWidth <= 768) ? 140 : 210}
-              listening={isListening}
-              speaking={isSpeaking}
-              state={isSpeaking ? 'streaming' : isThinking ? 'thinking' : 'idle'}
-              interactive
-              onClick={isSpeaking ? onBargeIn : undefined}
-            />
-          </div>
-        </div>
+        {isSpeaking && <button type="button" className="ws-button" onClick={onBargeIn}>Interromper resposta</button>}
 
         <div>
           <h2 className="live-call-title">
             {isSpeaking
-              ? 'Jarvis Respondendo'
+              ? 'Assistente respondendo'
               : isThinking
                 ? 'Processando...'
                 : isListening
                   ? 'Ouvindo você...'
-                  : 'Converse com Jarvis'}
+                  : 'Conversa por voz'}
           </h2>
           <p className="live-call-status">{status}</p>
 

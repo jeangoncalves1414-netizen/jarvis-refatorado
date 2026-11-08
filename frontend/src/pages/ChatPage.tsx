@@ -16,6 +16,8 @@ type CinemaRequestPayload = {
 }
 
 type ChatPageProps = {
+  canStopRequest: boolean
+  runStatus: string
   commandHandlers: CommandHandlers
   onOpenRun?: (id: string) => void
   sessions: ChatSession[]
@@ -82,7 +84,7 @@ export function ChatPage(props: ChatPageProps) {
     {!following && !empty && <button className="ws-jump-latest" aria-label="Ir para a última mensagem" onClick={() => setFollowing(true)}><ArrowDown size={16} /> Últimas mensagens</button>}
     {props.chatError && <div className="ws-error" role="alert"><span>{props.chatError}</span><button className="ws-icon-button" aria-label="Fechar erro" onClick={props.onClearChatError}><X size={16} /></button></div>}
     {feedback && <div className="ws-feedback" role="status">{feedback}<button aria-label="Fechar aviso" onClick={() => setFeedback('')}><X size={13} /></button></div>}
-    <WorkspaceComposer supportsRuns={!!props.onOpenRun} commandHandlers={props.commandHandlers} value={props.query} loading={props.loading} mode={props.chatMode} attachment={props.chatAttachment} recording={props.recording} onChange={props.onQueryChange} onModeChange={props.onModeChange} onAttachment={props.onAttachment} onClearAttachment={props.onClearAttachment} onSubmit={props.onSubmit} onVoice={props.onVoice} onScreen={props.onScreen} onCinema={props.onCinema} onOpenLiveCall={props.onOpenLiveCall} />
+    <WorkspaceComposer canStopRequest={props.canStopRequest} runStatus={props.runStatus} supportsRuns={!!props.onOpenRun} commandHandlers={props.commandHandlers} value={props.query} loading={props.loading} mode={props.chatMode} attachment={props.chatAttachment} recording={props.recording} onChange={props.onQueryChange} onModeChange={props.onModeChange} onAttachment={props.onAttachment} onClearAttachment={props.onClearAttachment} onSubmit={props.onSubmit} onVoice={props.onVoice} onScreen={props.onScreen} onCinema={props.onCinema} onOpenLiveCall={props.onOpenLiveCall} />
     <dialog ref={deleteDialog} className="ws-confirm-dialog" aria-labelledby="delete-chat-title"><h2 id="delete-chat-title">Excluir esta conversa?</h2><p>As mensagens desta conversa serão removidas. Exporte uma cópia se quiser guardá-las.</p><div><button className="ws-button" onClick={() => deleteDialog.current?.close()}>Manter conversa</button><button className="ws-button danger" onClick={() => { props.onDeleteSession(props.sessionId); deleteDialog.current?.close() }}>Excluir conversa</button></div></dialog>
   </section>
 }

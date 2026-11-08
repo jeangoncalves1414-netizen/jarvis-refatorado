@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowUp, AudioLines, Film, LoaderCircle, Mic, Monitor, Paperclip, X } from 'lucide-react'
+import { ArrowUp, AudioLines, Film, LoaderCircle, Mic, Monitor, Paperclip, Square, X } from 'lucide-react'
 import type { ChatMode } from './ChatComposer'
 import { parseSlashInput, runCommand, searchSlashCommands, type CommandDef, type CommandHandlers } from '../commands/registry'
 
 type Props = {
+  canStopRequest: boolean
+  runStatus: string
   supportsRuns: boolean
   commandHandlers: CommandHandlers
   value: string; loading: boolean; mode: ChatMode; recording: boolean
@@ -50,6 +52,10 @@ export function WorkspaceComposer(props: Props) {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit() }
   }
   return <div className="ws-composer-wrap">
+    {(props.supportsRuns || props.runStatus) && <div className="ws-composer-caption">
+      <span role="status">{props.runStatus}</span>
+      {props.supportsRuns && <button type="button" className="ws-text-button" disabled={!props.canStopRequest} onClick={props.commandHandlers.stopRequest}><Square size={14} /> Parar pedido</button>}
+    </div>}
     {menuOpen && <div className="ws-slash-menu" ref={menu} role="listbox" id="ws-slash-menu" aria-label="Comandos" onMouseDown={event => event.preventDefault()}>
       {matches.map((command, index) => <div key={command.id} role="option" id={`ws-slash-${command.id}`} aria-selected={index === menuIndex} className={`ws-slash-item${index === menuIndex ? ' selected' : ''}`} onMouseMove={() => { if (index !== menuIndex) setMenuIndex(index) }} onClick={() => runSlash(command, '')}>
         <command.icon size={15} /><span className="ws-slash-text"><strong>{command.label}</strong><span>{command.description}</span></span><code>/{command.slash}{command.argHint ? ` ${command.argHint}` : ''}</code>

@@ -9,13 +9,13 @@ import { CameraWorkspace, type CameraWorkspaceHandle } from './components/Camera
 import { type ChatMode } from './components/ChatComposer'
 import { CalendarSection } from './components/Calendar'
 import { DashboardHero } from './components/DashboardHero'
-import { FloatingCoreOverlay } from './components/FloatingCoreOverlay'
 import { Toast } from './components/Toast'
 import { MatrixScanlineEffect } from './components/MatrixScanlineEffect'
 // MatrixScanlineEffect is disabled on mobile to save CPU
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { SkeletonLoader } from './components/SkeletonLoader'
 import { useChat } from './hooks/useChat'
+import { useConversationRun } from './hooks/useConversationRun'
 import { useDirectChat, isMobileStandalone } from './hooks/useDirectChat'
 import { useCinema } from './hooks/useCinema'
 import { useMediaAssistant } from './hooks/useMediaAssistant'
@@ -62,11 +62,6 @@ function readActiveScreen() {
 }
 
 export default function App() {
-  const isOverlayMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('overlay') === '1'
-  if (isOverlayMode) {
-    return <FloatingCoreOverlay />
-  }
-
   const operational = useOperationalSnapshot()
   const [isToolForgeOpen, setIsToolForgeOpen] = useState(false)
   const [active, setActive] = useState(readActiveScreen)
@@ -197,6 +192,7 @@ export default function App() {
   const pcChat = useChat({ onOpenWindow: request => { if (!windows.open(request.windowId, request.params)) setNotice('O agente pediu uma janela que não existe ou com parâmetros inválidos.') } })
   const mobileChat = useDirectChat()
   const { answer, chatError, copySession, createSession, deleteSession, exportSession, loading, liveReasoning, liveSearch, messages, pendingScript, query, runPendingScript, selectSession, sendText, sendVisionQuestion, sessionId, sessions, setAnswer, setChatError, setPendingScript, setQuery, streamingReply } = IS_MOBILE ? mobileChat : pcChat
+  const conversationRun = useConversationRun(sessionId, !IS_MOBILE, loading)
   const { captureVision, closeLiveCall, liveCallOpen, liveCallRecording, liveCallStatus, liveAudioDiagnostics, liveUserTranscript, liveJarvisTranscript, liveOrbState, recording, setLiveCallOpen, setSpeakEnabled, setVisionResult, speakEnabled, speakText, toggleLiveCallCapture, toggleVoiceInput, triggerBargeIn, visionResult } = useMediaAssistant({ query, sendText, setAnswer, setQuery, sessionId })
   const { availableEpisodes, availableSeasons, cinemaLauncherOpen, setCinemaLauncherOpen, videoUrl, setVideoUrl, cinemaQuery, setCinemaQuery, cinemaResults, cinemaMedia, cinemaStatus, setCinemaStatus, cinemaLibrary, refreshCinemaLibrary, searchCinema, probeCinema, saveCinemaUrl, openCinemaPayload, selectEpisode, selectLibraryItem, selectLibrarySource, selectNextEpisode, selectSeason, selectedEpisode, selectedLibraryItem, selectedLibraryId, selectedLibrarySources, selectedSeason, selectedSourceUrl } = useCinema()
 
@@ -514,6 +510,7 @@ export default function App() {
 
   // Ponto único de execução dos comandos do registro (paleta e menu "/"). Nada aqui chama o modelo.
   const commandHandlers: CommandHandlers = {
+    stopRequest: () => { void conversationRun.stop() },
     navigate: screen => { playToggle(); setActive(screen) },
     openWindow: windowId => {
       if (isManagedWindow(windowId)) { if (!windows.open(windowId)) setNotice('Não foi possível abrir a janela.') }
@@ -646,6 +643,8 @@ export default function App() {
     if (active === 'Chat') {
       return (
         <ChatPage
+          canStopRequest={conversationRun.canStop}
+          runStatus={conversationRun.message}
           commandHandlers={commandHandlers}
           onOpenRun={IS_MOBILE ? undefined : id => { setLinkedRun(id); setActive('Central') }}
           sessions={sessions}
@@ -850,15 +849,6 @@ export default function App() {
     </>
   )
 
-  const detachFloatingOverlay = () => {
-    const pywebview = (window as any).pywebview
-    if (pywebview?.api?.showOrbOverlay) {
-      pywebview.api.showOrbOverlay()
-    } else {
-      window.open('/app/?overlay=1', 'JarvisFloatingCore', 'width=240,height=240,resizable=no,alwaysOnTop=yes')
-    }
-  }
-
   const hero = active === 'Painel pessoal' ? (
     <DashboardHero
       weather={weather}
@@ -866,7 +856,6 @@ export default function App() {
       onCaptureVision={captureVision}
       onToggleVoice={toggleVoiceInput}
       onOpenLiveCall={() => setLiveCallOpen(true)}
-      onDetachOverlay={detachFloatingOverlay}
       recording={recording}
     />
   ) : null
