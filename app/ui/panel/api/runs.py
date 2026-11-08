@@ -21,7 +21,8 @@ def handle_runs_get(parts, handler):
     except ValueError:
         return 400, {"ok": False, "error": "Filtro ou cursor inválido."}
     if len(parts) == 2:
-        return 200, {"ok": True, **action_store.run_page(limit=limit, before=before, status=status, session_id=session)}
+        include_reads = query.get("include_reads", ["0"])[0] in {"1", "true"}
+        return 200, {"ok": True, **action_store.run_page(limit=limit, before=before, status=status, session_id=session, include_reads=include_reads)}
     if len(parts) == 3 or (len(parts) == 4 and parts[3] == "events"):
         detail = action_store.run_details(parts[2], after_event_id=after)
         return (200, {"ok": True, **detail}) if detail else (404, {"ok": False, "error": "Pedido não encontrado."})

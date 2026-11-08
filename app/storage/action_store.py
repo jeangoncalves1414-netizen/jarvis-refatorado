@@ -14,6 +14,10 @@ from app.core.actions import ALLOWED_TRANSITIONS, ActionRecord, TERMINAL_STATUSE
 from app.core.diagnostics import record
 from app.core.runs import RUN_TERMINAL, RunCancelled, RunRecord
 
+# Leitura concluída pedida por uma janela do painel (origem "panel:..."), sem alterar nada.
+# Fica fora das listas da Central por padrão para não gerar ruído a cada abertura de janela.
+_PANEL_READ = "(json_extract({a}.payload, '$.risk') = 'observe' AND {a}.status = 'succeeded' AND json_extract({a}.payload, '$.source') LIKE 'panel:%')"
+
 
 class ActionStore:
     def __init__(self, path: str | Path = "data/action_journal.sqlite3", max_records: int = 2_000) -> None:
@@ -138,11 +142,11 @@ class ActionStore:
             rows = db.execute("SELECT payload FROM actions WHERE (? IS NULL OR status = ?) ORDER BY updated_at DESC, sequence DESC LIMIT ?", (status, status, max(1, min(limit, 500))))
             return [ActionRecord.from_dict(json.loads(row[0])) for row in rows]
 
-    def page(self, *, limit: int = 30, before: int | None = None, status: str | None = None, query: str = "") -> dict:
+    def page(self, *, limit: int = 30, before: int | None = None, status: str | None = None, query: str = "", include_reads: bool = False) -> dict:
         limit = max(1, min(limit, 100))
         with self._lock, closing(self._connect()) as db:
             search = "%" + query.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-            rows = db.execute("SELECT sequence, payload FROM actions WHERE (? IS NULL OR sequence < ?) AND (? IS NULL OR status = ?) AND lower(json_extract(payload, '$.tool_name') || ' ' || json_extract(payload, '$.preview')) LIKE ? ESCAPE '\\' ORDER BY sequence DESC LIMIT ?", (before, before, status, status, search, limit + 1)).fetchall()
+            rows = db.execute(f"SELECT sequence, payload FROM actions WHERE (? IS NULL OR sequence < ?) AND (? IS NULL OR status = ?) AND lower(json_extract(payload, '$.tool_name') || ' ' || json_extract(payload, '$.preview')) LIKE ? ESCAPE '\\' AND (? OR NOT {_PANEL_READ.format(a='actions')}) ORDER BY sequence DESC LIMIT ?", (before, before, status, status, search, include_reads, limit + 1)).fetchall()
             items = rows[:limit]
             return {"actions": [ActionRecord.from_dict(json.loads(row["payload"])).public_dict() for row in items],
                     "next_cursor": items[-1]["sequence"] if len(rows) > limit else None}
@@ -322,9 +326,14 @@ class ActionStore:
             pending_action_broker.discard(json.loads(row[0])["id"])
         return result
 
-    def run_page(self, *, limit: int = 20, before: int | None = None, status: str | None = None, session_id: str | None = None) -> dict:
+    def run_page(self, *, limit: int = 20, before: int | None = None, status: str | None = None, session_id: str | None = None, include_reads: bool = False) -> dict:
+        # Por padrão, pedidos que só fizeram leituras de janelas do painel ficam fora da lista (C12).
+        quiet = (
+            "EXISTS (SELECT 1 FROM actions x WHERE json_extract(x.payload, '$.run_id') = runs.id) "
+            f"AND NOT EXISTS (SELECT 1 FROM actions x WHERE json_extract(x.payload, '$.run_id') = runs.id AND NOT {_PANEL_READ.format(a='x')})"
+        )
         with self._lock, closing(self._connect()) as db:
-            rows = db.execute("SELECT sequence, payload FROM runs WHERE (? IS NULL OR sequence < ?) AND (? IS NULL OR status = ?) AND (? IS NULL OR session_id = ?) ORDER BY sequence DESC LIMIT ?", (before, before, status, status, session_id, session_id, limit + 1)).fetchall()
+            rows = db.execute(f"SELECT sequence, payload FROM runs WHERE (? IS NULL OR sequence < ?) AND (? IS NULL OR status = ?) AND (? IS NULL OR session_id = ?) AND (? OR NOT ({quiet})) ORDER BY sequence DESC LIMIT ?", (before, before, status, status, session_id, session_id, include_reads, limit + 1)).fetchall()
             items = rows[:limit]
             return {"runs": [RunRecord(**json.loads(row["payload"])).public_dict() for row in items], "next_cursor": items[-1]["sequence"] if len(rows) > limit else None}
 

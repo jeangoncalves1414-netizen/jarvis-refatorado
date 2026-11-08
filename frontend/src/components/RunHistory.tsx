@@ -77,6 +77,7 @@ function RunDetails({ id, revision, onClose, onOpenSession, onRefresh, ...decisi
 export function RunHistory({ revision, sessionId, onOpenSession, onRefresh, initialRunId = '', ...decisions }: { revision: string; sessionId: string; onOpenSession: (id: string) => void; onRefresh: () => void; initialRunId?: string } & Decisions) {
   const [status, setStatus] = useState('all')
   const [onlyCurrent, setOnlyCurrent] = useState(false)
+  const [showReads, setShowReads] = useState(false)
   const [cursors, setCursors] = useState<(number | null)[]>([null])
   const [selectedId, setSelectedId] = useState(initialRunId)
   const detailAnchor = useRef<HTMLDivElement>(null)
@@ -86,11 +87,12 @@ export function RunHistory({ revision, sessionId, onOpenSession, onRefresh, init
   if (cursor !== null) params.set('before', String(cursor))
   if (status !== 'all') params.set('status', status)
   if (onlyCurrent && sessionId) params.set('session_id', sessionId)
+  if (showReads) params.set('include_reads', '1')
   const { data, error, loading } = useRunData<RunPage>(`/api/runs?${params}`, revision, validPage)
   const reset = () => { setCursors([null]); setSelectedId('') }
   return <section className="ws-panel" aria-label="Pedidos de execução">
     <div className="ws-section-title"><h2>Pedidos de execução</h2><span className="ws-muted">{loading ? 'Atualizando…' : 'Cada pedido, suas etapas'}</span></div>
-    <div className="ws-filters"><select aria-label="Filtrar pedidos por estado" value={status} onChange={event => { setStatus(event.target.value); reset() }}><option value="all">Todos os estados</option>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><button className="ws-button" aria-pressed={onlyCurrent} disabled={!sessionId} onClick={() => { setOnlyCurrent(!onlyCurrent); reset() }}>{onlyCurrent ? 'Conversa atual' : 'Todas as conversas'}</button></div>
+    <div className="ws-filters"><select aria-label="Filtrar pedidos por estado" value={status} onChange={event => { setStatus(event.target.value); reset() }}><option value="all">Todos os estados</option>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><button className="ws-button" aria-pressed={onlyCurrent} disabled={!sessionId} onClick={() => { setOnlyCurrent(!onlyCurrent); reset() }}>{onlyCurrent ? 'Conversa atual' : 'Todas as conversas'}</button><button className="ws-button" aria-pressed={showReads} onClick={() => { setShowReads(!showReads); reset() }}>{showReads ? 'Com leituras das janelas' : 'Ocultar leituras das janelas'}</button></div>
     {error && <p className="ws-error" role="alert">{error}{data && ' Exibindo a última lista recebida.'}</p>}
     <div aria-busy={loading}>{data?.runs.map(run => <button key={run.id} className={`ws-run-row ${selectedId === run.id ? 'selected' : ''}`} aria-expanded={selectedId === run.id} onClick={() => setSelectedId(selectedId === run.id ? '' : run.id)}><span className={`ws-dot ${run.status}`} /><div><strong>{modes[run.mode] || 'Pedido do agente'}</strong><span>{when(run.created_at)}</span></div><span className="ws-tag">{labels[run.status] || run.status}</span><ArrowUpRight size={15} /></button>)}</div>
     {!loading && !error && !data?.runs.length && <div className="ws-empty"><Layers size={25} /><h3>Nenhum pedido nesta seleção</h3><p>Novos pedidos processados pela Central aparecerão aqui. Ações anteriores continuam no histórico abaixo.</p></div>}

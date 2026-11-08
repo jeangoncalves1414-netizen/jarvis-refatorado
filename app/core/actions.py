@@ -124,19 +124,42 @@ class ToolMetadata:
     # Ajuste pelo alvo: recebe (operação, argumentos) e devolve um risco. Só
     # eleva o risco da operação, nunca o reduz.
     target_risk: Callable[[str, dict[str, Any]], ActionRisk] | None = None
+    # Alvo e efeito declarados pela ferramenta, para o recibo e a aprovação.
+    # ``target_arguments``: argumentos que nomeiam o alvo (o primeiro preenchido vale).
+    # ``operation_effects``: frase curta, em português, do que cada operação faz.
+    target_arguments: tuple[str, ...] = ()
+    operation_effects: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         for risk in (self.default_risk, *(risk for _operation, risk in self.operation_risks)):
             if risk not in RISKS:
                 raise ValueError(f"Risco de ferramenta inválido: {risk}")
 
+    def _operation(self, arguments: dict[str, Any]) -> str:
+        key = next((name for name in self.operation_arguments if name in arguments), None)
+        return str(arguments[key] if key else self.default_operation).strip().lower()
+
+    def target_for(self, arguments: dict[str, Any] | None) -> str:
+        """Alvo da chamada (ex.: nome do hábito), sem credenciais; vazio quando não há alvo declarado."""
+        arguments = arguments or {}
+        for name in self.target_arguments:
+            value = arguments.get(name)
+            if isinstance(value, (str, int, float)) and not isinstance(value, bool) and str(value).strip():
+                return str(redact(str(value).strip(), limit=120))
+        return ""
+
+    def effect_for(self, arguments: dict[str, Any] | None) -> str:
+        """Efeito declarado para a operação pedida; vazio quando a ferramenta não declara."""
+        if not self.operation_effects:
+            return ""
+        return dict(self.operation_effects).get(self._operation(arguments or {}), "")
+
     def risk_for(self, arguments: dict[str, Any] | None) -> ActionRisk:
         """Risco desta chamada: o da operação pedida ou, sem mapa por operação, ``default_risk``."""
         if not self.operation_risks:
             return self.default_risk
         arguments = arguments or {}
-        key = next((name for name in self.operation_arguments if name in arguments), None)
-        operation = str(arguments[key] if key else self.default_operation).strip().lower()
+        operation = self._operation(arguments)
         risk = dict(self.operation_risks).get(operation, "critical")
         if self.target_risk is not None:
             try:

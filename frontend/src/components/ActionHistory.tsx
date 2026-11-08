@@ -45,6 +45,7 @@ export function ActionDetails({ id, revision, onClose, onDecide, busy, unavailab
 export function ActionHistory({ revision, ...decisions }: { revision: number | string | null } & Decisions) {
   const [filter, setFilter] = useState('all')
   const [query, setQuery] = useState('')
+  const [showReads, setShowReads] = useState(false)
   const [cursors, setCursors] = useState<(number | null)[]>([null])
   const [page, setPage] = useState<ActionPage | null>(null)
   const [error, setError] = useState('')
@@ -61,6 +62,7 @@ export function ActionHistory({ revision, ...decisions }: { revision: number | s
       timeout = setTimeout(() => controller.abort(), 10000)
       const params = new URLSearchParams({ limit: '30', q: query })
       if (filter !== 'all') params.set('status', filter)
+      if (showReads) params.set('include_reads', '1')
       if (cursor !== null) params.set('before', String(cursor))
       try {
         const data = await panelRequest<ActionPage>(`/api/actions?${params}`, { signal: controller.signal })
@@ -71,10 +73,10 @@ export function ActionHistory({ revision, ...decisions }: { revision: number | s
       } finally { clearTimeout(timeout); if (!disposed) setLoading(false) }
     }, 250)
     return () => { disposed = true; clearTimeout(debounce); clearTimeout(timeout); controller.abort() }
-  }, [filter, query, cursor, revision])
+  }, [filter, query, showReads, cursor, revision])
   return <section className="ws-panel">
     <div className="ws-section-title"><h2>Histórico de ações</h2><span className="ws-muted">{loading ? 'Atualizando…' : 'Ordenado por criação'}</span></div>
-    <div className="ws-filters"><label><Search size={15} /><input aria-label="Buscar ações" placeholder="Buscar por ferramenta ou proposta…" value={query} maxLength={200} onChange={event => { setQuery(event.target.value); reset() }} /></label><select aria-label="Filtrar ações por estado" value={filter} onChange={event => { setFilter(event.target.value); reset() }}><option value="all">Todos os estados</option>{Object.entries(actionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+    <div className="ws-filters"><label><Search size={15} /><input aria-label="Buscar ações" placeholder="Buscar por ferramenta ou proposta…" value={query} maxLength={200} onChange={event => { setQuery(event.target.value); reset() }} /></label><select aria-label="Filtrar ações por estado" value={filter} onChange={event => { setFilter(event.target.value); reset() }}><option value="all">Todos os estados</option>{Object.entries(actionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><button className="ws-button" aria-pressed={showReads} onClick={() => { setShowReads(!showReads); reset() }}>{showReads ? 'Com leituras das janelas' : 'Ocultar leituras das janelas'}</button></div>
     {error && <p className="ws-error" role="alert">{error}{page && ' Exibindo a última página recebida.'}</p>}
     <div className="ws-execution-list" aria-busy={loading}>{page?.actions.map(action => <button key={action.id} className={`ws-execution-row ${selectedId === action.id ? 'selected' : ''}`} onClick={() => setSelectedId(selectedId === action.id ? '' : action.id)} aria-expanded={selectedId === action.id}><span className={`ws-dot ${action.status}`} /><div><strong>{action.tool_name.replaceAll('_', ' ')}</strong><span>{action.result_summary || action.preview}</span></div><span className="ws-tag">{actionLabels[action.status] || action.status}</span><ArrowUpRight size={15} /></button>)}{!loading && !error && !page?.actions.length && <div className="ws-empty"><Activity size={25} /><h3>Nenhuma ação nesta seleção</h3><p>As ações registradas pelo agente aparecerão aqui.</p></div>}</div>
     <nav className="ws-history-pagination" aria-label="Páginas do histórico"><button className="ws-button" disabled={loading || cursors.length === 1} onClick={() => { setCursors(cursors.slice(0, -1)); setPage(null); setSelectedId('') }}><ChevronLeft size={15} /> Anterior</button><span className="ws-muted">Página {cursors.length}</span><button className="ws-button" disabled={loading || !!error || page?.next_cursor == null} onClick={() => { if (page?.next_cursor != null) { setCursors([...cursors, page.next_cursor]); setPage(null); setSelectedId('') } }}>Próxima <ChevronRight size={15} /></button></nav>

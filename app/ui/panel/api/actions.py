@@ -24,7 +24,8 @@ def handle_actions_get(parts: list[str], _handler: Any) -> tuple[int, dict] | No
     except ValueError:
         return 400, {"ok": False, "error": "Filtro ou cursor inválido."}
     if len(parts) == 2:
-        return 200, {"ok": True, **action_store.page(limit=limit, before=before, status=status, query=query.get("q", [""])[0][:200])}
+        include_reads = query.get("include_reads", ["0"])[0] in {"1", "true"}
+        return 200, {"ok": True, **action_store.page(limit=limit, before=before, status=status, query=query.get("q", [""])[0][:200], include_reads=include_reads)}
     if len(parts) == 3 or (len(parts) == 4 and parts[3] == "events"):
         detail = action_store.details(parts[2], after_event_id=after)
         return (200, {"ok": True, **detail}) if detail else (404, {"ok": False, "error": "Ação não encontrada."})

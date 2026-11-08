@@ -193,6 +193,37 @@ def test_endpoint_reads_brightness_as_an_observation(journal):
     assert (payload["action"]["risk"], payload["action"]["status"]) == ("observe", "succeeded")
 
 
+def test_brightness_read_stays_out_of_central_lists_but_is_still_recorded(journal):
+    with patch("subprocess.run", return_value=_completed(0, "80")):
+        status, payload = _post({"operation": "get_brightness"})
+        assert status == 200
+        _post({"operation": "get_brightness"})
+    run_id = payload["action"]["run_id"]
+
+    # Por padrão a leitura não aparece nas listas da Central (C12)...
+    assert journal.page()["actions"] == []
+    assert journal.run_page()["runs"] == []
+    # ...mas continua registrada e acessível.
+    assert len(journal.page(include_reads=True)["actions"]) == 2
+    assert len(journal.run_page(include_reads=True)["runs"]) == 2
+    assert journal.run_details(run_id)["actions"][0]["id"] == payload["action"]["id"]
+
+    # Uma alteração feita depois aparece normalmente, com a leitura ainda oculta.
+    with patch("subprocess.run", return_value=_completed(0)):
+        _post({"operation": "set_brightness", "level": 40})
+    assert [item["status"] for item in journal.page()["actions"]] == ["succeeded"]
+    assert journal.page()["actions"][0]["risk"] == "low"
+    assert len(journal.run_page()["runs"]) == 1
+    assert len(journal.run_page(include_reads=True)["runs"]) == 3
+
+
+def test_failed_brightness_read_is_not_hidden(journal):
+    with patch("subprocess.run", return_value=_completed(1)):
+        _post({"operation": "get_brightness"})
+    assert [item["status"] for item in journal.page()["actions"]] == ["failed"]
+    assert len(journal.run_page()["runs"]) == 1
+
+
 def test_endpoint_locks_the_screen_through_the_kernel(journal):
     with patch("subprocess.run", return_value=_completed(0)) as run:
         status, payload = _post({"operation": "lock_screen"})

@@ -98,6 +98,93 @@ def test_tool_without_operation_map_keeps_its_default_risk():
     assert ToolMetadata(("x",), "high").risk_for({"action": "list"}) == "high"
 
 
+PERSONAL_TOOLS = ("habit_tool", "task_tool", "finance_tool", "lifeos_tool")
+
+
+def _declared_operations(name):
+    from app.agent.tools.registry import ToolRegistry
+
+    return ToolRegistry().get_tool(name).parameters["properties"]["action"]["enum"]
+
+
+@pytest.mark.parametrize("name", PERSONAL_TOOLS)
+def test_personal_tools_have_catalog_metadata_for_every_declared_action(name):
+    from app.agent.tools.registry import ToolRegistry
+
+    assert name in TOOL_CATALOG
+    registry_metadata = ToolRegistry().get_tool_metadata(name)
+    assert registry_metadata is TOOL_CATALOG[name]
+    for operation in _declared_operations(name):
+        assert TOOL_CATALOG[name].risk_for({"action": operation}) != "critical", operation
+        assert TOOL_CATALOG[name].effect_for({"action": operation}), operation
+
+
+@pytest.mark.parametrize(("tool", "arguments", "risk"), [
+    ("habit_tool", {}, "observe"),
+    ("habit_tool", {"action": "list"}, "observe"),
+    ("habit_tool", {"action": "create", "name": "Ler"}, "low"),
+    ("habit_tool", {"action": "check", "habit_id": "h1"}, "low"),
+    ("habit_tool", {"action": "delete", "habit_id": "h1"}, "high"),
+    ("task_tool", {"action": "list"}, "observe"),
+    ("task_tool", {"action": "create", "title": "Pagar conta"}, "low"),
+    ("task_tool", {"action": "toggle", "task_id": "t1"}, "low"),
+    ("task_tool", {"action": "delete", "task_id": "t1"}, "high"),
+    ("finance_tool", {}, "observe"),
+    ("finance_tool", {"action": "list"}, "observe"),
+    ("finance_tool", {"action": "add", "amount": 50, "category": "Mercado"}, "low"),
+    ("finance_tool", {"action": "delete", "trans_id": "f1"}, "high"),
+    ("lifeos_tool", {}, "observe"),
+    ("lifeos_tool", {"action": "get_water"}, "observe"),
+    ("lifeos_tool", {"action": "add_water", "amount": 500}, "low"),
+    ("lifeos_tool", {"action": "log_workout", "workout_name": "Pernas"}, "low"),
+    # Ação desconhecida ou operação enviada pelo caminho de marcadores: fecha para o mais estrito.
+    ("habit_tool", {"action": "apagar_tudo"}, "critical"),
+    ("finance_tool", {"command": "texto livre"}, "critical"),
+])
+def test_personal_tools_classify_risk_by_operation(tool, arguments, risk):
+    assert TOOL_CATALOG[tool].risk_for(arguments) == risk
+
+
+def test_personal_tools_declare_target_and_effect():
+    habit = TOOL_CATALOG["habit_tool"]
+    assert habit.target_for({"action": "delete", "habit_id": "h1"}) == "h1"
+    assert habit.target_for({"action": "delete", "name": "Ler", "habit_id": "h1"}) == "Ler"
+    assert habit.effect_for({"action": "delete"}) == "Remove o hábito."
+    assert TOOL_CATALOG["finance_tool"].target_for({"action": "add", "category": "Mercado"}) == "Mercado"
+    assert TOOL_CATALOG["task_tool"].target_for({"action": "list"}) == ""
+    assert "nada é alterado" in TOOL_CATALOG["lifeos_tool"].effect_for({"action": "summary"})
+    assert TOOL_CATALOG["lifeos_tool"].effect_for({"action": "unknown"}) == ""
+    # Ferramenta sem alvo/efeito declarados continua válida.
+    assert ToolMetadata(("x",), "low").target_for({"name": "a"}) == ""
+    assert ToolMetadata(("x",), "low").effect_for({"action": "a"}) == ""
+
+
+def test_personal_tool_deletion_waits_for_approval_and_reads_do_not(tmp_path):
+    from app.agent.action_executor import ActionExecutor
+    from app.agent.tool_guardrails import ToolCallGuardrailController
+    from app.agent.tools.base import ToolResult
+    from app.storage.action_store import ActionStore
+
+    store = ActionStore(tmp_path / "journal.sqlite3")
+    calls = []
+    executor = ActionExecutor(
+        None, ToolCallGuardrailController(),
+        lambda name, args, user: calls.append((name, args)) or ToolResult(True, "feito"),
+        metadata_for=TOOL_CATALOG.get, store=store, source="test",
+    )
+    try:
+        executor.execute("finance_tool", {"action": "summary"}, "saldo")
+        assert (executor.last_action.risk, executor.last_action.status) == ("observe", "succeeded")
+        executor.execute("finance_tool", {"action": "add", "amount": 50, "category": "Mercado"}, "gastei 50")
+        assert (executor.last_action.risk, executor.last_action.status) == ("low", "succeeded")
+        executor.execute("finance_tool", {"action": "delete", "trans_id": "f1"}, "apague")
+        assert (executor.last_action.risk, executor.last_action.status) == ("high", "awaiting_confirmation")
+        assert [args["action"] for _name, args in calls] == ["summary", "add"]
+    finally:
+        if store._runtime_lock:
+            store._runtime_lock.close()
+
+
 def test_invalid_operation_risk_is_rejected():
     with pytest.raises(ValueError):
         ToolMetadata(operation_arguments=("action",), operation_risks=(("list", "safe"),))
