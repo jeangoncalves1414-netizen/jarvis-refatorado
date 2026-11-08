@@ -1,208 +1,34 @@
-import { navigation } from '../navigation'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Search,
-  MessageSquare,
-  Zap,
-  Droplets,
-  Volume2,
-  VolumeX,
-  Film,
-  Eye,
-  Camera,
-  CornerDownLeft,
-  Download,
-  Flame,
-  AudioLines,
-  Mic,
-} from 'lucide-react'
-import { playClick, playSuccess, playOpen, playToggle, toggleSfx, isSfxEnabled } from '../utils/sfx'
-
-export type CommandItem = {
-  id: string
-  title: string
-  subtitle?: string
-  icon: React.ReactNode
-  category: 'Navegação' | 'Ações Rápidas' | 'Life OS' | 'Mídia & Ferramentas' | 'Sistema'
-  action: () => void
-  shortcut?: string
-}
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Search, CornerDownLeft } from 'lucide-react'
+import { commands, describeCommand, runCommand, searchCommands, type CommandDef, type CommandHandlers } from '../commands/registry'
+import { playClick, playSuccess, playOpen, isSfxEnabled } from '../utils/sfx'
 
 type CommandPaletteProps = {
   isOpen: boolean
   onClose: () => void
-  onNavigate: (screen: string) => void
-  onOpenEvolute?: () => void
-  onNewChat?: () => void
-  onAddWater?: (ml: number) => void
-  onTriggerBriefing?: () => void
-  onOpenCinema?: () => void
-  onCaptureVision?: () => void
-  onOpenCameras?: () => void
-  onTriggerBackup?: () => void
-  onOpenLiveCall?: () => void
-  onToggleDictation?: () => void
+  handlers: CommandHandlers
   recording?: boolean
 }
 
-export function CommandPalette({
-  isOpen,
-  onClose,
-  onNavigate,
-  onOpenEvolute,
-  onNewChat,
-  onAddWater,
-  onTriggerBriefing,
-  onOpenCinema,
-  onCaptureVision,
-  onOpenCameras,
-  onTriggerBackup,
-  onOpenLiveCall,
-  onToggleDictation,
-  recording = false,
-}: CommandPaletteProps) {
+export function CommandPalette({ isOpen, onClose, handlers, recording = false }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLDialogElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
-  const items: CommandItem[] = useMemo(() => [
-    ...navigation.map(item => ({
-      id: `nav-${item.id}`,
-      title: `Abrir ${item.label}`,
-      subtitle: item.description,
-      icon: <item.icon size={16} />,
-      category: 'Navegação' as const,
-      action: () => { onNavigate(item.id); onClose() },
-    })),
+  const sfxEnabled = isSfxEnabled()
+  const describe = (command: CommandDef) => describeCommand(command, { recording, sfxEnabled })
 
-    // Life OS
-    {
-      id: 'lifeos-open',
-      title: 'Abrir Painel de Evolução (Life OS)',
-      subtitle: 'Janela dedicada de hábitos, treinos e rotina',
-      icon: <Zap size={16} />,
-      category: 'Life OS',
-      action: () => { onOpenEvolute?.(); onClose() },
-    },
-    {
-      id: 'lifeos-vice',
-      title: 'Ver Blindagem & Foco (Anti-Vício)',
-      subtitle: 'Acompanhar dias limpos e metas de sobriedade',
-      icon: <Flame size={16} color="#f97316" />,
-      category: 'Life OS',
-      action: () => { onOpenEvolute?.(); onClose() },
-    },
-    {
-      id: 'lifeos-water',
-      title: 'Registrar +250ml de Água',
-      subtitle: 'Computar copo de água na meta diária',
-      icon: <Droplets size={16} />,
-      category: 'Life OS',
-      action: () => { onAddWater?.(250); onClose() },
-    },
+  const filteredItems = useMemo(
+    () => searchCommands(commands, query, command => describeCommand(command, { recording, sfxEnabled })),
+    [query, recording, sfxEnabled],
+  )
 
-    // Ações Rápidas
-    {
-      id: 'action-new-chat',
-      title: 'Nova Conversa',
-      subtitle: 'Iniciar um diálogo limpo no chat',
-      icon: <MessageSquare size={16} />,
-      category: 'Ações Rápidas',
-      action: () => { onNewChat?.(); onNavigate('Chat'); onClose() },
-    },
-    {
-      id: 'action-live-call',
-      title: 'Abrir conversa por voz',
-      subtitle: 'Falar com o agente em uma ligação contínua',
-      icon: <AudioLines size={16} />,
-      category: 'Ações Rápidas',
-      action: () => { onOpenLiveCall?.(); onClose() },
-    },
-    {
-      id: 'action-dictation',
-      title: 'Ditado',
-      subtitle: recording ? 'Parar a gravação e transcrever para o chat' : 'Ditar uma mensagem para o chat',
-      icon: <Mic size={16} />,
-      category: 'Ações Rápidas',
-      action: () => { onToggleDictation?.(); onNavigate('Chat'); onClose() },
-    },
-    {
-      id: 'action-briefing',
-      title: 'Disparar Briefing Matinal',
-      subtitle: 'Ouvir o resumo falado do dia pelo Jarvis',
-      icon: <Volume2 size={16} />,
-      category: 'Ações Rápidas',
-      action: () => { onTriggerBriefing?.(); onClose() },
-    },
-
-    // Sistema
-    {
-      id: 'system-backup',
-      title: 'Exportar Backup Completo (ZIP)',
-      subtitle: 'Baixar memórias, bancos de hábitos e configurações',
-      icon: <Download size={16} />,
-      category: 'Sistema',
-      action: () => {
-        if (onTriggerBackup) {
-          onTriggerBackup()
-        } else {
-          window.location.href = '/api/system/backup'
-        }
-        onClose()
-      },
-    },
-    {
-      id: 'system-sfx-toggle',
-      title: isSfxEnabled() ? 'Silenciar Sons Táticos (Mudo)' : 'Ativar Sons Táticos (SFX)',
-      subtitle: 'Feedback auditivo procedural da interface',
-      icon: isSfxEnabled() ? <VolumeX size={16} /> : <Volume2 size={16} />,
-      category: 'Sistema',
-      action: () => {
-        playToggle()
-        toggleSfx()
-        onClose()
-      },
-    },
-
-    // Mídia & Ferramentas
-    {
-      id: 'tool-cinema',
-      title: 'Abrir Cinema & Mídia',
-      subtitle: 'Catálogo de filmes e player integrado',
-      icon: <Film size={16} />,
-      category: 'Mídia & Ferramentas',
-      action: () => { onOpenCinema?.(); onClose() },
-    },
-    {
-      id: 'tool-vision',
-      title: 'Analisar Tela Atual (Visão)',
-      subtitle: 'Captura o monitor e analisa via IA',
-      icon: <Eye size={16} />,
-      category: 'Mídia & Ferramentas',
-      action: () => { onCaptureVision?.(); onClose() },
-    },
-    {
-      id: 'tool-cameras',
-      title: 'Abrir Painel de Câmeras',
-      subtitle: 'Monitoramento de vídeo e streams',
-      icon: <Camera size={16} />,
-      category: 'Mídia & Ferramentas',
-      action: () => { onOpenCameras?.(); onClose() },
-    },
-  ], [onNavigate, onOpenEvolute, onNewChat, onAddWater, onTriggerBriefing, onOpenCinema, onCaptureVision, onOpenCameras, onTriggerBackup, onOpenLiveCall, onToggleDictation, recording, onClose])
-
-  const filteredItems = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return items
-    return items.filter(
-      item =>
-        item.title.toLowerCase().includes(q) ||
-        (item.subtitle && item.subtitle.toLowerCase().includes(q)) ||
-        item.category.toLowerCase().includes(q)
-    )
-  }, [items, query])
+  const execute = (command: CommandDef) => {
+    runCommand(command, handlers)
+    onClose()
+  }
 
   // Reset selected index when query changes
   useEffect(() => {
@@ -242,14 +68,15 @@ export function CommandPalette({
         e.preventDefault()
         if (filteredItems[selectedIndex]) {
           playSuccess()
-          filteredItems[selectedIndex].action()
+          runCommand(filteredItems[selectedIndex], handlers)
+          onClose()
         }
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, filteredItems, selectedIndex, onClose])
+  }, [isOpen, filteredItems, selectedIndex, onClose, handlers])
 
   // Scroll selected item into view
   useEffect(() => {
@@ -289,20 +116,21 @@ export function CommandPalette({
           ) : (
             filteredItems.map((item, idx) => {
               const isSelected = idx === selectedIndex
+              const text = describe(item)
               return (
                 <div
                   key={item.id}
                   data-cmd-index={idx}
                   className={`cmd-item ${isSelected ? 'selected' : ''}`}
-                  onClick={() => item.action()}
+                  onClick={() => execute(item)}
                   onMouseEnter={() => setSelectedIndex(idx)}
                 >
-                  <div className="cmd-item-icon">{item.icon}</div>
+                  <div className="cmd-item-icon"><item.icon size={16} color={item.id === 'lifeos-vice' ? '#f97316' : undefined} /></div>
                   <div className="cmd-item-body">
-                    <span className="cmd-item-title">{item.title}</span>
-                    {item.subtitle && <span className="cmd-item-subtitle">{item.subtitle}</span>}
+                    <span className="cmd-item-title">{text.title}</span>
+                    <span className="cmd-item-subtitle">{text.description}</span>
                   </div>
-                  <span className="cmd-item-category">{item.category}</span>
+                  <span className="cmd-item-category">{item.group}</span>
                   {isSelected && (
                     <span className="cmd-item-enter" title="Executar">
                       <CornerDownLeft size={13} />

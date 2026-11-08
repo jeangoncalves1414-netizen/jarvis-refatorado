@@ -16,7 +16,7 @@ mkdirSync(output, { recursive: true })
     page.on('pageerror', error => errors.push(error.message))
     let offline = false, historyOffline = false, approvals = 0, sent = null, deletions = 0, titles = 0
     let bridgeDevices = [{ id: 'jarvis-desktop', name: 'Jarvis Desktop', kind: 'controller', platform: 'desktop', connected: true }, { id: 'sim-lamp', name: 'Lâmpada de teste', kind: 'light', platform: 'simulator', connected: true }]
-    let refuseRemoval = false, abortRemoval = false, missingRemoval = false, sttCalls = 0
+    let refuseRemoval = false, abortRemoval = false, missingRemoval = false, sttCalls = 0, chatCalls = 0
     const removals = []
     let agentProfile = { name: 'Assistente', style: 'Neutro e conciso.', wake_phrase: 'ei assistente', wake_phrase_custom: false }
     const profilePosts = []
@@ -66,7 +66,7 @@ mkdirSync(output, { recursive: true })
           else { agentProfile = { name: body.name, style: body.style || 'Neutro e conciso.', wake_phrase: body.wake_phrase || `ei ${body.name.toLowerCase()}`, wake_phrase_custom: Boolean(body.wake_phrase) }; data = { ok: true, profile: agentProfile, wake_phrase_check: { checked: true, supported: true } } }
         } else data = { ok: true, profile: agentProfile }
       }
-      else if (url.pathname === '/api/chat') { sent = route.request().postDataJSON(); data = { ok: true, reply: 'Resposta de teste recebida. Podemos organizar o projeto em etapas.', context: { run_id: 'run-linked' } } }
+      else if (url.pathname === '/api/chat') { chatCalls++; sent = route.request().postDataJSON(); data = { ok: true, reply: 'Resposta de teste recebida. Podemos organizar o projeto em etapas.', context: { run_id: 'run-linked' } } }
       else if (url.pathname.endsWith('/approve')) { approvals++; status = 410; data = { ok: false, error: 'Ação expirou; solicite novamente pela conversa.' } }
       else if (url.pathname === '/api/goals') { status = 500; data = { ok: false, error: 'Não foi possível salvar o objetivo.' } }
       else if (url.pathname === '/api/planning') data = { ok: true, workspace: { session_id: '', title: 'Plano', content: '', is_open: false }, preferences: { auto_open_for_planning: false } }
@@ -249,6 +249,83 @@ mkdirSync(output, { recursive: true })
     await page.locator('.ws-composer').getByRole('button', { name: 'Ditar mensagem', exact: true }).waitFor()
     await page.getByLabel('Mensagem para o agente').fill('')
     console.log('PASS: paleta abre a conversa por voz e liga/desliga o ditado com transcrição')
+
+    // Registro único: a paleta continua listando todas as entradas (inclusive as antigas) e o menu "/" roda sem IA.
+    await page.keyboard.press('Control+k')
+    await palette.getByPlaceholder('Buscar páginas e ações…').waitFor()
+    assert(await palette.locator('.cmd-item').count() >= 28)
+    for (const title of ['Abrir Início', 'Abrir Conversas', 'Abrir Execuções', 'Abrir Configurações', 'Abrir Painel de Evolução (Life OS)', 'Ver Blindagem & Foco (Anti-Vício)', 'Registrar +250ml de Água', 'Nova Conversa', 'Abrir conversa por voz', 'Ditado', 'Disparar Briefing Matinal', 'Exportar Backup Completo (ZIP)', 'Abrir Cinema & Mídia', 'Analisar Tela Atual (Visão)', 'Abrir Painel de Câmeras']) {
+      await palette.locator('.cmd-item-title').filter({ hasText: title }).first().waitFor()
+    }
+    await palette.getByPlaceholder('Buscar páginas e ações…').fill('integracoes')
+    assert.equal(await palette.locator('.cmd-item').count(), 1)
+    await page.keyboard.press('Escape')
+    await palette.waitFor({ state: 'hidden' })
+
+    const composerInput = page.getByLabel('Mensagem para o agente')
+    const slashMenu = page.getByRole('listbox', { name: 'Comandos' })
+    const slashIndex = () => page.evaluate(() => [...document.querySelectorAll('.ws-slash-item')].findIndex(item => item.getAttribute('aria-selected') === 'true'))
+    const chatCallsBefore = chatCalls
+    assert.equal(await slashMenu.count(), 0)
+    await composerInput.fill('Texto comum sem comando')
+    assert.equal(await slashMenu.count(), 0)
+    await composerInput.fill('/')
+    await slashMenu.waitFor()
+    assert(await slashMenu.getByRole('option').count() >= 15)
+    await page.screenshot({ path: path.join(output, 'desktop-slash-menu.png') })
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('ArrowDown')
+    assert.equal(await slashIndex(), 2)
+    await page.keyboard.press('ArrowUp')
+    assert.equal(await slashIndex(), 1)
+    await page.keyboard.press('Escape')
+    await slashMenu.waitFor({ state: 'hidden' })
+    assert.equal(await composerInput.inputValue(), '/')
+    // Filtro + Enter executa localmente: troca o modo e limpa o compositor.
+    await composerInput.fill('/pesq')
+    assert(await slashMenu.getByRole('option').count() < 5)
+    assert.match(await slashMenu.getByRole('option').first().innerText(), /Pesquisa/)
+    assert.equal(await slashIndex(), 0)
+    await page.keyboard.press('Enter')
+    await slashMenu.waitFor({ state: 'hidden' })
+    assert.equal(await page.getByLabel('Modo de conversa').inputValue(), 'research')
+    assert.equal(await composerInput.inputValue(), '')
+    // Comando com texto depois da palavra: muda o modo e deixa o texto no compositor, sem enviar.
+    await composerInput.fill('/planejar Organizar a semana')
+    assert.equal(await slashMenu.count(), 0)
+    await page.keyboard.press('Enter')
+    await page.waitForFunction(() => document.querySelector('.ws-composer textarea')?.value === 'Organizar a semana')
+    assert.equal(await page.getByLabel('Modo de conversa').inputValue(), 'planning')
+    // Mouse: clicar numa opção.
+    await page.getByLabel('Modo de conversa').selectOption('general')
+    await composerInput.fill('/plan')
+    await slashMenu.getByRole('option').filter({ hasText: 'Planejar' }).click()
+    assert.equal(await page.getByLabel('Modo de conversa').inputValue(), 'planning')
+    assert.equal(await composerInput.inputValue(), '')
+    // Comando antigo restaurado: /clima prepara a pergunta, mas não envia.
+    await composerInput.fill('/clima Recife')
+    await page.getByRole('button', { name: 'Enviar mensagem', exact: true }).click()
+    await page.waitForFunction(() => document.querySelector('.ws-composer textarea')?.value === 'Qual o clima em Recife?')
+    // Navegação por comando: vai para Execuções sem mensagem ao modelo.
+    await composerInput.fill('/execucoes')
+    await page.keyboard.press('Enter')
+    await page.getByRole('heading', { name: 'Execuções', exact: true }).waitFor()
+    await page.locator('.ws-sidebar').getByRole('button', { name: 'Conversas', exact: true }).click()
+    // Comando desconhecido: dica discreta e nada é enviado.
+    await composerInput.fill('/xyz')
+    assert.equal(await slashMenu.count(), 0)
+    await page.keyboard.press('Enter')
+    await page.getByRole('status').filter({ hasText: 'Comando desconhecido' }).waitFor()
+    assert.equal(await composerInput.inputValue(), '/xyz')
+    await page.screenshot({ path: path.join(output, 'desktop-slash-unknown.png') })
+    await composerInput.fill('/xyz outro texto')
+    await page.keyboard.press('Enter')
+    await page.getByRole('status').filter({ hasText: 'Comando desconhecido' }).waitFor()
+    await composerInput.fill('Texto comum')
+    assert.equal(await page.getByRole('status').filter({ hasText: 'Comando desconhecido' }).count(), 0)
+    await composerInput.fill('')
+    assert.equal(chatCalls, chatCallsBefore)
+    console.log('PASS: menu "/" abre só ao digitar "/", filtra, executa local (setas, enter, esc, mouse), avisa comando desconhecido e não envia nada à API de chat')
 
     await page.locator('.ws-sidebar').getByRole('button', { name: 'Automações', exact: true }).click()
     const bridgeCard = page.locator('.bridge-card')

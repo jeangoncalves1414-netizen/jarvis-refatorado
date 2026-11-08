@@ -139,6 +139,16 @@
 .ws-composer-caption { display: flex; justify-content: space-between; gap: 12px; font-size: 9px; color: #89958c; margin: 10px 4px 0; line-height: 1.5; }
 .ws-attachment { display: flex; align-items: center; gap: 9px; max-width: 100%; background: #ffffff06; padding: 6px; margin-bottom: 10px; border-radius: 8px; font-size: 11px; }.ws-attachment img { width: 32px; height: 32px; border-radius: 5px; object-fit: cover; }.ws-attachment span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-composer .recording { color: #eda594; background: #e7967b20; }
+.ws-composer-wrap { position: relative; }
+.ws-slash-menu { position: absolute; left: 30px; right: 30px; bottom: calc(100% - 6px); max-height: 264px; overflow-y: auto; padding: 5px; border-radius: 12px; border: 1px solid #46554b; background: #242c27; box-shadow: 0 12px 28px #0006; z-index: 20; }
+.ws-slash-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; color: #d5e0d9; }
+.ws-slash-item.selected { background: #ffffff0f; }
+.ws-slash-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ws-slash-text strong { font-size: 12px; font-weight: 500; }
+.ws-slash-text span { font-size: 10px; color: #98a39b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-slash-item code { font-size: 10px; color: #a0afa5; white-space: nowrap; }
+.ws-slash-hint { color: #eda594; }
+@media (max-width: 640px) { .ws-slash-menu { left: 12px; right: 12px; } }
 .ws-message-list { max-width: 720px; margin: 0 auto; padding: 20px 0; }
 .ws-message { margin: 0 0 30px; font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
 .ws-message-label { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 500; color: #c1d5c8; margin-bottom: 10px; }

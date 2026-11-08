@@ -20,7 +20,8 @@ import { useDirectChat, isMobileStandalone } from './hooks/useDirectChat'
 import { useCinema } from './hooks/useCinema'
 import { useMediaAssistant } from './hooks/useMediaAssistant'
 import { useStudy } from './hooks/useStudy'
-import { playToggle, playSuccess } from './utils/sfx'
+import { playToggle, playSuccess, toggleSfx } from './utils/sfx'
+import { WINDOW_CAMERAS, WINDOW_CINEMA, WINDOW_LIFE_OS, WINDOW_LIVE_CALL, type CommandHandlers } from './commands/registry'
 import { broadcastSyncEvent } from './utils/syncChannel'
 import { requestNotificationPermission } from './utils/notifications'
 import { autoSyncOnOpen } from './utils/jarvisCloud'
@@ -507,6 +508,31 @@ export default function App() {
     setActive('Chat')
   }
 
+  // Ponto único de execução dos comandos do registro (paleta e menu "/"). Nada aqui chama o modelo.
+  const commandHandlers: CommandHandlers = {
+    navigate: screen => { playToggle(); setActive(screen) },
+    openWindow: windowId => {
+      if (windowId === WINDOW_LIFE_OS) openEvoluteWindow()
+      else if (windowId === WINDOW_CINEMA) setCinemaLauncherOpen(true)
+      else if (windowId === WINDOW_CAMERAS) { setCameraQuestion(''); setCameraWorkspaceOpen(true) }
+      else if (windowId === WINDOW_LIVE_CALL) setLiveCallOpen(true)
+      else setNotice('Esta janela ainda não está disponível.')
+    },
+    setMode: mode => { setChatMode(mode); setActive('Chat') },
+    prefill: text => { setQuery(text); setActive('Chat') },
+    newChat: () => { void Promise.resolve(createSession()).catch(() => setNotice('Não foi possível criar a conversa.')) },
+    toggleDictation: toggleVoiceInput,
+    toggleSfx: () => { playToggle(); toggleSfx() },
+    addWater: ml => { void handleQuickAddWater(ml) },
+    triggerBriefing: () => { void triggerBriefing().catch(() => setNotice('Não foi possível gerar o briefing.')) },
+    triggerBackup: () => {
+      playSuccess()
+      setNotice('Iniciando download do backup completo...')
+      window.location.href = '/api/system/backup'
+    },
+    captureVision,
+  }
+
   const setWakeWordEnabled = async (enabled: boolean) => {
     const response = await fetch('/api/wake-word', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) })
     const data = await response.json()
@@ -615,6 +641,7 @@ export default function App() {
     if (active === 'Chat') {
       return (
         <ChatPage
+          commandHandlers={commandHandlers}
           onOpenRun={IS_MOBILE ? undefined : id => { setLinkedRun(id); setActive('Central') }}
           sessions={sessions}
           sessionId={sessionId}
@@ -948,24 +975,7 @@ export default function App() {
           <CommandPalette
             isOpen={isCommandPaletteOpen}
             onClose={() => setIsCommandPaletteOpen(false)}
-            onNavigate={(screen) => {
-              playToggle()
-              setActive(screen)
-            }}
-            onOpenEvolute={openEvoluteWindow}
-            onNewChat={() => createSession()}
-            onAddWater={handleQuickAddWater}
-            onTriggerBriefing={triggerBriefing}
-            onTriggerBackup={() => {
-              playSuccess()
-              setNotice('Iniciando download do backup completo...')
-              window.location.href = '/api/system/backup'
-            }}
-            onOpenCinema={() => setCinemaLauncherOpen(true)}
-            onCaptureVision={captureVision}
-            onOpenCameras={() => { setCameraQuestion(''); setCameraWorkspaceOpen(true) }}
-            onOpenLiveCall={() => setLiveCallOpen(true)}
-            onToggleDictation={toggleVoiceInput}
+            handlers={commandHandlers}
             recording={recording}
           />
         </Suspense>
