@@ -193,11 +193,11 @@ Esta seção é a lista de referência. A seção 7 é só um resumo. Foi montad
 | C3 | **[Entregue no lote 3, `0c0e413`]** O servidor deve aplicar a lista de ferramentas permitidas por modo e turno. Hoje o chat convencional entrega ao executor o catálogo completo e só filtra o que o modelo vê | Inventário #3 | M |
 | C4 | **[Entregue no lote 3, `77213fe`, por consulta periódica a `/api/runs`]** **"Parar pedido"** pelo chat e pela paleta. Falta o `run_id` no início do turno (hoje só chega no fim): o backend envia cedo ou o App consulta `/api/runs?status=running` | Lote 1 item 3 | P |
 | C5 | Cancelamento propagado a ferramentas longas (subprocessos, navegador, adaptadores). Hoje só cancela entre etapas | Inventário #4 | G |
-| C6 | Levar ao histórico: ações por voz, rotinas, automações diretas, passos internos de Swarm e Racing, rota direta de Swarm, memória em segundo plano | Inventário #4 | M |
+| C6 | **[Entregue no lote 4, `4a40270`: voz, Swarm, Racing e memória em segundo plano na Central, com campo origem; rotinas ainda não existem]** Levar ao histórico: ações por voz, rotinas, automações diretas, passos internos de Swarm e Racing, rota direta de Swarm, memória em segundo plano | Inventário #4 | M |
 | C7 | Aprovar e recusar **dentro da resposta do chat** (hoje só link "Ver execução") | Referências (assistant-ui) | M |
 | C8 | Retomar uma sequência depois da aprovação (checkpoint). Hoje aprovar uma etapa do ReAct executa só ela e encerra | Inventário #4, referências (LangGraph) | G |
 | C9 | Orientar um pedido em andamento sem cancelá-lo (steering) | Referências (Hermes Deck) | M |
-| C10 | Rotas que chamam ferramentas sem passar pelo `ActionExecutor` (endpoints diretos do servidor, voz) | Lote 1 item 2 | M |
+| C10 | **[Entregue no lote 4, `f70595a`, junto com AQ1: rotas diretas e voz pelo Action Kernel]** Rotas que chamam ferramentas sem passar pelo `ActionExecutor` (endpoints diretos do servidor, voz) | Lote 1 item 2 | M |
 | C11 | Remover dispositivo pelo PC no modo `lan`: hoje todo pedido vira o principal `lan` e o botão não funciona | Lote 1 item 3 | P |
 | C12 | **[Entregue no lote 3, `9ca78f6`]** Ler brilho ao abrir "Controles do PC" cria um registro `observe` na Central a cada abertura (ruído) | Lote 2 item 6 | P |
 
@@ -244,8 +244,8 @@ Esta seção é a lista de referência. A seção 7 é só um resumo. Foi montad
 ### O. Observabilidade e verdade na tela
 | ID | O que falta | Origem | Tam. |
 |---|---|---|---|
-| O1 | **Página Integrações com estado real**: "configurado", "alcançável", "último sucesso". Hoje mostra só 3 componentes e "Dispositivos" aparece saudável com zero ou com erro de leitura | Inventário #5 | M |
-| O2 | Registrar qual provedor e modelo realmente responderam após uma falha, e a razão da troca. Visão no mesmo contrato. Latência e custo quando conhecidos | Inventário #5 | M |
+| O1 | **[Entregue no lote 4, `890c8cf`; saúde só em memória desde o início do backend]** **Página Integrações com estado real**: "configurado", "alcançável", "último sucesso". Hoje mostra só 3 componentes e "Dispositivos" aparece saudável com zero ou com erro de leitura | Inventário #5 | M |
+| O2 | **[Entregue no lote 4, `890c8cf`, para conversa; visão e custo ficaram de fora]** Registrar qual provedor e modelo realmente responderam após uma falha, e a razão da troca. Visão no mesmo contrato. Latência e custo quando conhecidos | Inventário #5 | M |
 | O3 | Central: filtros por origem e capacidade, título legível, progresso por etapa, correlação de falhas, exportação revisável de diagnóstico | Inventário #5, plano 004 | M |
 | O4 | Latência do servidor no cabeçalho (removida na reconstrução) | Paridade | P |
 | O5 | Erros silenciosos em telas antigas (painel pessoal, clima, configurações): mostrar o erro em vez de descartar | Plano 004 | M |
@@ -294,7 +294,7 @@ Personagem 3D (última prioridade); Open Interpreter como especialista de progra
 ### AQ. Arquitetura (itens novos da análise de 7/11/2026; ver seção 14 e `plans/017-plano-mestre-do-aplicativo.md`)
 | ID | O que falta | Origem | Tam. |
 |---|---|---|---|
-| AQ1 | Ponto de entrada único de intenção para chat, voz, rotina, janela, celular e rotas diretas (`/api/browser/run` chama a ferramenta sem Action Kernel, `server.py:1737-1747`) | Análise de fluxo | G |
+| AQ1 | **[Entregue no lote 4, `f70595a`, para rotas diretas e voz; rotina e celular ainda não existem]** Ponto de entrada único de intenção para chat, voz, rotina, janela, celular e rotas diretas (`/api/browser/run` chama a ferramenta sem Action Kernel, `server.py:1737-1747`) | Análise de fluxo | G |
 | AQ2 | **[Entregue no lote 3, `9ca78f6`]** Metadado de risco, alvo e efeito para `finance_tool`, `habit_tool`, `task_tool`, `lifeos_tool` (fora de `TOOL_CATALOG`) | Análise de fluxo | P |
 | AQ3 | **[Base entregue no lote 3, `9336be0`: contrato e `runCommandById` no frontend; backend, voz, rotina e celular continuam pendentes]** Contrato único de comando valendo no frontend, backend, voz, rotina e celular | Análise de fluxo | M |
 | AQ4 | Eventos de sistema (rotina disparou, sincronizou, conflito, mudou rota/chave) na Central | Análise de fluxo | M |

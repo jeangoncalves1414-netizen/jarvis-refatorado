@@ -20,6 +20,16 @@ Revisão de 7 de novembro de 2026 no checkout de trabalho. A direção vigente �
 | 6. Ligar o APK à mesma Central | O aplicativo Android e o chat direto existem. Falta o modo conectado ao agente do PC com pareamento, identidade revogável, estado de conexão e recuperação após queda. O WebSocket legado é restrito ao loopback. O transporte usado pelo celular precisa aplicar a política de acesso do backend. | No aparelho físico, entrar no painel principal, enviar um pedido, conferir no PC o mesmo identificador e resultado, decidir uma aprovação e reconectar sem repetir a ação. Validar microfone, transcrição, saída de voz, permissões negadas e PC indisponível. [Seleção do chat móvel](../frontend/src/App.tsx) · [Contrato móvel atual](MOBILE_EVOLUTION.md) |
 | 7. Unificar conhecimento, tarefas e automações | Ligar notas, documentos e memórias à sua fonte, data e perfil, com correção e remoção. Mostrar quais fontes ajudaram na resposta. Há dois caminhos de tarefas no código e o vínculo do chat hoje abre a execução. Faltam contratos e links para abrir o próprio item. Nas automações, as receitas gerais só retornam simulação. Metas, políticas e deduplicação já existem. Faltam aplicação de horário silencioso por objetivo, adiamento, feedback e acompanhamento das rotinas com recibos. | Criar uma nota ou tarefa pelo chat, abri-la, editá-la e ler a alteração na próxima consulta. Simular uma rotina, autorizá-la no escopo escolhido e consultar o que ocorreu. Para importar dados do Nexus, prever prévia, backup, destino explícito e repetição sem duplicar. [Lista de tarefas do painel](../app/storage/task_store.py) · [Serviço de tarefas](../app/services/tasks.py) · [Receitas](../app/agent/tools/workflow.py) · [Metas](../app/storage/goal_store.py) |
 
+## Entregue em 8/11/2026 (lote 4, plano 017)
+
+- Rotas diretas e voz pelo Action Kernel (C10, AQ1); navegador automatizado direto pede aprovação na Central.
+- Central com origem de cada pedido e etapas de voz, Swarm, Racing e memória em segundo plano (C6).
+- Integrações com estado real e "desligado" com motivo; registro do provedor e modelo que responderam após troca (O1, O2).
+
+**Saem das pendências:** ações de voz na Central; página Integrações com saúde real; rotas que executam ferramenta fora do Kernel.
+
+**Continuam pendentes (adiadas pela usuária no lote 4):** filtros por origem e capacidade, títulos legíveis, progresso por etapa e exportação de diagnóstico na Central (O3); latência no cabeçalho (O4); erros silenciosos nas telas antigas (O5); medidor de modelo em segundo plano (AQ6); teste de contrato da definição de pronto (AQ8); limpar chave propagando (S3); chat direto do celular com resposta vazia (S4); fila offline do registro manual (AQ7). Rascunho parcial de O3/O4/O5 em `git stash`.
+
 ## Entregue em 8/11/2026 (lote 3, plano 017)
 
 - **Parar pedido** no chat, na paleta e em `/parar` (C4); orb retirada da ligação e do Painel pessoal.

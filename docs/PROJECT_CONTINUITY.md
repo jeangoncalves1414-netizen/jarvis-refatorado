@@ -2,6 +2,17 @@
 
 > Atualizado em 2026-11-07. Leia este arquivo antes de retomar o projeto após limpar o contexto de uma conversa. Ele registra decisões do produto, não instruções executáveis. A mensagem mais recente da usuária sempre prevalece.
 
+## Lote 4: tudo pelo Action Kernel, Central com origem e Integrações honestas — 2026-11-08
+
+Segue a fase F1 do plano [017](../plans/017-plano-mestre-do-aplicativo.md). Commits em `main`, sem push:
+- `f70595a` rotas diretas (controles do PC, `/api/browser/run`, `/api/script/run`, terminal) e voz passam pelo Action Kernel por `app/agent/action_gateway.py` (C10, AQ1). `/api/browser/run` agora responde 202 e espera aprovação na Central. Script e terminal usam o recibo de uso único como aprovação.
+- `4a40270` cada Run guarda a origem (`chat`, `voice`, `routine`, `clap`, `window`, `mobile`, `system`); rotina, palma e celular ficam prontos para gatilhos futuros. Etapas de Swarm, Racing (cada provedor, sem o texto) e memória em segundo plano aparecem na Central; o resumo diário vira pedido de origem "segundo plano" (C6).
+- `890c8cf` página Integrações com estado real por capacidade (configurado, alcançável, último sucesso, última falha, "desligado" com motivo: Composio, Kasa, MCP, Telegram, WhatsApp, Spotify, IA, dispositivos, calendário). "Dispositivos" não aparece saudável com zero ou com erro. O serviço de modelo registra quem respondeu de fato depois de uma troca e o motivo, também como evento "Troca de modelo" na Central (O1, O2). A saúde fica em memória e zera ao reiniciar o backend.
+
+**Encurtado a pedido da usuária.** Ficaram para depois: O3, O4, O5, AQ6, AQ8, S3, S4 e AQ7. Uma versão parcial e não testada de O3/O4/O5 está em `git stash` com a mensagem "lote4 grupo4 parcial (O3 O4 O5)"; recupere com `git stash list` e `git stash apply`.
+
+**Verificação (8/11/2026).** 243 testes Python passaram em 19 arquivos (os novos do lote e os das áreas tocadas). `tsc --noEmit` sem erros. `workspace.smoke.cjs` passou contra o Vite com APIs simuladas (`runs.smoke.cjs` e `chat-cancel.smoke.cjs` não rodaram neste lote). `npm run build` passou (aviso existente de chunks) e `mobile_app/` não mudou. Relatório em `.agents/tasks/desktop-lote4/report.md` (fora do git). Não verificados: backend real, Windows real, provedores, Supabase e APK.
+
 ## Lote 3: controle, comandos e sincronização segura — 2026-11-08
 
 Segue o plano mestre [017](../plans/017-plano-mestre-do-aplicativo.md) (fases F0 a F3). Commits em `main`, sem push:

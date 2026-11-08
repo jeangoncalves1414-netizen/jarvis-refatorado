@@ -2,6 +2,20 @@
 
 > Registro durável das decisões da usuária e das ideias adiadas. Leia junto com [PROJECT_CONTINUITY.md](PROJECT_CONTINUITY.md) e [PENDENCIAS_DO_PAINEL.md](PENDENCIAS_DO_PAINEL.md). A mensagem mais recente da usuária sempre prevalece.
 
+## 2026-11-08: decisões tomadas no lote 4 (opção conservadora, sem perguntar)
+
+| Tema | Escolha |
+|---|---|
+| Recibo de script e terminal | O recibo de uso único conta como a aprovação do Kernel, para não pedir duas vezes. Nada roda sem recibo. |
+| `/api/browser/run` | Passa a esperar aprovação na Central (risco alto já declarado). O app não chama essa rota. |
+| Origem dos pedidos | Seis origens pedidas mais `system` ("segundo plano") para o resumo diário. Rotas do painel e `/api/swarm` usam `window`. |
+| Memória em segundo plano | Vira evento do pedido que a disparou (sem pedido novo a cada conversa). Só o resumo diário abre pedido próprio. |
+| Saúde das integrações | Só em memória, zera ao reiniciar. "Alcançável" vem da última chamada real; nada é testado em segundo plano. Motivos de falha de provedor são frases fixas, nunca a mensagem crua. |
+| Spotify sem `Spotify.exe` em `%APPDATA%` | "Não verificado" em vez de "desligado" (a versão da Microsoft Store não é detectada). |
+| Escopo do lote | Encurtado pela usuária depois de O1/O2: O3, O4, O5, AQ6, AQ8, S3, S4 e AQ7 adiados. |
+
+**Entregue:** C10, AQ1, C6, O1, O2 (`f70595a`, `4a40270`, `890c8cf`).
+
 ## 2026-11-08: decisões tomadas no lote 3 (opção conservadora, sem perguntar)
 
 A usuária pediu para implementar sem pausas e revisar no fim. Cada escolha abaixo pode ser revista por ela.

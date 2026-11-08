@@ -246,7 +246,7 @@ Estado: **existe** (usável na interface atual), **parcial**, **falta**, **não 
 
 | ID | Item novo | Tam. |
 |---|---|---|
-| AQ1 | Ponto de entrada único de intenção (chat, voz, rotina, janela, celular e rotas diretas como `/api/browser/run`, `server.py:1737-1747`, que chama a ferramenta sem Kernel) | G |
+| AQ1 | **[Entregue no lote 4, `f70595a`]** Ponto de entrada único de intenção (chat, voz, rotina, janela, celular e rotas diretas como `/api/browser/run`, `server.py:1737-1747`, que chama a ferramenta sem Kernel) | G |
 | AQ2 | Metadado de risco, alvo e efeito para `finance_tool`, `habit_tool`, `task_tool`, `lifeos_tool` (hoje fora de `TOOL_CATALOG`) | P |
 | AQ3 | Contrato único de comando, valendo no frontend, no backend, na voz, na rotina e no celular | M |
 | AQ4 | Eventos de sistema (rotina disparou, sincronizou, conflito, mudou rota/chave) que aparecem na Central | M |
@@ -373,6 +373,7 @@ Regra: cada fase deixa algo que a usuária **usa** no fim dela, e não quebra o 
 - **Depende de:** F0.
 - **Aceitação:** teste que lista as ferramentas e reprova qualquer uma sem metadado; aprovação de "fechar app" mostra os processos; voz e `/api/browser/run` geram ação na Central com origem; o executor só recebe as ferramentas do modo; Integrações mostra "desligado" para o que não está instalado; contador de chamadas ao modelo por turno.
 - **Fica pronto para usar:** aprovações que explicam o que vão fazer; Central completa; Integrações honesta.
+- **Progresso (lote 4, 8/11/2026):** C10 e AQ1 (`f70595a`: controles do PC, navegador automatizado, script e terminal pelo `action_gateway`; voz com origem `voice`), C6 (`4a40270`: Runs com campo origem chat/voz/rotina/palma/janela/celular/segundo plano; etapas de Swarm, Racing e memória em segundo plano na Central) e O1+O2 (`890c8cf`: Integrações com configurado, alcançável, último sucesso e "desligado" com motivo; provedor e modelo que responderam depois de uma troca, com o motivo). O lote foi encurtado a pedido da usuária: **faltam O3, O4, O5, AQ6 e AQ8**. Uma versão parcial de O3/O4/O5 ficou guardada em `git stash` ("lote4 grupo4 parcial"), sem commit e sem teste.
 - **Progresso (lote 3, 8/11/2026):** primeiras 4 entregas feitas. AQ2 e C12 (`9ca78f6`: ferramentas pessoais no catálogo com risco por operação, leituras das janelas fora das listas da Central por padrão), C1 (`308b557`: propostas com alvo, mudança, reversibilidade e escopo; fechar app lista os processos) e C3 (`0c0e413`: o executor só aceita as ferramentas do modo e do turno). Faltam C10/AQ1, C6, O1 a O5, AQ6 e AQ8.
 
 ### F2. Comandos e rotinas (peça PB2; G)
@@ -389,6 +390,7 @@ Regra: cada fase deixa algo que a usuária **usa** no fim dela, e não quebra o 
 - **Depende de:** F0 (V3). Pode andar junto com F2.
 - **Aceitação:** teste de mesclagem com dois dispositivos: apagar em um não ressuscita no outro; editar hábito em um chega ao outro; registro manual feito sem servidor entra depois sem duplicar.
 - **Fica pronto para usar:** PC e celular com os mesmos dados, confiável.
+- **Progresso (lote 4, 8/11/2026):** nada novo em F3; S3, S4 e AQ7 foram adiados a pedido da usuária.
 - **Progresso (lote 3, 8/11/2026):** S1 e S2 entregues em `8066a5c`. Lápides para finanças, hábitos (e registros), tarefas da rotina e do painel e notas do cofre, com limpeza após 90 dias; hábitos com `updated_at` e "mais recente vence". Os dois primeiros critérios de aceitação têm teste com dois dispositivos simulados. Faltam S3, S4 e AQ7 (terceiro critério) e o teste com o Supabase real (V3).
 
 ### F4. Janelas e conhecimento (PB3; G em várias entregas)
