@@ -9,6 +9,7 @@ type LiveCallModalProps = {
   status: string
   userTranscript?: string
   jarvisTranscript?: string
+  turns?: { id: string; user: string; jarvis: string }[]
   orbState?: 'idle' | 'listening' | 'thinking' | 'speaking'
   emotionLabel?: string
   audioDiagnostics?: LiveAudioDiagnostics | null
@@ -30,6 +31,7 @@ export function LiveCallModal({
   status,
   userTranscript = '',
   jarvisTranscript = '',
+  turns = [],
   orbState = 'idle',
   emotionLabel,
   onToggleCapture,
@@ -196,15 +198,21 @@ export function LiveCallModal({
           )
         })()}
 
-        {(userTranscript || jarvisTranscript) && (
+        {(turns.length > 0 || userTranscript || jarvisTranscript) && (
           <div className="live-call-subtitles">
-            {userTranscript && (
+            {turns.map(turn => (
+              <div key={turn.id}>
+                <p style={{ color: '#e2e8f0' }}><strong style={{ color: '#00daf8' }}>Você: </strong>{turn.user}</p>
+                <p style={{ color: '#f8fafc' }}><strong style={{ color: '#f59e0b' }}>Jarvis: </strong>{turn.jarvis}</p>
+              </div>
+            ))}
+            {turns.at(-1)?.user !== userTranscript && userTranscript && (
               <p style={{ color: '#e2e8f0' }}>
                 <strong style={{ color: '#00daf8' }}>Você: </strong>
                 {userTranscript}
               </p>
             )}
-            {jarvisTranscript && (
+            {turns.at(-1)?.user !== userTranscript && jarvisTranscript && (
               <p style={{ color: '#f8fafc' }}>
                 <strong style={{ color: '#f59e0b' }}>Jarvis: </strong>
                 {jarvisTranscript}

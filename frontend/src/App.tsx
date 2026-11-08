@@ -1,4 +1,4 @@
-import { FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+﻿import { FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { AppShell } from './components/AppShell'
 import { AgentControls } from './components/AgentControls'
 import { useOperationalSnapshot } from './hooks/useOperationalSnapshot'
@@ -112,7 +112,7 @@ export default function App() {
 
   const openEvoluteWindow = () => {
     // Evolution is now a first-class integrated panel inside Jarvis on both PC and mobile
-    setActive('Evolução')
+    setActive('EvoluÃ§Ã£o')
   }
 
   useEffect(() => {
@@ -154,11 +154,11 @@ export default function App() {
         body: JSON.stringify({ amount_ml: ml }),
       })
       if (res.ok) {
-        setNotice(`+${ml}ml de água registrados!`)
+        setNotice(`+${ml}ml de Ã¡gua registrados!`)
         broadcastSyncEvent('WATER_UPDATED', { amount_ml: ml })
       }
     } catch {
-      setNotice(`+${ml}ml de água registrados.`)
+      setNotice(`+${ml}ml de Ã¡gua registrados.`)
       broadcastSyncEvent('WATER_UPDATED', { amount_ml: ml })
     }
   }, [setNotice])
@@ -190,12 +190,12 @@ export default function App() {
   const cameraWorkspaceRef = useRef<CameraWorkspaceHandle>(null)
   const taskInputRef = useRef<HTMLInputElement>(null)
   const windows = useWindows()
-  // Pedido de janela vindo da ferramenta open_window do agente: o id e os parâmetros são validados de novo aqui.
-  const pcChat = useChat({ onOpenWindow: request => { if (!windows.open(request.windowId, request.params)) setNotice('O agente pediu uma janela que não existe ou com parâmetros inválidos.') }, onWakeWord: phrase => handleWakeWord(phrase) })
+  // Pedido de janela vindo da ferramenta open_window do agente: o id e os parÃ¢metros sÃ£o validados de novo aqui.
+  const pcChat = useChat({ onOpenWindow: request => { if (!windows.open(request.windowId, request.params)) setNotice('O agente pediu uma janela que nÃ£o existe ou com parÃ¢metros invÃ¡lidos.') }, onWakeWord: phrase => handleWakeWord(phrase) })
   const mobileChat = useDirectChat()
   const { answer, chatError, copySession, createSession, deleteSession, exportSession, loading, liveReasoning, liveSearch, messages, pendingScript, query, runPendingScript, selectSession, sendText, sendVisionQuestion, sessionId, sessions, setAnswer, setChatError, setPendingScript, setQuery, streamingReply } = IS_MOBILE ? mobileChat : pcChat
   const conversationRun = useConversationRun(sessionId, !IS_MOBILE, loading)
-  const { captureVision, closeLiveCall, liveCallOpen, liveCallRecording, liveCallStatus, liveAudioDiagnostics, liveUserTranscript, liveJarvisTranscript, liveOrbState, recording, setLiveCallOpen, setSpeakEnabled, setVisionResult, speakEnabled, speakText, toggleLiveCallCapture, toggleVoiceInput, triggerBargeIn, visionResult } = useMediaAssistant({ query, sendText, setAnswer, setQuery, sessionId })
+  const { captureVision, closeLiveCall, liveCallOpen, liveCallRecording, liveCallStatus, liveAudioDiagnostics, liveUserTranscript, liveJarvisTranscript, liveTurns, liveOrbState, recording, setLiveCallOpen, setSpeakEnabled, setVisionResult, speakEnabled, speakText, toggleLiveCallCapture, toggleVoiceInput, triggerBargeIn, visionResult } = useMediaAssistant({ query, sendText, setAnswer, setQuery, sessionId, appendExchange: IS_MOBILE ? undefined : pcChat.appendExchange })
   const { availableEpisodes, availableSeasons, cinemaLauncherOpen, setCinemaLauncherOpen, videoUrl, setVideoUrl, cinemaQuery, setCinemaQuery, cinemaResults, cinemaMedia, cinemaStatus, setCinemaStatus, cinemaLibrary, refreshCinemaLibrary, searchCinema, probeCinema, saveCinemaUrl, openCinemaPayload, selectEpisode, selectLibraryItem, selectLibrarySource, selectNextEpisode, selectSeason, selectedEpisode, selectedLibraryItem, selectedLibraryId, selectedLibrarySources, selectedSeason, selectedSourceUrl } = useCinema()
 
   const setTtsProvider = async (tts_provider: 'fish' | 'gemini' | 'edge' | 'oxyy') => {
@@ -219,10 +219,10 @@ export default function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ models }),
     })
-    if (!response.ok) throw new Error('Não foi possível salvar a configuração Oxyy.')
+    if (!response.ok) throw new Error('NÃ£o foi possÃ­vel salvar a configuraÃ§Ã£o Oxyy.')
     setOxyySettings(await response.json())
     await refreshAiRoutes()
-    setNotice('Configuração Oxyy salva.')
+    setNotice('ConfiguraÃ§Ã£o Oxyy salva.')
   }
 
   const setSttProvider = async (stt_provider: 'groq' | 'oxyy' | 'google') => {
@@ -232,10 +232,10 @@ export default function App() {
       body: JSON.stringify({ stt_provider }),
     })
     const data = await response.json()
-    if (!response.ok) throw new Error(data.error || 'Não foi possível alterar o provedor STT.')
+    if (!response.ok) throw new Error(data.error || 'NÃ£o foi possÃ­vel alterar o provedor STT.')
     setSttSettings(data)
     refreshAiRoutes()
-    setNotice('Provedor de transcrição atualizado.')
+    setNotice('Provedor de transcriÃ§Ã£o atualizado.')
   }
 
   const refreshAiRoutes = async () => {
@@ -358,8 +358,8 @@ export default function App() {
   const addProfileMemory = async (text: string, kind: string, password: string) => {
     const response = await fetch('/api/profile-memory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add', profile_id: selectedProfileId, text, kind, password }) })
     const data = await response.json().catch(() => ({}))
-    if (!response.ok || !data.ok) { setNotice(data.error || 'Não foi possível salvar a memória.'); return false }
-    setNotice('Memória privada salva.')
+    if (!response.ok || !data.ok) { setNotice(data.error || 'NÃ£o foi possÃ­vel salvar a memÃ³ria.'); return false }
+    setNotice('MemÃ³ria privada salva.')
     await refreshProfileMemories()
     return true
   }
@@ -367,7 +367,7 @@ export default function App() {
   const deleteProfileMemory = async (memoryId: string, password: string) => {
     const response = await fetch('/api/profile-memory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', profile_id: selectedProfileId, memory_id: memoryId, password }) })
     const data = await response.json().catch(() => ({}))
-    if (!response.ok || !data.ok) { setNotice(data.error || 'Não foi possível excluir a memória.'); return false }
+    if (!response.ok || !data.ok) { setNotice(data.error || 'NÃ£o foi possÃ­vel excluir a memÃ³ria.'); return false }
     await refreshProfileMemories()
     return true
   }
@@ -375,21 +375,21 @@ export default function App() {
   const clearProfileMemories = async (password: string) => {
     const response = await fetch('/api/profile-memory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'clear', profile_id: selectedProfileId, password }) })
     const data = await response.json().catch(() => ({}))
-    if (!response.ok || !data.ok) { setNotice(data.error || 'Não foi possível apagar as memórias.'); return false }
-    setNotice(`${data.removed || 0} memória(s) privada(s) apagada(s).`)
+    if (!response.ok || !data.ok) { setNotice(data.error || 'NÃ£o foi possÃ­vel apagar as memÃ³rias.'); return false }
+    setNotice(`${data.removed || 0} memÃ³ria(s) privada(s) apagada(s).`)
     await refreshProfileMemories()
     return true
   }
 
   const clearTechnicalMemories = async () => {
-    if (!window.confirm('Remover da memória semântica os erros técnicos antigos? Isso não remove conversas normais.')) return
+    if (!window.confirm('Remover da memÃ³ria semÃ¢ntica os erros tÃ©cnicos antigos? Isso nÃ£o remove conversas normais.')) return
     const response = await fetch('/api/memories/cleanup', { method: 'POST' })
     const data = await response.json()
     if (!response.ok || !data.ok) {
-      setNotice(data.error || 'Não foi possível limpar as memórias técnicas.')
+      setNotice(data.error || 'NÃ£o foi possÃ­vel limpar as memÃ³rias tÃ©cnicas.')
       return
     }
-    setNotice(data.removed ? `${data.removed} memória(s) técnica(s) removida(s).` : 'Nenhuma memória técnica foi encontrada.')
+    setNotice(data.removed ? `${data.removed} memÃ³ria(s) tÃ©cnica(s) removida(s).` : 'Nenhuma memÃ³ria tÃ©cnica foi encontrada.')
     await refreshMemories()
   }
 
@@ -443,36 +443,36 @@ export default function App() {
     if (!desktopToken) {
       const controllerResponse = await fetch('/api/bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'register', device_id: 'jarvis-desktop', name: 'Jarvis Desktop', kind: 'controller', platform: 'desktop', transport: 'local', pairing_code: pairing.pairing_code }) })
       const controller = await controllerResponse.json()
-      if (!controllerResponse.ok || !controller.ok || !controller.device_token) { setNotice(controller.error || 'Não foi possível preparar o controle local.'); return }
+      if (!controllerResponse.ok || !controller.ok || !controller.device_token) { setNotice(controller.error || 'NÃ£o foi possÃ­vel preparar o controle local.'); return }
       desktopToken = controller.device_token
       localStorage.setItem('jarvis-bridge-desktop-token', desktopToken)
     }
-    const response = await fetch('/api/bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'register', device_id: 'sim-lamp', name: 'Lâmpada de teste', kind: 'light', platform: 'simulator', transport: 'local', pairing_code: pairing.pairing_code }) })
+    const response = await fetch('/api/bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'register', device_id: 'sim-lamp', name: 'LÃ¢mpada de teste', kind: 'light', platform: 'simulator', transport: 'local', pairing_code: pairing.pairing_code }) })
     const data = await response.json()
-    if (!response.ok || !data.ok) { setNotice(data.error || 'Não foi possível adicionar o dispositivo de teste.'); return }
+    if (!response.ok || !data.ok) { setNotice(data.error || 'NÃ£o foi possÃ­vel adicionar o dispositivo de teste.'); return }
     setBridge(previous => ({ ...previous, ...data, devices: [...(previous?.devices || []).filter(device => device.id !== data.device?.id), data.device] }))
-    setNotice('Lâmpada de teste adicionada. Ela será substituída pelo adaptador real depois.')
+    setNotice('LÃ¢mpada de teste adicionada. Ela serÃ¡ substituÃ­da pelo adaptador real depois.')
   }
 
   const sendBridgeCommand = async (targetId: string, command: 'turn_on' | 'turn_off') => {
     const deviceToken = localStorage.getItem('jarvis-bridge-desktop-token') || ''
     const response = await fetch('/api/bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'command', target_id: targetId, command, source: 'jarvis-desktop', device_token: deviceToken }) })
     const data = await response.json()
-    if (!response.ok || !data.ok) { setNotice(data.error || 'Não foi possível enviar o comando.'); return }
+    if (!response.ok || !data.ok) { setNotice(data.error || 'NÃ£o foi possÃ­vel enviar o comando.'); return }
     setBridge(previous => ({ ...previous, devices: (previous?.devices || []).map(device => device.id === targetId ? data.device : device) }))
     setNotice(data.executed ? 'Comando recebido e executado pelo dispositivo.' : 'Comando recebido pela ponte.')
   }
 
   const removeBridgeDevice = async (deviceId: string) => {
-    // Só o controle local guarda credencial própria; os demais são revogados pelo dono no PC.
+    // SÃ³ o controle local guarda credencial prÃ³pria; os demais sÃ£o revogados pelo dono no PC.
     const isLocalController = deviceId === 'jarvis-desktop'
     const deviceToken = isLocalController ? localStorage.getItem('jarvis-bridge-desktop-token') || '' : ''
     try {
       await panelRequest('/api/bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', device_id: deviceId, ...(deviceToken ? { device_token: deviceToken } : {}) }) })
     } catch (error) {
-      if (error instanceof TypeError) throw new Error('Sem conexão com a ponte. Verifique se o backend está ligado e tente de novo.')
-      // A ponte já não conhece o controle local: a credencial guardada deixou de valer.
-      if (isLocalController && error instanceof Error && error.message.startsWith('Dispositivo não encontrado')) localStorage.removeItem('jarvis-bridge-desktop-token')
+      if (error instanceof TypeError) throw new Error('Sem conexÃ£o com a ponte. Verifique se o backend estÃ¡ ligado e tente de novo.')
+      // A ponte jÃ¡ nÃ£o conhece o controle local: a credencial guardada deixou de valer.
+      if (isLocalController && error instanceof Error && error.message.startsWith('Dispositivo nÃ£o encontrado')) localStorage.removeItem('jarvis-bridge-desktop-token')
       throw error
     }
     if (isLocalController) localStorage.removeItem('jarvis-bridge-desktop-token')
@@ -492,9 +492,9 @@ export default function App() {
   const saveBriefing = async (enabled = proactive?.config?.briefing_enabled ?? false) => {
     const response = await fetch('/api/proactive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'configure_briefing', enabled, briefing_time: briefingTime, topics: briefingTopics, custom_instructions: briefingInstructions }) })
     const data = await response.json()
-    if (!response.ok) throw new Error(data.error || 'Não foi possível salvar o briefing.')
+    if (!response.ok) throw new Error(data.error || 'NÃ£o foi possÃ­vel salvar o briefing.')
     setProactive(previous => ({ ...previous, config: data.config }))
-    setNotice('Configuração do briefing salva.')
+    setNotice('ConfiguraÃ§Ã£o do briefing salva.')
   }
 
   const toggleBriefingTopic = (topic: string) => setBriefingTopics(previous => previous.includes(topic) ? previous.filter(item => item !== topic) : [...previous, topic])
@@ -504,7 +504,7 @@ export default function App() {
     if (!reminderMessage.trim()) return
     const response = await fetch('/api/proactive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add_reminder', reminder_message: reminderMessage.trim(), reminder_time: reminderTime.trim() || '+10m' }) })
     const data = await response.json()
-    if (!response.ok) { setNotice(data.error || 'Não foi possível criar o lembrete.'); return }
+    if (!response.ok) { setNotice(data.error || 'NÃ£o foi possÃ­vel criar o lembrete.'); return }
     setReminderMessage('')
     setNotice('Lembrete criado.')
     await refreshProactive()
@@ -513,30 +513,30 @@ export default function App() {
   const triggerBriefing = async () => {
     const response = await fetch('/api/proactive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'trigger_briefing' }) })
     const data = await response.json()
-    if (!response.ok) { setNotice(data.error || 'Não foi possível gerar o briefing.'); return }
+    if (!response.ok) { setNotice(data.error || 'NÃ£o foi possÃ­vel gerar o briefing.'); return }
     setAnswer(data.briefing_text || 'Briefing gerado.')
     setActive('Chat')
   }
 
-  // Ponto único de execução dos comandos do registro (paleta e menu "/"). Nada aqui chama o modelo.
+  // Ponto Ãºnico de execuÃ§Ã£o dos comandos do registro (paleta e menu "/"). Nada aqui chama o modelo.
   const commandHandlers: CommandHandlers = {
     stopRequest: () => { void conversationRun.stop() },
     navigate: screen => { playToggle(); setActive(screen) },
     openWindow: windowId => {
-      if (isManagedWindow(windowId)) { if (!windows.open(windowId)) setNotice('Não foi possível abrir a janela.') }
+      if (isManagedWindow(windowId)) { if (!windows.open(windowId)) setNotice('NÃ£o foi possÃ­vel abrir a janela.') }
       else if (windowId === WINDOW_LIFE_OS) openEvoluteWindow()
       else if (windowId === WINDOW_CINEMA) setCinemaLauncherOpen(true)
       else if (windowId === WINDOW_CAMERAS) { setCameraQuestion(''); setCameraWorkspaceOpen(true) }
       else if (windowId === WINDOW_LIVE_CALL) setLiveCallOpen(true)
-      else setNotice('Esta janela ainda não está disponível.')
+      else setNotice('Esta janela ainda nÃ£o estÃ¡ disponÃ­vel.')
     },
     setMode: mode => { setChatMode(mode); setActive('Chat') },
     prefill: text => { setQuery(text); setActive('Chat') },
-    newChat: () => { void Promise.resolve(createSession()).catch(() => setNotice('Não foi possível criar a conversa.')) },
+    newChat: () => { void Promise.resolve(createSession()).catch(() => setNotice('NÃ£o foi possÃ­vel criar a conversa.')) },
     toggleDictation: toggleVoiceInput,
     toggleSfx: () => { playToggle(); toggleSfx() },
     addWater: ml => { void handleQuickAddWater(ml) },
-    triggerBriefing: () => { void triggerBriefing().catch(() => setNotice('Não foi possível gerar o briefing.')) },
+    triggerBriefing: () => { void triggerBriefing().catch(() => setNotice('NÃ£o foi possÃ­vel gerar o briefing.')) },
     triggerBackup: () => {
       playSuccess()
       setNotice('Iniciando download do backup completo...')
@@ -548,12 +548,12 @@ export default function App() {
   const setWakeWordEnabled = async (enabled: boolean) => {
     const response = await fetch('/api/wake-word', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) })
     const data = await response.json()
-    if (!response.ok) { setNotice(data.error || 'Não foi possível alterar a palavra de ativação.'); return }
+    if (!response.ok) { setNotice(data.error || 'NÃ£o foi possÃ­vel alterar a palavra de ativaÃ§Ã£o.'); return }
     setWakeWord(previous => ({ ...previous, enabled: data.enabled, active: Boolean(data.enabled && previous?.running) }))
   }
 
   // Evento "wake_word" do detector local (chega pelo WebSocket do chat). Mostra o aviso e abre a
-  // conversa por voz pelo mesmo comando do registro, com origem "voz". Ignora se já há ligação ou ditado.
+  // conversa por voz pelo mesmo comando do registro, com origem "voz". Ignora se jÃ¡ hÃ¡ ligaÃ§Ã£o ou ditado.
   const handleWakeWord = (phrase: string) => {
     if (wakeHeardTimer.current) clearTimeout(wakeHeardTimer.current)
     setWakeHeard(true)
@@ -566,7 +566,7 @@ export default function App() {
   const setBootEnabled = async (enabled: boolean) => {
     const response = await fetch('/api/tray', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: enabled ? 'enable_boot' : 'disable_boot' }) })
     const data = await response.json()
-    if (!response.ok) { setNotice(data.error || 'Não foi possível alterar a inicialização automática.'); return }
+    if (!response.ok) { setNotice(data.error || 'NÃ£o foi possÃ­vel alterar a inicializaÃ§Ã£o automÃ¡tica.'); return }
     setTray({ boot_enabled: data.boot_enabled })
   }
 
@@ -586,11 +586,11 @@ export default function App() {
   const askCameraQuestion = async (prompt?: string) => {
     const capture = await cameraWorkspaceRef.current?.captureSelectedFrame()
     if (!capture) {
-      setNotice('Abra o espaço de câmeras e selecione uma transmissão antes de perguntar.')
+      setNotice('Abra o espaÃ§o de cÃ¢meras e selecione uma transmissÃ£o antes de perguntar.')
       return
     }
     await sendVisionQuestion(
-      prompt?.trim() || `O que você vê na ${capture.cameraName}?`,
+      prompt?.trim() || `O que vocÃª vÃª na ${capture.cameraName}?`,
       capture.image,
       capture.cameraName,
     )
@@ -598,21 +598,21 @@ export default function App() {
 
   const handleChatAttachment = (file: File) => {
     if (!file.type.startsWith('image/')) {
-      setNotice('Por enquanto, o chat aceita imagens para análise. Use Tela para capturar o monitor.')
+      setNotice('Por enquanto, o chat aceita imagens para anÃ¡lise. Use Tela para capturar o monitor.')
       return
     }
     if (file.size > 8_000_000) {
-      setNotice('A imagem é grande demais. Escolha uma imagem de até 8 MB.')
+      setNotice('A imagem Ã© grande demais. Escolha uma imagem de atÃ© 8 MB.')
       return
     }
     const reader = new FileReader()
     reader.onload = () => setChatAttachment({ name: file.name, dataUrl: String(reader.result) })
-    reader.onerror = () => setNotice('Não foi possível ler a imagem selecionada.')
+    reader.onerror = () => setNotice('NÃ£o foi possÃ­vel ler a imagem selecionada.')
     reader.readAsDataURL(file)
   }
 
   const sendChatMessage = async () => {
-    // "//texto" é mensagem comum que começa com "/": envia sem a primeira barra (A6).
+    // "//texto" Ã© mensagem comum que comeÃ§a com "/": envia sem a primeira barra (A6).
     const message = unescapeSlash(query.trim())
     const attachment = chatAttachment
     if (attachment) {
@@ -629,7 +629,7 @@ export default function App() {
   const renderSection = () => {
     const page = (() => {
     if (active === 'Dashboard') return <WorkspaceHome operational={operational} onNavigate={setActive} />
-    if (active === 'Integrações') return <IntegrationsPage operational={operational} onNavigate={setActive} />
+    if (active === 'IntegraÃ§Ãµes') return <IntegrationsPage operational={operational} onNavigate={setActive} />
     if (active === 'Painel pessoal') {
       return (
         <DashboardPage
@@ -643,7 +643,7 @@ export default function App() {
       )
     }
     if (active === 'Central') return <MissionControlPage initialRunId={linkedRun} operational={operational} sessionId={sessionId} onOpenSession={id => { void selectSession(id); setActive('Chat') }} />
-    if (active === 'Automações') {
+    if (active === 'AutomaÃ§Ãµes') {
       return (
         <AutomationsPage
           climate={climate}
@@ -685,7 +685,7 @@ export default function App() {
           chatAttachment={chatAttachment}
           recording={recording}
           pendingScript={pendingScript}
-          onDeleteSession={id => void Promise.resolve(deleteSession(id, true)).catch(() => setNotice('Não foi possível excluir a conversa.'))}
+          onDeleteSession={id => void Promise.resolve(deleteSession(id, true)).catch(() => setNotice('NÃ£o foi possÃ­vel excluir a conversa.'))}
           onExportSession={() => handleExportSession().catch(() => undefined)}
           onCopySession={() => handleCopySession().catch(() => undefined)}
           onOpenLiveCall={() => setLiveCallOpen(true)}
@@ -705,7 +705,7 @@ export default function App() {
         />
       )
     }
-    if (active === 'Análises') {
+    if (active === 'AnÃ¡lises') {
       return (
         <AnalyticsPage
           metrics={metrics}
@@ -784,8 +784,8 @@ export default function App() {
         />
       )
     }
-    if (active === 'Calendário') return <CalendarSection onNotice={setNotice} />
-    if (active === 'Configurações') {
+    if (active === 'CalendÃ¡rio') return <CalendarSection onNotice={setNotice} />
+    if (active === 'ConfiguraÃ§Ãµes') {
       return (
         <SettingsPage
           ttsSettings={ttsSettings}
@@ -820,7 +820,7 @@ export default function App() {
         />
       )
     }
-    if (active === 'Memórias') {
+    if (active === 'MemÃ³rias') {
       return (
         <MemoriesPage
           memories={memories}
@@ -845,12 +845,12 @@ export default function App() {
       )
     }
     if (active === 'Identidade') return <IdentityPage />
-    if (active === 'Evolução') return <EvoluteHubPage />
+    if (active === 'EvoluÃ§Ã£o') return <EvoluteHubPage />
     return (
       <section className="migration-card">
-        <p className="eyebrow">MIGRAÇÃO GRADUAL</p>
+        <p className="eyebrow">MIGRAÃ‡ÃƒO GRADUAL</p>
         <h2>{active}</h2>
-        <p>Esta área continua disponível no painel legado em /legacy.</p>
+        <p>Esta Ã¡rea continua disponÃ­vel no painel legado em /legacy.</p>
       </section>
     )
     })()
@@ -864,12 +864,12 @@ export default function App() {
 
   const quickActions = (
     <>
-      <button type="button" className="sidebar-action-btn" onClick={openEvoluteWindow} title="Abrir Painel de Evolução (Life OS)"><span>⚡</span> <span>Life OS</span></button>
-      <button type="button" className="sidebar-action-btn" onClick={() => setCinemaLauncherOpen(true)} title="Abrir cinema"><span>◉</span> <span>Cinema</span></button>
-      <button type="button" className="sidebar-action-btn" onClick={captureVision} title="Analisar tela"><span>👁</span> <span>Visão</span></button>
-      <button type="button" className={`sidebar-action-btn${recording ? ' sidebar-action-active' : ''}`} onClick={toggleVoiceInput} title={recording ? 'Parar gravação' : 'Falar com Jarvis'}><span>{recording ? '⏹' : '🎙'}</span> <span>{recording ? 'Parar' : 'Voz'}</span></button>
-      <button type="button" className="sidebar-action-btn" onClick={() => { setCameraQuestion(''); setCameraWorkspaceOpen(true) }} title="Câmeras"><span>📷</span> <span>Câmeras</span></button>
-      <button type="button" className="sidebar-action-btn" onClick={() => setLiveCallOpen(true)} title="Ligação"><span>📞</span> <span>Ligação</span></button>
+      <button type="button" className="sidebar-action-btn" onClick={openEvoluteWindow} title="Abrir Painel de EvoluÃ§Ã£o (Life OS)"><span>âš¡</span> <span>Life OS</span></button>
+      <button type="button" className="sidebar-action-btn" onClick={() => setCinemaLauncherOpen(true)} title="Abrir cinema"><span>â—‰</span> <span>Cinema</span></button>
+      <button type="button" className="sidebar-action-btn" onClick={captureVision} title="Analisar tela"><span>ðŸ‘</span> <span>VisÃ£o</span></button>
+      <button type="button" className={`sidebar-action-btn${recording ? ' sidebar-action-active' : ''}`} onClick={toggleVoiceInput} title={recording ? 'Parar gravaÃ§Ã£o' : 'Falar com Jarvis'}><span>{recording ? 'â¹' : 'ðŸŽ™'}</span> <span>{recording ? 'Parar' : 'Voz'}</span></button>
+      <button type="button" className="sidebar-action-btn" onClick={() => { setCameraQuestion(''); setCameraWorkspaceOpen(true) }} title="CÃ¢meras"><span>ðŸ“·</span> <span>CÃ¢meras</span></button>
+      <button type="button" className="sidebar-action-btn" onClick={() => setLiveCallOpen(true)} title="LigaÃ§Ã£o"><span>ðŸ“ž</span> <span>LigaÃ§Ã£o</span></button>
     </>
   )
 
@@ -895,7 +895,7 @@ export default function App() {
           setActive('Chat')
           setQuery('')
           setChatAttachment(null)
-          void Promise.resolve(createSession()).catch(() => setNotice('Não foi possível criar a conversa.'))
+          void Promise.resolve(createSession()).catch(() => setNotice('NÃ£o foi possÃ­vel criar a conversa.'))
         }}
         onOpenCommands={() => setIsCommandPaletteOpen(true)}
         operational={operational}
@@ -914,11 +914,11 @@ export default function App() {
         hero={hero}
         quickActions={quickActions}
       >
-        <ErrorBoundary fallbackTitle="Erro ao carregar esta seção.">
+        <ErrorBoundary fallbackTitle="Erro ao carregar esta seÃ§Ã£o.">
           {renderSection()}
         </ErrorBoundary>
       </AppShell>
-      <CameraWorkspace ref={cameraWorkspaceRef} open={cameraWorkspaceOpen} initialQuestion={cameraQuestion} onClose={() => { setCameraQuestion(''); setCameraWorkspaceOpen(false) }} onQuestion={async (image, cameraName, prompt) => { setCameraQuestion(''); setCameraWorkspaceOpen(false); setActive('Chat'); await sendVisionQuestion(prompt || `O que você vê na ${cameraName}?`, image, cameraName) }} />
+      <CameraWorkspace ref={cameraWorkspaceRef} open={cameraWorkspaceOpen} initialQuestion={cameraQuestion} onClose={() => { setCameraQuestion(''); setCameraWorkspaceOpen(false) }} onQuestion={async (image, cameraName, prompt) => { setCameraQuestion(''); setCameraWorkspaceOpen(false); setActive('Chat'); await sendVisionQuestion(prompt || `O que vocÃª vÃª na ${cameraName}?`, image, cameraName) }} />
       {cinemaLauncherOpen && (
         <Suspense fallback={null}>
           <CinemaModal
@@ -954,13 +954,13 @@ export default function App() {
           />
         </Suspense>
       )}
-      {visionResult && <div className="tool-modal" role="dialog" aria-modal="true" aria-label="Análise visual"><section className="vision-modal"><button className="modal-close" onClick={() => setVisionResult(null)} aria-label="Fechar">×</button><p className="eyebrow">FERRAMENTA · VISÃO</p><h2>Análise de tela</h2>{visionResult.imageUrl && <img src={visionResult.imageUrl} alt="Captura de tela analisada" />}<p>{visionResult.reply}</p></section></div>}
+      {visionResult && <div className="tool-modal" role="dialog" aria-modal="true" aria-label="AnÃ¡lise visual"><section className="vision-modal"><button className="modal-close" onClick={() => setVisionResult(null)} aria-label="Fechar">Ã—</button><p className="eyebrow">FERRAMENTA Â· VISÃƒO</p><h2>AnÃ¡lise de tela</h2>{visionResult.imageUrl && <img src={visionResult.imageUrl} alt="Captura de tela analisada" />}<p>{visionResult.reply}</p></section></div>}
       {liveCallOpen && (
         <Suspense fallback={null}>
-          <LiveCallModal open={liveCallOpen} onClose={closeLiveCall} recording={liveCallRecording} status={liveCallStatus} audioDiagnostics={liveAudioDiagnostics} userTranscript={liveUserTranscript} jarvisTranscript={liveJarvisTranscript} orbState={liveOrbState} onToggleCapture={toggleLiveCallCapture} onBargeIn={triggerBargeIn} />
+          <LiveCallModal open={liveCallOpen} onClose={closeLiveCall} recording={liveCallRecording} status={liveCallStatus} audioDiagnostics={liveAudioDiagnostics} userTranscript={liveUserTranscript} jarvisTranscript={liveJarvisTranscript} turns={liveTurns} orbState={liveOrbState} onToggleCapture={toggleLiveCallCapture} onBargeIn={triggerBargeIn} />
         </Suspense>
       )}
-      {pendingScript && <div className="tool-modal" role="dialog" aria-modal="true" aria-label="Confirmar script"><section className="vision-modal"><button className="modal-close" onClick={() => setPendingScript(null)} aria-label="Cancelar">×</button><p className="eyebrow">CONFIRMAÇÃO NECESSÁRIA</p><h2>Executar script?</h2><p>{pendingScript.description}</p><pre>{pendingScript.code}</pre><div className="library-actions"><button type="button" onClick={() => setPendingScript(null)}>Cancelar</button><button type="button" onClick={() => runPendingScript()}>Executar {pendingScript.language}</button></div></section></div>}
+      {pendingScript && <div className="tool-modal" role="dialog" aria-modal="true" aria-label="Confirmar script"><section className="vision-modal"><button className="modal-close" onClick={() => setPendingScript(null)} aria-label="Cancelar">Ã—</button><p className="eyebrow">CONFIRMAÃ‡ÃƒO NECESSÃRIA</p><h2>Executar script?</h2><p>{pendingScript.description}</p><pre>{pendingScript.code}</pre><div className="library-actions"><button type="button" onClick={() => setPendingScript(null)}>Cancelar</button><button type="button" onClick={() => runPendingScript()}>Executar {pendingScript.language}</button></div></section></div>}
       {playingUrl && (
         <div className="player-modal">
           <Suspense fallback={null}>
