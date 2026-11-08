@@ -340,6 +340,9 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
 
     const audioQueue: { text: string; audioPromise?: Promise<HTMLAudioElement | null> }[] = []
     let isPlayingQueue = false
+    const turnStartedAt = performance.now()
+    let firstAudioReported = false
+    let phrasesEnqueued = 0
 
     // Promessa que resolve imediatamente quando o abort é acionado
     const abortPromise = new Promise<null>((resolve) => {
@@ -395,6 +398,13 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
           audioRef.current = audioEl
           await Promise.race([
             new Promise<void>((resolve) => {
+              audioEl!.onplaying = () => {
+                if (firstAudioReported) return
+                firstAudioReported = true
+                const ms = Math.round(performance.now() - turnStartedAt)
+                setLiveCallStatus(`⚡ Primeiro áudio em ${ms} ms`)
+                recordDiagnostic('voice_first_audio_ms', 'INFO', { ms })
+              }
               audioEl!.onended = () => resolve()
               audioEl!.onerror = () => resolve()
               audioEl!.play().catch(() => resolve())
@@ -435,6 +445,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     const enqueuePhrase = (phrase: string) => {
       const trimmed = phrase.trim()
       if (!trimmed) return
+      phrasesEnqueued += 1
       const audioPromise = fetchAndCreateAudio(trimmed, abortController.signal)
       audioQueue.push({ text: trimmed, audioPromise })
       void playNextInQueue()
@@ -488,7 +499,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
 
               while ((match = sentenceRegex.exec(sentenceBuffer)) !== null) {
                 const chunkCandidate = sentenceBuffer.slice(0, match.index + match[0].length)
-                if (chunkCandidate.trim().length >= 12 || /[.!?\n]/.test(match[0])) {
+                if (chunkCandidate.trim().length >= (phrasesEnqueued === 0 ? 8 : 12) || /[.!?\n]/.test(match[0])) {
                   enqueuePhrase(chunkCandidate)
                   sentenceBuffer = sentenceBuffer.slice(match.index + match[0].length)
                   sentenceRegex.lastIndex = 0

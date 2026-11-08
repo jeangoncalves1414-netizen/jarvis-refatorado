@@ -111,7 +111,7 @@ class FishAudioProvider(TTSProvider):
                 "temperature": 0.7,
                 "top_p": 0.7,
                 "prosody": {"speed": 1.4, "volume": 0, "normalize_loudness": True},
-                "latency": "normal",
+                "latency": "balanced",
                 "chunk_length": 100,
                 "min_chunk_length": 30,
                 "condition_on_previous_chunks": True,
