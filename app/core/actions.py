@@ -21,6 +21,7 @@ ActionStatus = Literal[
     "succeeded", "failed", "cancelled", "expired", "interrupted",
 ]
 
+PREVIEW_LIMIT = 800
 RISKS: frozenset[str] = frozenset({"observe", "low", "high", "critical"})
 _RISK_ORDER: tuple[str, ...] = ("observe", "low", "high", "critical")
 STATUSES: frozenset[str] = frozenset({
@@ -129,6 +130,18 @@ class ToolMetadata:
     # ``operation_effects``: frase curta, em português, do que cada operação faz.
     target_arguments: tuple[str, ...] = ()
     operation_effects: tuple[tuple[str, str], ...] = ()
+    # Texto da proposta de aprovação (C1). ``default_target``: alvo quando nenhum
+    # argumento o nomeia (ex.: "este computador"). ``target_detail``: recebe
+    # (operação, argumentos) e devolve um complemento do alvo (ex.: processos que
+    # serão encerrados). ``effect``/``reversibility``/``scope``: frases da ferramenta
+    # inteira, usadas quando a operação não tem frase própria em ``operation_effects``
+    # ou ``operation_reversibility``.
+    default_target: str = ""
+    target_detail: Callable[[str, dict[str, Any]], str] | None = None
+    effect: str = ""
+    reversibility: str = ""
+    operation_reversibility: tuple[tuple[str, str], ...] = ()
+    scope: str = ""
 
     def __post_init__(self) -> None:
         for risk in (self.default_risk, *(risk for _operation, risk in self.operation_risks)):
@@ -150,9 +163,25 @@ class ToolMetadata:
 
     def effect_for(self, arguments: dict[str, Any] | None) -> str:
         """Efeito declarado para a operação pedida; vazio quando a ferramenta não declara."""
-        if not self.operation_effects:
+        return dict(self.operation_effects).get(self._operation(arguments or {}), "") or self.effect
+
+    def reversibility_for(self, arguments: dict[str, Any] | None) -> str:
+        """Como desfazer a operação pedida; vazio quando a ferramenta não declara."""
+        return dict(self.operation_reversibility).get(self._operation(arguments or {}), "") or self.reversibility
+
+    def operation_for(self, arguments: dict[str, Any] | None) -> str:
+        """Operação pedida (ex.: ``close``), em minúsculas; vazia para ferramenta sem mapa de operações."""
+        return self._operation(arguments or {}) if (self.operation_arguments or self.default_operation) else ""
+
+    def detail_for(self, arguments: dict[str, Any] | None) -> str:
+        """Complemento do alvo calculado pela ferramenta; falha na consulta vira texto honesto, nunca erro."""
+        if self.target_detail is None:
             return ""
-        return dict(self.operation_effects).get(self._operation(arguments or {}), "")
+        arguments = arguments or {}
+        try:
+            return str(self.target_detail(self._operation(arguments), arguments) or "").strip()
+        except Exception:
+            return "não foi possível consultar os detalhes do alvo"
 
     def risk_for(self, arguments: dict[str, Any] | None) -> ActionRisk:
         """Risco desta chamada: o da operação pedida ou, sem mapa por operação, ``default_risk``."""
@@ -201,7 +230,7 @@ class ActionRecord:
             id=f"act_{uuid.uuid4().hex}", source=source[:80], tool_name=tool_name[:120],
             capability=(metadata.capabilities[0] if metadata.capabilities else "general")[:80],
             arguments_digest=arguments_digest(arguments), risk=risk,
-            preview=redact(preview, limit=500), status=status, created_at=now, updated_at=now,
+            preview=redact(preview, limit=PREVIEW_LIMIT), status=status, created_at=now, updated_at=now,
             correlation_id=uuid.uuid4().hex, reversible=metadata.reversible,
         )
 

@@ -409,6 +409,29 @@ class AppManager:
 _shared_manager: AppManager | None = None
 
 
+def running_processes_for(name: str) -> list[tuple[str, int]]:
+    """Processos que ``close_app(name)`` encerraria agora: ``[(nome do executável, quantidade)]``.
+
+    Só lê a lista de processos; usa o mesmo casamento exato de ``is_app_running``.
+    """
+    global _shared_manager
+    if _shared_manager is None:
+        _shared_manager = AppManager()
+    _running, procs = _shared_manager.is_app_running(name)
+    labels: dict[str, str] = {}
+    counts: dict[str, int] = {}
+    for proc in procs:
+        try:
+            label = str(proc.info.get("name") or "") if isinstance(proc.info, dict) else ""
+        except Exception:
+            label = ""
+        label = label or "processo sem nome"
+        key = label.lower()
+        labels.setdefault(key, label)
+        counts[key] = counts.get(key, 0) + 1
+    return [(labels[key], counts[key]) for key in sorted(counts)]
+
+
 def is_known_app_target(name: str) -> bool:
     """Classificação de risco: ``AppManager.is_known_target`` com aliases e cache de registro compartilhados."""
     global _shared_manager

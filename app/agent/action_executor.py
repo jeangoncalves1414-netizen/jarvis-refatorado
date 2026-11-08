@@ -9,6 +9,7 @@ from typing import Any
 
 from app.agent.tool_guardrails import ToolCallGuardrailController
 from app.agent.tools.base import ToolResult
+from app.core.action_proposals import build_proposal_preview
 from app.core.actions import ActionRecord, ToolMetadata, arguments_digest, pending_action_broker, summarize_result
 from app.storage.action_store import ActionStore, action_store
 from app.core.runs import current_run
@@ -52,11 +53,8 @@ class ActionExecutor:
         metadata = self.metadata_for(name) or ToolMetadata(
             capabilities=(name,), default_risk="high", requires_confirmation=True,
         )
-        preview = f"Executar {name.replace('_', ' ')}"
-        if name == "whiteboard_clear":
-            preview = "Limpar todos os elementos do quadro da conversa de origem. Esta ação não oferece desfazer."
-        elif args:
-            preview += ". Parâmetros registrados de forma protegida."
+        # Alvo, mudança, reversibilidade e escopo (C1); valores sensíveis dos argumentos não entram.
+        preview = build_proposal_preview(name, args, metadata)
         proposal = ActionRecord.create(
             source=self.source, tool_name=name, metadata=metadata, arguments=args or {}, preview=preview,
         )
@@ -84,7 +82,7 @@ class ActionExecutor:
         action = self.propose(name, args, user_text=user_text)
         if action.status == "awaiting_confirmation":
             return (
-                f"Ação proposta ({action.id}): {action.preview}. "
+                f"Ação proposta ({action.id}): {action.preview} "
                 "Ela exige confirmação no painel antes de ser executada."
             )
 

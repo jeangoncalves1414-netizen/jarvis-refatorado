@@ -91,6 +91,7 @@ def test_closing_app_waits_for_approval_and_runs_once_after_it(tmp_path):
     tool = OpenWindowsAppTool()
     executor = _control_executor(tmp_path, {"open_windows_app": tool})
     with patch("subprocess.Popen") as popen, \
+         patch("psutil.process_iter", side_effect=lambda *_a, **_k: iter([])), \
          patch.object(tool.app_manager, "close_app", return_value=(True, "Aplicativo 'notepad' encerrado com sucesso.")) as close_app:
         message = executor.execute("open_windows_app", {"action": "close", "app_name": "notepad"}, "feche o bloco de notas")
         action = executor.last_action
