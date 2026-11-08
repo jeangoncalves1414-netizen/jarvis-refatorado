@@ -1243,7 +1243,31 @@ class LLMService:
             )
             final_messages = formatted_messages[:-(len(first_tools) + 1)]
             final_messages.append({"role": "user", "content": f"As ações solicitadas foram executadas. Resultados:\n{tool_summary}\nResponda ao usuário diretamente, sem chamar ferramentas novamente."})
-            final_text, _final_tools = _stream_turn(final_messages, with_tools=False)
+            final_text = ""
+            try:
+                final_text, _final_tools = _stream_turn(final_messages, with_tools=False)
+            except Exception as final_err:
+                if "tool choice is none" not in str(final_err).lower() and "called a tool" not in str(final_err).lower():
+                    raise
+                # O modelo insistiu em chamar ferramenta no turno de sintese. Os resultados ja
+                # existem: tenta uma vez so com o contexto em texto, depois entrega o resumo.
+                print(f"[Groq] Turno final tentou chamar ferramenta; tentando de novo sem historico de tools: {final_err}")
+                plain_messages = [
+                    m for m in final_messages[:-1]
+                    if m.get("role") in ("system", "user", "assistant") and not m.get("tool_calls")
+                ]
+                plain_messages.append({
+                    "role": "user",
+                    "content": f"Resultados das ferramentas (já executadas, não chame nenhuma ferramenta):\n{tool_summary}\n\nEscreva apenas a resposta final em texto para o usuário.",
+                })
+                try:
+                    final_text, _final_tools = _stream_turn(plain_messages, with_tools=False)
+                except Exception as retry_err:
+                    print(f"[Groq] Retry do turno final falhou: {retry_err}")
+                    final_text = ""
+                if not final_text:
+                    final_text = f"Pronto. Resultados obtidos:\n{tool_summary}"
+                    _emit_chunk(final_text)
             return final_text if final_text else (first_text or None)
 
         except Exception as e:

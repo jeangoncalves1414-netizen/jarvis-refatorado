@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from 'react'
+﻿import { FormEvent, useEffect, useRef, useState } from 'react'
 import type { ChatMessage, ChatSession, ScriptRequest } from '../types'
 import type { SearchPayload } from '../components/tools/SearchTool'
 import { extractWindowRequest, type WindowOpenRequest } from '../windows/registry'
@@ -388,11 +388,13 @@ export function useChat(options: UseChatOptions = {}) {
     setChatError('')
     setAnswer('Pensando…')
     const userMessage: ChatMessage = { role: 'user', content: message }
-    let activeSessionId = sessionId
+    // Closures antigas (ligação por voz) não podem ver mensagens/sessão desatualizadas.
+    let activeSessionId = activeSessionRef.current || sessionId
     let waitingForSocket = false
     try {
       if (!activeSessionId) activeSessionId = await createSession(message.slice(0, 32))
-      const baseHistory = [...messages, userMessage]
+      const baseHistory = [...messagesRef.current, userMessage]
+      messagesRef.current = baseHistory
       setMessages(baseHistory)
       pendingHistoryRef.current = baseHistory
       const socket = chatSocketRef.current
@@ -433,7 +435,8 @@ export function useChat(options: UseChatOptions = {}) {
     let activeSessionId = sessionId
     try {
       if (!activeSessionId) activeSessionId = await createSession(`Análise: ${label}`.slice(0, 32))
-      const baseHistory = [...messages, userMessage]
+      const baseHistory = [...messagesRef.current, userMessage]
+      messagesRef.current = baseHistory
       setMessages(baseHistory)
       pendingHistoryRef.current = baseHistory
       const socket = chatSocketRef.current
