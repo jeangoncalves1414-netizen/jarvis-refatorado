@@ -71,6 +71,7 @@ except ImportError:
     ADVANCED_TOOLS_AVAILABLE = False
 
 from .lifestyle_tools import HabitTool, TaskTool, FinanceTool
+from .checklist_tool import ChecklistTool
 from .lifeos_tool import LifeOSTool
 from .open_window import OpenWindowTool
 from .open_screen import OpenScreenTool
@@ -88,6 +89,7 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
     (re.compile(pattern), tools)
     for pattern, tools in (
         (r"\bhabit", ("habit_tool",)),
+        (r"\bchecklist|\blista\b|\blistas\b|\bmercado\b|\bcompras\b", ("checklist_tool",)),
         (r"\btaref|\bpendencia", ("task_tool",)),
         (r"\bagua\b|\bbebi\b|\bhidrat|\btreino\b", ("lifeos_tool",)),
         (r"\bgastei\b|\bpaguei\b|\bgasto|\bdespesa|\breceita\b|\bfinanc", ("finance_tool",)),
@@ -104,7 +106,7 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
 
 # Loop agêntico: ferramentas de dados do dia a dia que entram em qualquer pedido, para qualquer provedor.
 LOOP_DATA_TOOLS = frozenset({
-    "habit_tool", "task_tool", "lifeos_tool", "calendar", "vault_save_note", "vault_search",
+    "habit_tool", "task_tool", "checklist_tool", "lifeos_tool", "calendar", "vault_save_note", "vault_search",
     "open_window", "open_screen", "wait",
 })
 
@@ -135,7 +137,7 @@ GENERAL_TOOL_NAMES = {
     "screen_peeler", "phantom_typer", "smart_drop_zone",
     "desktop_search", "kasa_control", "home", "document_generator", "telegram_bot", "mobile_adb",
     "wormhole", "wallpaper_engine", "clipboard_intelligence",
-    "habit_tool", "task_tool", "finance_tool", "lifeos_tool", "open_window", "open_screen", "show_popup",
+    "habit_tool", "task_tool", "checklist_tool", "finance_tool", "lifeos_tool", "open_window", "open_screen", "show_popup",
     "places_search",
     "planning_workspace", "routine",
     "vault_search", "vault_daily_log", "vault_save_note", "vault_update_profile",
@@ -207,6 +209,7 @@ class ToolRegistry:
         # Fase 4 — Automação de SO & Produtividade
         self._register(HabitTool())
         self._register(TaskTool())
+        self._register(ChecklistTool())
         self._register(FinanceTool())
         self._register(LifeOSTool())
         self._register(OpenWindowTool())

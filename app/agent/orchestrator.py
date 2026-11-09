@@ -1010,6 +1010,11 @@ ter pesquisado se não pesquisou.
             self.last_plan = plan
             return plan
         self._remember_preferences(text, normalized, session_id)
+        try:
+            from app.services.habits import HabitService
+            HabitService.contextual_auto_check(text=text, event_type="dialogue")
+        except Exception:
+            pass
 
         enem_question = self._resolve_enem_context(enem_context, enem_question_id)
         if enem_question and mode == "tutor":

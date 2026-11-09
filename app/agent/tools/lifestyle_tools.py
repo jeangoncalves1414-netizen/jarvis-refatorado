@@ -27,6 +27,8 @@ ROUTINE_BLOCKS = ("morning", "afternoon", "evening", "anytime")
 WEEK_DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 DAY_MAP = {
+    0: "mon", 1: "tue", 2: "wed", 3: "thu", 4: "fri", 5: "sat", 6: "sun",
+    "0": "mon", "1": "tue", "2": "wed", "3": "thu", "4": "fri", "5": "sat", "6": "sun",
     "segunda": "mon", "segunda-feira": "mon", "seg": "mon", "mon": "mon", "monday": "mon",
     "terça": "tue", "terca": "tue", "terça-feira": "tue", "terca-feira": "tue", "ter": "tue", "tue": "tue", "tuesday": "tue",
     "quarta": "wed", "quarta-feira": "wed", "qua": "wed", "wed": "wed", "wednesday": "wed",
@@ -68,14 +70,27 @@ def resolve_by_name(items: list[dict[str, Any]], query: str, field: str, *, kind
 def _norm_days(raw_list: Any) -> list[str]:
     if raw_list is None:
         return []
-    if not isinstance(raw_list, list):
+    if not isinstance(raw_list, (list, tuple)):
         raise ValueError("days_of_week deve ser uma lista de dias.")
     result: list[str] = []
     for item in raw_list:
-        clean = str(item).lower().strip()
-        day = DAY_MAP.get(clean, clean)
-        if day not in WEEK_DAYS:
-            raise ValueError(f"Dia da semana inválido: '{item}'.")
+        if isinstance(item, int):
+            if 0 <= item <= 6:
+                day = WEEK_DAYS[item]
+            else:
+                raise ValueError(f"Dia da semana inválido (índice 0-6): {item}.")
+        else:
+            clean = str(item).lower().strip()
+            if clean.isdigit():
+                idx = int(clean)
+                if 0 <= idx <= 6:
+                    day = WEEK_DAYS[idx]
+                else:
+                    raise ValueError(f"Dia da semana inválido (índice 0-6): '{item}'.")
+            else:
+                day = DAY_MAP.get(clean, clean)
+                if day not in WEEK_DAYS:
+                    raise ValueError(f"Dia da semana inválido: '{item}'.")
         if day not in result:
             result.append(day)
     return result
@@ -139,6 +154,7 @@ def _prepare_habit(spec: Any) -> dict[str, Any]:
         "start_time": _norm_time(spec.get("start_time")),
         "time_exceptions": _norm_exceptions(spec.get("time_exceptions")),
         "items_list": [item.strip() for item in items if item.strip()],
+        "day_slots": spec.get("day_slots") or {},
     }
 
 
@@ -170,14 +186,15 @@ class HabitTool(BaseTool):
             "days_of_week": {"type": "array", "items": {"type": "string"}, "description": "Dias (ex.: ['mon','wed','fri'] ou ['segunda','quarta']). Vazio = todos os dias."},
             "start_time": {"type": "string", "description": "Horário de início HH:MM (ex.: '07:30')."},
             "items_list": {"type": "array", "items": {"type": "string"}, "description": "Sub-itens/matérias do hábito."},
+            "day_slots": {"type": "object", "description": "Slots e substituições por dia da semana (ex.: {'mon': '20min inglês', 'tue': '30min xadrez'})."},
         }
         return {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list", "create", "create_many", "update", "check", "check_many", "uncheck", "delete"],
-                    "description": "list: lê; create: 1 hábito; create_many: vários de uma vez; update: altera; check/uncheck: marca/desmarca hoje; check_many: marca vários hoje; delete: exclui (pede aprovação).",
+                    "enum": ["list", "create", "create_many", "update", "check", "check_many", "uncheck", "delete", "auto_check"],
+                    "description": "list: lê; create: 1 hábito; create_many: vários de uma vez; update: altera; check/uncheck: marca/desmarca hoje; check_many: marca vários hoje; delete: exclui (pede aprovação); auto_check: marca hábitos por diálogo contextual.",
                 },
                 "habit_id": {"type": "string", "description": "Id do hábito, quando conhecido (ou o nome)."},
                 **habit_fields,
@@ -219,6 +236,7 @@ class HabitTool(BaseTool):
         start_time: str = "15:00",
         time_exceptions: dict[str, str] | None = None,
         items_list: list[str] | None = None,
+        day_slots: dict[str, Any] | None = None,
         add_days: list[str] | None = None,
         remove_days: list[str] | None = None,
         add_items: list[str] | None = None,
@@ -251,6 +269,7 @@ class HabitTool(BaseTool):
                 "name": name, "category": a["category"], "routine_block": a["routine_block"],
                 "days_of_week": a["days_of_week"], "start_time": a["start_time"],
                 "time_exceptions": a["time_exceptions"], "items_list": a["items_list"],
+                "day_slots": a.get("day_slots"),
             }
             prepared = _prepare_habit(spec)
             h_id = habit_id or f"habit_{uuid.uuid4().hex[:8]}"
@@ -327,6 +346,9 @@ class HabitTool(BaseTool):
                     raise ValueError("Bloco de rotina inválido: use " + ", ".join(ROUTINE_BLOCKS) + ".")
                 changes["routine_block"] = block
 
+            if a.get("day_slots") is not None:
+                changes["day_slots"] = a["day_slots"]
+
             res = HabitService.update_habit(
                 h_id,
                 days_of_week=current_days,
@@ -336,6 +358,13 @@ class HabitTool(BaseTool):
                 **changes,
             )
             return {"ok": True, "message": f"Hábito '{target['name']}' atualizado com sucesso!", "habit": res, "habit_ids": [h_id]}
+
+        if act == "auto_check":
+            text_query = name or a.get("new_name") or habit_id
+            checked = HabitService.contextual_auto_check(text=text_query)
+            names_desc = ", ".join(f"'{h['name']}'" for h in checked)
+            msg = f"{len(checked)} hábito(s) marcado(s) automaticamente: {names_desc}." if checked else "Nenhum hábito elegível para auto-check."
+            return {"ok": True, "message": msg, "checked_habits": checked, "habit_ids": [h["id"] for h in checked]}
 
         if act in ("check", "complete", "done"):
             target = self._find(habit_id, name, allow_partial=True)

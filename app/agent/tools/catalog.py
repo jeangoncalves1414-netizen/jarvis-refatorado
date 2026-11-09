@@ -116,6 +116,14 @@ def _task_target_detail(operation: str, arguments: dict[str, Any]) -> str:
     return ""
 
 
+def _checklist_target_detail(operation: str, arguments: dict[str, Any]) -> str:
+    title = arguments.get("title") or arguments.get("list_id") or ""
+    text = arguments.get("text") or ""
+    if title and text:
+        return f"{title}: {text}"
+    return str(title or text or "")
+
+
 def _finance_target_detail(operation: str, arguments: dict[str, Any]) -> str:
     if operation == "add_many":
         entries = arguments.get("entries")
@@ -607,7 +615,7 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         operation_arguments=("action", "command"), default_operation="list",
         operation_risks=_by_operation(
             observe=("list",),
-            low=("create", "create_many", "update", "check", "check_many", "complete", "done", "uncheck", "undo"),
+            low=("create", "create_many", "update", "check", "check_many", "complete", "done", "uncheck", "undo", "auto_check"),
             high=("delete",),
         ),
         target_arguments=("name", "habit_id"), default_target="seus hábitos", target_detail=_habit_target_detail,
@@ -622,13 +630,14 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
             ("done", "Marca o hábito como concluído hoje."),
             ("uncheck", "Desfaz a marcação de hoje do hábito."),
             ("undo", "Desfaz a marcação de hoje do hábito."),
+            ("auto_check", "Verifica contexto para marcar hábitos automaticamente (ex: acordar ao dar bom dia)."),
             ("delete", "Remove o hábito."),
         ),
         operation_reversibility=(
             ("list", "Nada a desfazer."),
             *_same_text("Reversível: exclua o hábito depois.", "create", "create_many"),
             ("update", "Reversível: edite o hábito de volta; o valor anterior não é guardado."),
-            *_same_text("Reversível: desmarque o hábito de hoje.", "check", "check_many", "complete", "done"),
+            *_same_text("Reversível: desmarque o hábito de hoje.", "check", "check_many", "complete", "done", "auto_check"),
             *_same_text("Reversível: marque o hábito de novo.", "uncheck", "undo"),
             ("delete", "Não reversível: não há desfazer; recrie o hábito manualmente se precisar."),
         ),
@@ -661,6 +670,40 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
             ("delete", "Não reversível: não há desfazer; recrie a tarefa manualmente se precisar."),
         ),
         scope="Só a tarefa indicada, nos seus dados.",
+    ),
+    "checklist_tool": ToolMetadata(
+        ("checklists", "personal"), "critical",
+        operation_arguments=("action", "command"), default_operation="get_list",
+        operation_risks=_by_operation(
+            observe=("get_list", "list_all", "list"),
+            low=("create_list", "add_items", "toggle_item", "update_item"),
+            high=("delete_list", "delete_item"),
+        ),
+        target_arguments=("title", "list_id", "text"), default_target="suas checklists",
+        target_detail=_checklist_target_detail,
+        operation_effects=(
+            ("get_list", "Lê a lista de checagem e seus itens; nada é alterado."),
+            ("list_all", "Lista todas as checklists; nada é alterado."),
+            ("list", "Lista todas as checklists; nada é alterado."),
+            ("create_list", "Cria uma nova lista de checagem inteligente."),
+            ("add_items", "Adiciona itens à lista, interpretando quantidades e condições faladas."),
+            ("toggle_item", "Alterna a conclusão de um item (afundando para o rodapé se concluído)."),
+            ("update_item", "Altera texto, quantidade ou condição de um item."),
+            ("delete_item", "Exclui um item da lista."),
+            ("delete_list", "Exclui a checklist inteira e seus itens."),
+        ),
+        operation_reversibility=(
+            ("get_list", "Nada a desfazer."),
+            ("list_all", "Nada a desfazer."),
+            ("list", "Nada a desfazer."),
+            ("create_list", "Reversível: exclua a lista se não precisar dela."),
+            ("add_items", "Reversível: remova os itens criados."),
+            ("toggle_item", "Reversível: alterne o item novamente."),
+            ("update_item", "Reversível: edite o item de volta."),
+            ("delete_item", "Não reversível: o item é removido permanentemente."),
+            ("delete_list", "Não reversível: a lista é removida permanentemente."),
+        ),
+        scope="Só a checklist indicada nos seus dados locais.",
     ),
     "finance_tool": ToolMetadata(
         ("finance", "personal"), "critical",

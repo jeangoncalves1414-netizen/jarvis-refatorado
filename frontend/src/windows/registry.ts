@@ -1,5 +1,5 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
-import { House, MapPinned, MonitorCog, Repeat, Wallet, type LucideIcon } from 'lucide-react'
+import { House, MapPinned, MonitorCog, Repeat, Wallet, Zap, type LucideIcon } from 'lucide-react'
 import type { OperationalState } from '../hooks/useOperationalSnapshot'
 
 // Registro de janelas do app. O agente (ferramenta open_window) e os comandos só escolhem ids
@@ -37,12 +37,18 @@ export const WINDOW_ROUTINES = 'routines'
 // Lista e editor de rotinas; routine_id só seleciona uma rotina ao abrir.
 export type RoutinesWindowParams = { routine_id?: string }
 
+export const WINDOW_LIFE_OS = 'life-os'
+
+// LifeOS: Checklists inteligentes e Hábitos modulares.
+export type LifeOSWindowParams = { tab?: 'checklists' | 'habitos' | 'evolucao'; list_id?: string }
+
 export type WindowParamsMap = {
   [WINDOW_HOME]: HomeWindowParams
   [WINDOW_FINANCE]: FinanceWindowParams
   [WINDOW_PC_CONTROLS]: PcControlsWindowParams
   [WINDOW_PLACES]: PlacesWindowParams
   [WINDOW_ROUTINES]: RoutinesWindowParams
+  [WINDOW_LIFE_OS]: LifeOSWindowParams
 }
 export type WindowId = keyof WindowParamsMap
 
@@ -139,12 +145,23 @@ const routinesDef: WindowDef<RoutinesWindowParams> = {
   component: lazy(() => import('./RoutinesWindow').then(module => ({ default: module.RoutinesWindow }))),
 }
 
+const lifeOsDef: WindowDef<LifeOSWindowParams> = {
+  id: WINDOW_LIFE_OS,
+  title: 'Life OS',
+  icon: Zap,
+  width: 900,
+  height: 680,
+  parseParams: parseWith({ tab: choice('checklists', 'habitos', 'evolucao'), list_id: text(60) }) as WindowDef<LifeOSWindowParams>['parseParams'],
+  component: lazy(() => import('./LifeOSWindow').then(module => ({ default: module.LifeOSWindow }))),
+}
+
 export const windowRegistry: { [K in WindowId]: WindowDef<WindowParamsMap[K]> } = {
   [WINDOW_HOME]: homeDef,
   [WINDOW_FINANCE]: financeDef,
   [WINDOW_PC_CONTROLS]: pcControlsDef,
   [WINDOW_PLACES]: placesDef,
   [WINDOW_ROUTINES]: routinesDef,
+  [WINDOW_LIFE_OS]: lifeOsDef,
 }
 
 export function getWindowDef(id: string): WindowDef<unknown> | undefined {

@@ -77,6 +77,8 @@ WINDOWS: dict[str, WindowSpec] = {
     "places": WindowSpec("Lugares", {"query": _text(120), "near": _text(80)}),
     # Lista e editor de rotinas; routine_id só seleciona uma rotina ao abrir.
     "routines": WindowSpec("Rotinas", {"routine_id": _text(60)}),
+    # Painel Life OS: Checklists Inteligentes e Hábitos Modulares
+    "life-os": WindowSpec("Life OS", {"tab": _choice("checklists", "habitos", "evolucao"), "list_id": _text(60)}),
 }
 
 
