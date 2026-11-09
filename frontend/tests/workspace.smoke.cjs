@@ -33,6 +33,7 @@ mkdirSync(output, { recursive: true })
       const url = new URL(route.request().url()), method = route.request().method()
       let data = { ok: true }, status = 200
       if (url.pathname === '/api/mission-control') { data = offline ? { ok: false, error: 'Servidor de teste indisponível.' } : snapshot; status = offline ? 503 : 200 }
+      else if (url.pathname === '/api/approvals') data = { ok: true, mode: { enabled: false, persist: false }, rules: [], durations: {} }
       else if (url.pathname === '/api/runs') data = { ok: true, runs: [], next_cursor: null }
       else if (url.pathname === '/api/runs/run-linked') data = { ok: true, run: { id: 'run-linked', session_id: sent.session_id, status: 'succeeded', mode: 'react', created_at: 1793920000, result_summary: 'Resultado deste pedido.' }, actions: [], events: [] }
       else if (url.pathname === '/api/actions') {

@@ -27,6 +27,7 @@ mkdirSync(output, { recursive: true })
       else if (url.pathname.endsWith('/history')) data = { history: [] }
       else if (url.pathname === '/api/settings/llm') data = { effective_provider: 'Teste', effective_model: 'Modelo de teste' }
       else if (url.pathname === '/api/mission-control') data = { ok: true, components: [], summary: { pending_actions: 1, failed_actions: 0, devices: 0 }, goals: [], pending_actions: [], recent_actions: [action] }
+      else if (url.pathname === '/api/approvals') data = { ok: true, mode: { enabled: false, persist: false }, rules: [], durations: {} }
       else if (url.pathname === '/api/actions') data = { ok: true, actions: [action], next_cursor: null }
       else if (url.pathname === '/api/actions/action-test') data = { ok: true, action, events: [{ ...event, action_id: action.id }] }
       else if (url.pathname === '/api/runs') {

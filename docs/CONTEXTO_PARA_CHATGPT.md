@@ -195,7 +195,7 @@ Esta seção é a lista de referência. A seção 7 é só um resumo. Foi montad
 | C5 | Cancelamento propagado a ferramentas longas (subprocessos, navegador, adaptadores). Hoje só cancela entre etapas | Inventário #4 | G |
 | C6 | **[Entregue no lote 4, `4a40270`: voz, Swarm, Racing e memória em segundo plano na Central, com campo origem; rotinas ainda não existem]** Levar ao histórico: ações por voz, rotinas, automações diretas, passos internos de Swarm e Racing, rota direta de Swarm, memória em segundo plano | Inventário #4 | M |
 | C7 | Aprovar e recusar **dentro da resposta do chat** (hoje só link "Ver execução") | Referências (assistant-ui) | M |
-| C8 | Retomar uma sequência depois da aprovação (checkpoint). Hoje aprovar uma etapa do ReAct executa só ela e encerra | Inventário #4, referências (LangGraph) | G |
+| C8 | **[Entregue no lote 6, `22f7425`: checkpoint em memória; reiniciar o backend perde a retomada]** Retomar uma sequência depois da aprovação (checkpoint). Hoje aprovar uma etapa do ReAct executa só ela e encerra | Inventário #4, referências (LangGraph) | G |
 | C9 | Orientar um pedido em andamento sem cancelá-lo (steering) | Referências (Hermes Deck) | M |
 | C10 | **[Entregue no lote 4, `f70595a`, junto com AQ1: rotas diretas e voz pelo Action Kernel]** Rotas que chamam ferramentas sem passar pelo `ActionExecutor` (endpoints diretos do servidor, voz) | Lote 1 item 2 | M |
 | C11 | Remover dispositivo pelo PC no modo `lan`: hoje todo pedido vira o principal `lan` e o botão não funciona | Lote 1 item 3 | P |
@@ -239,7 +239,7 @@ Esta seção é a lista de referência. A seção 7 é só um resumo. Foi montad
 | J8 | Ferramentas de código (revisão, correção, snapshots, desofuscação, diagramas), assistente de reuniões, vigia de pastas e monitor ambiente: só existem no backend | Paridade | M |
 | J9 | Tela do leitor de QR (só existia no painel estático antigo) | Paridade | P |
 | J10 | Finanças pessoais: gráficos, categorias avançadas (hoje há lista, filtros, totais e registro manual) | Usuária | M |
-| J11 | Busca de lugares (Google Places ou OpenStreetMap) como janela com mapa e lista | Usuária | G |
+| J11 | **[Entregue no lote 6, `24d0577`: OpenStreetMap/Nominatim por padrão, Google Places só com chave opcional; janela com mapa OSM, popup e `/lugares`]** Busca de lugares (Google Places ou OpenStreetMap) como janela com mapa e lista | Usuária | G |
 
 ### O. Observabilidade e verdade na tela
 | ID | O que falta | Origem | Tam. |
@@ -298,7 +298,7 @@ Personagem 3D (última prioridade); Open Interpreter como especialista de progra
 | AQ2 | **[Entregue no lote 3, `9ca78f6`]** Metadado de risco, alvo e efeito para `finance_tool`, `habit_tool`, `task_tool`, `lifeos_tool` (fora de `TOOL_CATALOG`) | Análise de fluxo | P |
 | AQ3 | **[Base entregue no lote 3, `9336be0`: contrato e `runCommandById` no frontend; backend, voz, rotina e celular continuam pendentes]** Contrato único de comando valendo no frontend, backend, voz, rotina e celular | Análise de fluxo | M |
 | AQ4 | Eventos de sistema (rotina disparou, sincronizou, conflito, mudou rota/chave) na Central | Análise de fluxo | M |
-| AQ5 | Contador visível e limite de etapas e chamadas ao modelo por turno | Análise de fluxo | M |
+| AQ5 | **[Entregue no lote 6, `22f7425`: "Etapa X de N · Y/M chamadas ao modelo" no chat e na Central; limites em Configurações > Agente e popups]** Contador visível e limite de etapas e chamadas ao modelo por turno | Análise de fluxo | M |
 | AQ6 | Medidor de uso de modelo em segundo plano, com chave para desligar o não essencial | Análise de fluxo | M |
 | AQ7 | Fila offline (rascunho local) para registro manual, enviada quando o servidor confirmar | Análise de fluxo | M |
 | AQ8 | Teste de contrato da "definição de pronto" (reprova item sem risco, entrada ou sync) | Análise de fluxo | P |
@@ -306,6 +306,9 @@ Personagem 3D (última prioridade); Open Interpreter como especialista de progra
 
 ### Situação do lote 3 (8/11/2026)
 Entregues: C4, C1, C3, C12, AQ2, A4, A6, S1, S2, base de AQ3, e a **remoção da orb** das superfícies ativas da ligação e do Painel pessoal (`77213fe`; os componentes antigos continuam no repositório sem entrada). Continuam pendentes do lote 3: V1 a V5 (validação manual, sem custo de IA; V5 é trocar a chave da Fish Audio). Relatório para revisão externa: `.agents/tasks/desktop-lote3/report.md` (fora do git).
+
+### Situação do lote 6
+Ponto de retorno: tag `antes-lote6` (`dacbf1e`). Commits: `a49a907` (catálogo completo, operações em lote, `open_screen`), `22f7425` (loop agêntico com verificação, retomada após aprovação, contador: C8 e AQ5), `e28ae89` (infraestrutura de popups animados), `d2a7b17` (popups de hábitos, agenda, água e anotação ao vivo com ditado), `24d0577` (busca de lugares OSM/Google opcional: J11; popup de tarefas). Verificação final: 425 testes Python em 26 arquivos direcionados, `tsc` limpo, `npm run build` ok, smoke tests `agent-loop`, `chat-cancel`, `popups` e `runs` passando; `workspace` passa até o passo do ditado pela paleta, que já falhava igual antes do lote 6. Nada testado com o app real, provedores reais de IA ou Nominatim/Google reais. Relatório: `.agents/tasks/lote6/report.md`.
 
 ## 14. Análise de fluxo e arquitetura (7/11/2026)
 
