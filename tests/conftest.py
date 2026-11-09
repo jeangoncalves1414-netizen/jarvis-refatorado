@@ -14,6 +14,16 @@ def isolated_sync_tombstones(tmp_path, monkeypatch):
     monkeypatch.setattr("app.storage.sync_tombstones.TOMBSTONES_FILE", tmp_path / "sync_tombstones.json")
 
 
+@pytest.fixture(autouse=True)
+def isolated_auto_approvals(tmp_path, monkeypatch):
+    """Regras e Modo liberado de teste nunca leem nem gravam data/auto_approvals.json do projeto."""
+    from app.storage.auto_approvals import AutoApprovalStore
+    store = AutoApprovalStore(str(tmp_path / "auto_approvals.json"))
+    for module in ("app.storage.auto_approvals", "app.agent.action_executor", "app.ui.panel.api.approvals"):
+        monkeypatch.setattr(f"{module}.auto_approvals", store)
+    return store
+
+
 @pytest.fixture
 def isolated_conversation_journal(tmp_path, monkeypatch):
     from app.storage.action_store import ActionStore

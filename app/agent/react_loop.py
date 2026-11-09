@@ -433,19 +433,38 @@ class ReActLoopEngine:
             tool_args={"response": text},
             observation="O modelo encerrou o planejamento. Os resultados das ferramentas estão na Central.",
         ))
-        failed = next((s for s in t.action_steps if s.action_status != "succeeded"), None)
+        failed = self._unresolved_failure(state)
         t.success = failed is None
         t.stopped_reason = "finish"
         if failed:
             t.final_output = f"Execução encerrada com falha na etapa {failed.step_number}. {failed.observation}"
         else:
-            unverified = [s for s in t.action_steps if not s.verification_passed and s.self_correction_note]
+            unverified = [s for s in t.action_steps if s.action_status == "succeeded" and not s.verification_passed and s.self_correction_note]
             t.final_output = text
             if unverified:
                 t.final_output += "\n\nAtenção: " + " ".join(f"etapa {s.step_number}: {s.self_correction_note}" for s in unverified)
         if state.step_callback:
             state.step_callback(t.steps[-1])
         self._emit(state, "done", "Sequência concluída.")
+
+    def _unresolved_failure(self, state: _LoopState) -> ReActStep | None:
+        """Primeira etapa com falha que nenhuma etapa posterior corrigiu (mesma ferramenta e mesmo alvo).
+
+        Vale o status da ação no Kernel. Sem alvo declarado, a ferramenta sozinha identifica a etapa.
+        """
+        steps = state.trajectory.action_steps
+
+        def identity(step: ReActStep) -> tuple[str, str]:
+            metadata = self.registry.get_tool_metadata(step.tool_name) if self.registry else None
+            return step.tool_name, (metadata.target_for(step.tool_args).lower() if metadata else "")
+
+        for index, step in enumerate(steps):
+            if step.action_status == "succeeded":
+                continue
+            key = identity(step)
+            if not any(later.action_status == "succeeded" and identity(later) == key for later in steps[index + 1:]):
+                return step
+        return None
 
     def _stop_by_limit(self, state: _LoopState, reason: str) -> None:
         t = state.trajectory
@@ -529,7 +548,8 @@ class ReActLoopEngine:
         return parse_plan(raw)
 
     def _verify_and_correct(self, goal: str, action_name: str, obs_result: str, action_success: bool) -> tuple[bool, str]:
-        if not action_success or "erro" in (obs_result or "").lower() or "falha" in (obs_result or "").lower():
+        # Vale o status da ação no Kernel; o texto da observação nunca decide (um resumo pode citar "erro" sem ser falha).
+        if not action_success:
             return False, f"Ação {action_name} falhou. Ajustando parâmetros ou alternando estratégia."
         return True, ""
 

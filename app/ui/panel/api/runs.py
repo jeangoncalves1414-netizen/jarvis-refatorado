@@ -4,12 +4,14 @@ from urllib.parse import parse_qs, urlsplit
 
 from app.core.runs import RUN_STATUSES
 from app.storage.action_store import action_store
+from app.ui.panel.api.actions import sweep_expired_proposals
 
 
 def handle_runs_get(parts, handler):
     if parts[:2] != ["api", "runs"]:
         return None
     query = parse_qs(urlsplit(getattr(handler, "path", "")).query)
+    sweep_expired_proposals(action_store)
     try:
         limit = int(query.get("limit", ["20"])[0])
         before = int(query["before"][0]) if "before" in query else None

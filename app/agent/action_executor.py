@@ -80,9 +80,9 @@ class ActionExecutor:
         if auto_approvals.liberated():
             reason = f"Aprovada pelo modo liberado (origem: {self.source})."
         else:
-            rule = auto_approvals.match(name, operation, target)
+            rule = auto_approvals.match(name, operation, target, risk=action.risk, digest=action.arguments_digest)
             if rule is None:
-                auto_approvals.remember_scope(action.id, name, operation, target)
+                auto_approvals.remember_scope(action.id, name, operation, target, action.risk, action.arguments_digest)
                 return action
             reason = f"Auto-aprovada pela regra {rule['id']} ({rule['label']}; origem: {self.source})."
         try:

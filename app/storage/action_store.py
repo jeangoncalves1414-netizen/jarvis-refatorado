@@ -334,6 +334,27 @@ class ActionStore:
             self._save_run(db, run, "resume_finished", "Continuação do agente encerrada." if not failed else "Continuação do agente encerrada com falha.")
             return self._refresh_run(db, run_id)
 
+    def fail_stuck_resume(self, run_id: str, reply: str) -> RunRecord | None:
+        """Encerra como falha um pedido que ficou esperando a continuação do loop (ponto de retomada perdido)."""
+        with self._lock, closing(self._connect()) as db:
+            run = self._read_run(db, run_id)
+        if run is None or not run.resume_pending or run.status in RUN_TERMINAL:
+            return None
+        return self.finish_resume(run_id, failed=True, reply=reply)
+
+    def expire_stale_proposals(self, max_age_seconds: float, *, now: float | None = None) -> list[ActionRecord]:
+        """Marca como ``expired`` as propostas que esperam aprovação há mais que o prazo do ponto de retomada."""
+        cutoff = (time.time() if now is None else now) - max_age_seconds
+        with self._lock, closing(self._connect()) as db:
+            ids = [row[0] for row in db.execute("SELECT id FROM actions WHERE status = 'awaiting_confirmation' AND updated_at < ?", (cutoff,))]
+        expired: list[ActionRecord] = []
+        for action_id in ids:
+            try:
+                expired.append(self.transition(action_id, "expired", result_summary="Proposta expirada sem resposta; solicite novamente pela conversa.", expected_status="awaiting_confirmation"))
+            except (KeyError, ValueError):
+                continue  # outra thread decidiu a ação primeiro
+        return expired
+
     def update_run_progress(self, run_id: str, progress: dict) -> None:
         """Contador visível do loop (etapa e chamadas ao modelo); não cria evento na Central."""
         allowed = ("step", "max_steps", "model_calls", "max_model_calls", "phase")

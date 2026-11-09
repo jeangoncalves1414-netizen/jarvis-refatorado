@@ -1,4 +1,5 @@
 """Loop agêntico (lote 6, Fase 2): lote, orçamento, verificação, retomada após aprovação."""
+import time
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
@@ -10,7 +11,7 @@ from app.agent.tools.base import ToolResult
 from app.core import loop_checkpoints, ui_events
 from app.core.actions import ToolMetadata, pending_action_broker
 from app.storage import runtime_settings
-from app.ui.panel.api import actions
+from app.ui.panel.api import actions, runs
 
 MULTI = "adiciona ler e meditar nos hábitos e depois agenda dentista amanhã às 15h"
 
@@ -271,3 +272,136 @@ def test_invalid_batch_plans_are_rejected(raw):
 def test_batch_plan_accepts_code_fences():
     assert parse_plan('```json\nACOES: [{"ferramenta": "timer", "args": {"label": "chá"}}]\n```') == ("actions", [("timer", {"label": "chá"})])
     assert parse_plan("FERRAMENTA: timer\nARGS: {}") == ("actions", [("timer", {})])
+
+
+# ── lote 7, pacote 1: expiração sem estado preso e autocorreção ──────────────
+_REAL_TIME, _REAL_MONOTONIC = time.time, time.monotonic
+
+
+def advance(monkeypatch, seconds):
+    """Relógio falso: avança o relógio de parede (propostas) e o monotônico (prazo do ponto de retomada)."""
+    monkeypatch.setattr(time, "time", lambda: _REAL_TIME() + seconds)
+    monkeypatch.setattr(time, "monotonic", lambda: _REAL_MONOTONIC() + seconds)
+
+
+def waiting_plan(env):
+    env.agent.registry.high = {"calendar"}
+    prompts = script(env, [BATCH3, "FINISH: nunca chega"])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    assert plan.context["stopped_reason"] == "waiting_approval"
+    return plan, prompts
+
+
+def test_late_approval_after_checkpoint_expired_closes_run_as_failure(env, monkeypatch):
+    plan, prompts = waiting_plan(env)
+    action_id = plan.context["pending_action_id"]
+    assert detail(env, plan)["run"]["resume_pending"] is True
+    advance(monkeypatch, 11 * 60)
+    status, body = approve(action_id)
+    assert status == 410 and body["action"]["status"] == "expired"
+    run = detail(env, plan)["run"]
+    assert run["status"] == "failed" and run["resume_pending"] is False
+    assert "ponto de retomada" in run["reply"] and "expirou" in run["reply"]
+    assert len(prompts) == 1 and [args["n"] for _, args in env.agent.registry.calls] == [1]
+    assert [e["reply"] for e in env.events if e["type"] == "agent_reply"] == [run["reply"]]
+
+
+def test_late_reject_after_checkpoint_expired_also_leaves_no_running_run(env, monkeypatch):
+    plan, _prompts = waiting_plan(env)
+    advance(monkeypatch, 11 * 60)
+    status, body = actions.handle_actions_post(f"/api/actions/{plan.context['pending_action_id']}/reject", b"{}", None)
+    assert status == 200 and body["resumed"] is False
+    run = detail(env, plan)["run"]
+    assert run["status"] == "failed" and run["resume_pending"] is False
+
+
+def test_sweep_expires_stale_proposals_and_ends_the_stuck_run(env, monkeypatch):
+    plan, prompts = waiting_plan(env)
+    action_id = plan.context["pending_action_id"]
+    assert actions.sweep_expired_proposals() == 0  # dentro do prazo nada muda
+    assert env.store.get(action_id).status == "awaiting_confirmation"
+    assert detail(env, plan)["run"]["status"] == "awaiting_confirmation"
+    advance(monkeypatch, 11 * 60)
+    monkeypatch.setattr(runs, "action_store", env.store)
+    status, body = runs.handle_runs_get(["api", "runs"], None)  # a varredura roda ao consultar a Central
+    assert status == 200
+    assert env.store.get(action_id).status == "expired"
+    assert pending_action_broker.take(action_id) is None
+    run = detail(env, plan)["run"]
+    assert run["status"] == "failed" and run["resume_pending"] is False
+    assert [item["status"] for item in body["runs"]] == ["failed"]
+    assert len(prompts) == 1
+    assert approve(action_id)[0] == 409  # já não está aguardando
+
+
+def test_sweep_marks_expired_even_without_a_loop_run(env, monkeypatch):
+    from app.core.actions import ActionRecord
+    proposal = ActionRecord.create(source="conversation", tool_name="calendar", metadata=ToolMetadata(("calendar",), "high", requires_confirmation=True),
+                                   arguments={"n": 1}, preview="Agendar.")
+    env.store.create(proposal)
+    advance(monkeypatch, 11 * 60)
+    assert actions.sweep_expired_proposals() == 1
+    assert env.store.get(proposal.id).status == "expired"
+    assert actions.sweep_expired_proposals() == 0
+
+
+def flaky_timer(env, fail_for):
+    """Ferramenta ``timer`` que falha enquanto ``n`` estiver em ``fail_for`` e só na primeira tentativa de cada ``n``."""
+    tried = set()
+
+    def handler(args):
+        first = args["n"] not in tried
+        tried.add(args["n"])
+        return ToolResult(False, f"timer {args['n']} indisponível") if first and args["n"] in fail_for else ToolResult(True, f"timer {args['n']} ok")
+    env.agent.registry.responses[("timer", None)] = handler
+
+
+def with_targets(env):
+    """Metadados com alvo (argumento ``n``), como as ferramentas reais que nomeiam o que alteram."""
+    env.agent.registry.get_tool_metadata = lambda name: ToolMetadata((name,), "observe", target_arguments=("n",))
+
+
+def test_failure_corrected_by_a_later_success_does_not_fail_the_request(env):
+    flaky_timer(env, {1})
+    prompts = script(env, [
+        'ACOES: [{"ferramenta": "timer", "args": {"n": 1}}]',
+        'ACOES: [{"ferramenta": "timer", "args": {"n": 1}}]',
+        "FINISH: Corrigi e terminei.",
+    ])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    assert plan.intent == "agent_loop" and plan.summary == "Corrigi e terminei."
+    assert "FALHA" in prompts[1] and "SUCESSO" in prompts[2]
+    assert env.saved and env.saved[-1][1][-1]["content"] == "Corrigi e terminei."  # entra no histórico
+    assert plan.context["stopped_reason"] == "finish"
+
+
+def test_failure_without_a_later_success_still_fails_with_the_failed_step(env):
+    flaky_timer(env, {1})
+    script(env, ['ACOES: [{"ferramenta": "timer", "args": {"n": 1}}]', "FINISH: Tudo certo."])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    assert plan.intent == "error"
+    assert plan.summary.startswith("Execução encerrada com falha na etapa 1.") and "timer 1 indisponível" in plan.summary
+
+
+def test_success_on_a_different_target_does_not_hide_the_failure(env):
+    with_targets(env)
+    flaky_timer(env, {1})
+    script(env, ['ACOES: [{"ferramenta": "timer", "args": {"n": 1}}, {"ferramenta": "timer", "args": {"n": 2}}]', "FINISH: Tudo certo."])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    assert plan.intent == "error" and "etapa 1" in plan.summary
+
+
+def test_success_on_the_same_target_corrects_the_failure(env):
+    with_targets(env)
+    flaky_timer(env, {1})
+    script(env, ['ACOES: [{"ferramenta": "timer", "args": {"n": 2}}, {"ferramenta": "timer", "args": {"n": 1}}, {"ferramenta": "timer", "args": {"n": 1, "retry": true}}]', "FINISH: Tudo certo."])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    assert plan.intent == "agent_loop" and plan.summary == "Tudo certo."
+
+
+def test_success_text_mentioning_error_or_failure_is_not_a_failure(env):
+    env.agent.registry.responses[("timer", None)] = lambda args: ToolResult(True, "0 erros e nenhuma falha encontrados")
+    prompts = script(env, ['ACOES: [{"ferramenta": "timer", "args": {"n": 1}}]', "FINISH: Sem problemas."])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    assert plan.intent == "agent_loop" and plan.summary == "Sem problemas."
+    assert "SUCESSO" in prompts[1] and "FALHA" not in prompts[1] and "Atenção" not in plan.summary
