@@ -182,14 +182,14 @@ Esta seção é a lista de referência. A seção 7 é só um resumo. Foi montad
 | V2 | Testar em hardware real: brilho (WMI pode não funcionar em monitor externo ou PC de mesa), bloqueio de tela, volume, mídia, abrir e fechar apps | Lote 2 | P |
 | V3 | Testar a sincronização com o Supabase real: migração `202609200001` aplicada, login, dois dispositivos com chaves diferentes | Lote 2 | P |
 | V4 | Pedido com provedor real de IA, ligação por voz com medição de latência e interrupção | Inventário #5 | P |
-| V5 | **Trocar a chave da Fish Audio exposta** e apagar `test_fish_audio.py` e o `.mp3` (ou ler a chave de variável de ambiente) | Segurança | P |
+| V5 | **[Parcial, lote 7, `4289ddc`: `test_fish_audio.py` e o `.mp3` apagados da raiz e `.gitignore` com `test_fish_audio.*`. Falta a usuária trocar/revogar a chave no site da Fish Audio]** Trocar a chave da Fish Audio exposta | Segurança | P |
 | V6 | Rodar a suíte pytest completa. Testes antigos de `test_habits_tasks_finance.py` escrevem em `data/lifestyle.db` real | Lote 2 | P |
 
 ### C. Controle, aprovação e segurança
 | ID | O que falta | Origem | Tam. |
 |---|---|---|---|
 | C1 | **[Entregue no lote 3, `308b557`]** Aprovações que mostrem **alvo, mudança prevista, reversibilidade e escopo**. Hoje a maioria mostra "Executar X. Parâmetros registrados de forma protegida". Ex.: fechar app deve listar os processos que serão encerrados | Inventário #3, revisão do lote 1 | M |
-| C2 | Permissões por pasta, aplicativo, dispositivo ou domínio, com duração, limite e revogação | Inventário #3, referências (Jan, OpenClaw) | G |
+| C2 | **[Parcial, lotes 5 e 7: regras por ferramenta + operação + alvo, com duração, contador de usos e revogação (`215d801`); Modo liberado com validade opcional; regra de ação crítica amarrada aos argumentos exatos (`4e785a8`). Falta: escopo por pasta, domínio ou dispositivo, limite de usos, sincronização]** Permissões por pasta, aplicativo, dispositivo ou domínio, com duração, limite e revogação | Inventário #3, referências (Jan, OpenClaw) | G |
 | C3 | **[Entregue no lote 3, `0c0e413`]** O servidor deve aplicar a lista de ferramentas permitidas por modo e turno. Hoje o chat convencional entrega ao executor o catálogo completo e só filtra o que o modelo vê | Inventário #3 | M |
 | C4 | **[Entregue no lote 3, `77213fe`, por consulta periódica a `/api/runs`]** **"Parar pedido"** pelo chat e pela paleta. Falta o `run_id` no início do turno (hoje só chega no fim): o backend envia cedo ou o App consulta `/api/runs?status=running` | Lote 1 item 3 | P |
 | C5 | Cancelamento propagado a ferramentas longas (subprocessos, navegador, adaptadores). Hoje só cancela entre etapas | Inventário #4 | G |
@@ -219,7 +219,7 @@ Esta seção é a lista de referência. A seção 7 é só um resumo. Foi montad
 ### VZ. Voz
 | ID | O que falta | Origem | Tam. |
 |---|---|---|---|
-| VZ1 | Escolher a voz **dentro** do provedor (`tts_voice`, `fish_reference_id`, `oxyy_voice`). Hoje a tela só troca o provedor | Paridade | P |
+| VZ1 | **[Entregue no lote 5, `74d3a30`: `VoiceSettings.tsx` escolhe a voz dentro do provedor; a lista de vozes é fixa no código]** Escolher a voz **dentro** do provedor (`tts_voice`, `fish_reference_id`, `oxyy_voice`). Hoje a tela só troca o provedor | Paridade | P |
 | VZ2 | Trocar configuração de voz durante uma chamada de forma segura (plano 003/015) e liberar a URL de áudio na ligação (plano 002) | Inventário | M |
 | VZ3 | Pipeline de voz no servidor (`/api/voice/realtime/stream`, `/api/call`), VAD, detector de turno e emoção na voz existem mas o frontend não os usa | Paridade | M |
 | VZ4 | **[decisão]** Gemini Live (fala para fala). Não usa a voz da Fish Audio. Opção: pedir texto e falar com a Fish, perdendo latência | Usuária | M |
@@ -229,9 +229,9 @@ Esta seção é a lista de referência. A seção 7 é só um resumo. Foi montad
 ### J. Janelas e módulos pessoais
 | ID | O que falta | Origem | Tam. |
 |---|---|---|---|
-| J1 | Janelas do Life OS: treino, diário, hábitos, saúde física e mental, vícios, água, rotina, metas. O Life OS separado (`/evolute/`) tem anti-vício, treino, leitura, mente, Pomodoro e SOS | Usuária | G |
+| J1 | **[Parcial, lote 6: popups de hábitos, água e tarefas com dados reais e operações em lote. Faltam janelas de treino, diário, saúde e vícios]** Janelas do Life OS: treino, diário, hábitos, saúde física e mental, vícios, água, rotina, metas. O Life OS separado (`/evolute/`) tem anti-vício, treino, leitura, mente, Pomodoro e SOS | Usuária | G |
 | J2 | **[decisão]** Editor de notas em janela, estilo Obsidian/Notion (TipTap, BlockNote, Lexical, Milkdown; conferir licença). O cofre atual é Markdown | Usuária | G |
-| J3 | `open_window` também em `/api/chat/stream` (voz) e no chat direto do APK | Lote 2 item 5 | P |
+| J3 | **[Parcial, lote 6: `open_window` e `open_screen` funcionam em `/api/chat/stream` (voz). Falta o chat direto do APK]** `open_window` também em `/api/chat/stream` (voz) e no chat direto do APK | Lote 2 item 5 | P |
 | J4 | Abrir pelo chat o item criado (nota, tarefa). Há dois caminhos de tarefas no código | Inventário #7 | M |
 | J5 | Memória com fonte visível, edição, remoção e citação na resposta | Inventário #7, referências (Khoj, Letta) | G |
 | J6 | Grafo de memória (existe no Nexus; o `graphify-out/` do Jarvis é um grafo do código) | Paridade | G |
@@ -300,7 +300,7 @@ Personagem 3D (última prioridade); Open Interpreter como especialista de progra
 | AQ4 | Eventos de sistema (rotina disparou, sincronizou, conflito, mudou rota/chave) na Central | Análise de fluxo | M |
 | AQ5 | **[Entregue no lote 6, `22f7425`: "Etapa X de N · Y/M chamadas ao modelo" no chat e na Central; limites em Configurações > Agente e popups]** Contador visível e limite de etapas e chamadas ao modelo por turno | Análise de fluxo | M |
 | AQ6 | Medidor de uso de modelo em segundo plano, com chave para desligar o não essencial | Análise de fluxo | M |
-| AQ7 | Fila offline (rascunho local) para registro manual, enviada quando o servidor confirmar | Análise de fluxo | M |
+| AQ7 | **[Parcial, lotes 6 e 7: rascunho local na anotação ao vivo (lote 6) e no registro de água, com reenvio (`45de018`). Faltam hábitos e tarefas manuais]** Fila offline (rascunho local) para registro manual, enviada quando o servidor confirmar | Análise de fluxo | M |
 | AQ8 | Teste de contrato da "definição de pronto" (reprova item sem risco, entrada ou sync) | Análise de fluxo | P |
 | AQ9 | "Desfazer" em 1 clique para ações reversíveis | Análise de fluxo | M |
 
@@ -309,6 +309,9 @@ Entregues: C4, C1, C3, C12, AQ2, A4, A6, S1, S2, base de AQ3, e a **remoção da
 
 ### Situação do lote 6
 Ponto de retorno: tag `antes-lote6` (`dacbf1e`). Commits: `a49a907` (catálogo completo, operações em lote, `open_screen`), `22f7425` (loop agêntico com verificação, retomada após aprovação, contador: C8 e AQ5), `e28ae89` (infraestrutura de popups animados), `d2a7b17` (popups de hábitos, agenda, água e anotação ao vivo com ditado), `24d0577` (busca de lugares OSM/Google opcional: J11; popup de tarefas). Verificação final: 425 testes Python em 26 arquivos direcionados, `tsc` limpo, `npm run build` ok, smoke tests `agent-loop`, `chat-cancel`, `popups` e `runs` passando; `workspace` passa até o passo do ditado pela paleta, que já falhava igual antes do lote 6. Nada testado com o app real, provedores reais de IA ou Nominatim/Google reais. Relatório: `.agents/tasks/lote6/report.md`.
+
+### Situação do lote 7
+Ponto de retorno: tag `antes-lote7` (`887553c`). Auditoria: `.agents/tasks/auditoria-geral/report.md`. Pacotes entregues: 1 `4e785a8` (aprovações e loop sem estado preso: MG1, MG3, MG8, MG12), 2 `45de018` (nada some e nada mente: MG4, MG5, MG9, MG13, MG23), 3 `7d11f7a` (economia de tokens: MG6, MG7), 4 `4289ddc` (segurança local e repositório: MG10, MG14, MG15, MG17, MG26, V5 parcial). **Pacote 5 (MG21, MG22, MG16, MG29, MG24, MG20, MG27) foi cortado e fica para a usuária fazer com outra ferramenta; pacote 6 também pendente.** Verificação: 134 testes Python nos 7 arquivos do lote, `tsc` limpo; smoke tests e suíte completa não rodados no fechamento. Pendente: a usuária trocar a chave da Fish Audio. Relatório: `.agents/tasks/lote7/report.md`.
 
 ## 14. Análise de fluxo e arquitetura (7/11/2026)
 
