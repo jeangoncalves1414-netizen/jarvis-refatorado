@@ -233,11 +233,12 @@ export function LiquidGauge({ fromPct, toPct, label, targetLabel = 'meta' }: Liq
 
 // ── 6. Texto que se escreve ──────────────────────────────────────────────────
 
-type TypewriterTextProps = { committed: string; interim?: string; charsPerSecond?: number; className?: string }
+// `startAt`: quantos caracteres já aparecem prontos ao montar (texto que já estava na tela).
+type TypewriterTextProps = { committed: string; interim?: string; charsPerSecond?: number; className?: string; startAt?: number }
 
-export function TypewriterText({ committed, interim = '', charsPerSecond = 40, className }: TypewriterTextProps) {
+export function TypewriterText({ committed, interim = '', charsPerSecond = 40, className, startAt = 0 }: TypewriterTextProps) {
   const calm = useCalmMotion()
-  const [shown, setShown] = useState(calm ? committed.length : 0)
+  const [shown, setShown] = useState(calm ? committed.length : Math.min(Math.max(0, startAt), committed.length))
   const target = committed.length
   useEffect(() => {
     if (calm) { setShown(target); return }

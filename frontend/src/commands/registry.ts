@@ -1,5 +1,5 @@
 import {
-  AudioLines, Camera, CloudSun, Download, Droplets, Eye, Film, Flame, MessageSquare, Mic, MonitorCog, Search, Sparkles, Volume2, Wallet, X, Zap,
+  AudioLines, CalendarClock, Camera, CloudSun, Download, Droplets, Eye, Film, Flame, ListChecks, MessageSquare, Mic, MonitorCog, NotebookPen, Search, Sparkles, Volume2, Wallet, X, Zap,
   type LucideIcon,
 } from 'lucide-react'
 import { navigation } from '../navigation'
@@ -18,8 +18,9 @@ export type LocalOperation = 'new-chat' | 'dictation' | 'toggle-sfx' | 'prefill-
 export type CommandAction =
   | { kind: 'navigate'; screen: string }
   | { kind: 'open-window'; windowId: string }
-  // Popup montado pelo backend sem IA (GET /api/popups/<template>). `argParam` recebe o texto após a palavra.
-  | { kind: 'popup'; template: string; argParam?: string }
+  // Popup montado pelo backend sem IA (GET /api/popups/<template>). `argParam` recebe o texto após a
+  // palavra; `params` são fixos do comando.
+  | { kind: 'popup'; template: string; argParam?: string; params?: Record<string, string> }
   | { kind: 'set-mode'; mode: ChatMode }
   | { kind: 'backend'; operation: BackendOperation }
   | { kind: 'local'; operation: LocalOperation }
@@ -101,7 +102,12 @@ export const commands: CommandDef[] = [
   { id: 'lifeos-open', label: 'Life OS (janela)', title: 'Abrir Painel de Evolução (Life OS)', description: 'Janela dedicada de hábitos, treinos e rotina', aliases: ['evolucao', 'habitos', 'treino'], group: 'Life OS', action: { kind: 'open-window', windowId: WINDOW_LIFE_OS }, worksOffline: true, icon: Zap },
   { id: 'lifeos-vice', label: 'Blindagem e foco', title: 'Ver Blindagem & Foco (Anti-Vício)', description: 'Acompanhar dias limpos e metas de sobriedade', aliases: ['anti-vicio', 'sobriedade', 'foco'], slash: 'foco', group: 'Life OS', action: { kind: 'open-window', windowId: WINDOW_LIFE_OS }, worksOffline: true, icon: Flame },
   { id: 'window-finance', label: 'Finanças', title: 'Abrir Finanças', description: 'Registrar e consultar gastos e receitas, sem precisar da IA', aliases: ['gastos', 'despesas', 'receitas', 'dinheiro', 'lancamentos'], slash: 'financas', group: 'Life OS', action: { kind: 'open-window', windowId: WINDOW_FINANCE }, worksOffline: true, icon: Wallet },
-  { id: 'lifeos-water', label: 'Água', title: 'Registrar +250ml de Água', description: 'Computar copo de água na meta diária', aliases: ['agua', 'copo', 'hidratacao'], slash: 'agua', group: 'Life OS', action: { kind: 'backend', operation: 'add-water' }, worksOffline: true, icon: Droplets },
+  { id: 'lifeos-water', label: 'Água', title: 'Registrar +250ml de Água', description: 'Computar copo de água na meta diária', aliases: ['agua', 'copo'], slash: 'agua', group: 'Life OS', action: { kind: 'backend', operation: 'add-water' }, worksOffline: true, icon: Droplets },
+  { id: 'popup-habits', label: 'Hábitos de hoje', title: 'Mostrar hábitos de hoje', description: 'Popup com os hábitos de hoje e o que já foi feito, sem precisar da IA', aliases: ['habitos de hoje', 'meus habitos'], slash: 'habitos', group: 'Life OS', action: { kind: 'popup', template: 'habit_list' }, worksOffline: true, icon: ListChecks },
+  { id: 'popup-water', label: 'Hidratação', title: 'Mostrar água de hoje', description: 'Popup com a água de hoje contra a meta, sem registrar nada', aliases: ['hidratacao', 'agua de hoje', 'meta de agua'], slash: 'hidratacao', group: 'Life OS', action: { kind: 'popup', template: 'water' }, worksOffline: true, icon: Droplets },
+  { id: 'popup-schedule', label: 'Compromissos de hoje', title: 'Mostrar compromissos de hoje', description: 'Popup com a agenda de hoje em linha do tempo', aliases: ['compromissos', 'agenda de hoje'], slash: 'compromissos', group: 'Life OS', action: { kind: 'popup', template: 'schedule' }, worksOffline: true, icon: CalendarClock },
+  // Escrever à mão funciona sem IA; o ditado precisa de reconhecimento de fala (o popup avisa quando não há).
+  { id: 'popup-live-notes', label: 'Nova anotação', title: 'Nova anotação ao vivo', description: 'Escreva ou dite uma anotação (texto, lista ou checklist) salva no cofre', aliases: ['anotacao', 'anotar', 'notas'], slash: 'nota', argHint: 'título', group: 'Life OS', action: { kind: 'popup', template: 'live_notes', argParam: 'title', params: { dictate: 'false' } }, worksOffline: true, icon: NotebookPen },
 
   // Ações rápidas
   { id: 'action-new-chat', label: 'Nova conversa', title: 'Nova Conversa', description: 'Iniciar um diálogo limpo no chat', aliases: ['novo', 'limpar'], slash: 'nova', group: 'Ações Rápidas', action: { kind: 'local', operation: 'new-chat' }, worksOffline: true, icon: MessageSquare },
@@ -268,7 +274,7 @@ export function runCommand(command: CommandDef, handlers: CommandHandlers, args 
       handlers.openWindow(action.windowId)
       return
     case 'popup':
-      handlers.openPopup(action.template, action.argParam && args ? { [action.argParam]: args } : {})
+      handlers.openPopup(action.template, { ...(action.params ?? {}), ...(action.argParam && args ? { [action.argParam]: args } : {}) })
       return
     case 'set-mode':
       handlers.setMode(action.mode)

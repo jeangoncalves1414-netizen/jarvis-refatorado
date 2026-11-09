@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { micAudioConstraints } from '../utils/micPrefs'
+import { LOOPBACK_HOSTS, postCapture } from '../utils/backendCapture'
+import { liveDictationBus } from '../utils/dictationBus'
 import { isMobileStandalone } from './useDirectChat'
 import type { RequestOrigin } from './useChat'
 import {
@@ -31,12 +33,6 @@ export type LiveAudioDiagnostics = {
 
 type BackendCapture = { cancelled: boolean; abort: AbortController; playbackTimer: number; lastPlayback: boolean; lastLevelAt: number }
 
-const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '[::1]', '::1']
-
-async function postCapture(action: string, body: Record<string, unknown> = {}) {
-  const response = await fetch(`/api/voice/capture/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: action === 'stop' })
-  return response.json().catch(() => ({})) as Promise<Record<string, any>>
-}
 
 function newVoiceTurnId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
@@ -208,6 +204,21 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   const backendCaptureRef = useRef<BackendCapture | null>(null)
   const captureNoteRef = useRef('')
   const backendDispatchAbortRef = useRef<AbortController | null>(null)
+
+  // Anotação ao vivo (lote 6): enquanto um popup de nota grava durante a ligação, as falas vão para
+  // a nota e não para o agente, até "fim da nota" ou o botão Parar.
+  useEffect(() => {
+    liveDictationBus.setCallProbe(() => liveCallActiveRef.current)
+    return () => liveDictationBus.setCallProbe(null)
+  }, [])
+  const divertToDictation = (text: string) => {
+    const sink = liveDictationBus.sink()
+    if (!sink || !text) return false
+    setLiveUserTranscript(text)
+    sink.onPhrase(text)
+    setLiveCallStatus(liveDictationBus.sink() ? 'Anotando… diga "fim da nota" para voltar a falar com o agente.' : 'Anotação encerrada. Ouvindo continuamente…')
+    return true
+  }
 
   const toggleVoiceInput = async () => {
     if (nativeVoiceModeRef.current === 'composer') {
@@ -741,6 +752,13 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
 
       const heardSpeech = (finalText || interimText).trim()
 
+      const dictationSink = liveDictationBus.sink()
+      if (dictationSink && liveCallActiveRef.current) {
+        dictationSink.onInterim(finalText.trim() ? '' : interimText.trim())
+        if (finalText.trim()) divertToDictation(finalText.trim())
+        return
+      }
+
       const prevDispatch = lastDispatchedSpeechRef.current
       const CORRECTION_WINDOW_MS = 1400
 
@@ -1021,6 +1039,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
             }
             liveCallSttFailureCountRef.current = 0
             recordDiagnostic('voice_turn_stt_completed', 'INFO', { turn_id: turnId, elapsed_ms: Math.round(performance.now() - turnStartedAt) })
+            if (divertToDictation(transcription.text.trim())) return
             setLiveUserTranscript(transcription.text.trim())
             setLiveOrbState('thinking')
             setLiveCallStatus('Jarvis está processando…')
@@ -1111,6 +1130,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
 
   const dispatchBackendSpeech = (text: string) => {
     if (!text || !liveCallActiveRef.current) return
+    if (divertToDictation(text)) return
     const wasBargedIn = bargedInRef.current
     bargedInRef.current = false
     // Uma fala nova substitui qualquer resposta ainda em andamento.

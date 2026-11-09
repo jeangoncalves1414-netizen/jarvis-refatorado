@@ -1,5 +1,5 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
-import { Info, type LucideIcon } from 'lucide-react'
+import { CalendarClock, Droplets, Info, ListChecks, NotebookPen, type LucideIcon } from 'lucide-react'
 import type { PopupEnvelope, PopupOrigin } from './types'
 
 // Registro dos modelos de popup. Espelho de app/agent/popups.py (POPUP_TEMPLATES): mesmos ids.
@@ -7,8 +7,32 @@ import type { PopupEnvelope, PopupOrigin } from './types'
 // popup com dado inválido não abre.
 
 export const POPUP_INFO = 'info'
+export const POPUP_HABIT_LIST = 'habit_list'
+export const POPUP_SCHEDULE = 'schedule'
+export const POPUP_WATER = 'water'
+export const POPUP_LIVE_NOTES = 'live_notes'
 
 export type InfoPopupData = { title: string; lines: string[]; tone: 'info' | 'ok' | 'warn' }
+
+export type HabitPopupItem = {
+  id: string
+  name: string
+  category: string
+  routine_block: string
+  start_time: string
+  days_of_week: string[]
+  completed_today: boolean
+  streak: number
+}
+export type HabitListPopupData = { filter: 'today' | 'all'; items: HabitPopupItem[]; completed: number; total: number; highlight_ids: string[] }
+
+export type ScheduleEvent = { id: string; title: string; start: string; reminder_at: string | null }
+export type SchedulePopupData = { date: string; events: ScheduleEvent[] }
+
+export type WaterPopupData = { date: string; current_ml: number; previous_ml: number; target_ml: number; percentage: number }
+
+export type NoteFormat = 'text' | 'bullets' | 'checklist'
+export type LiveNotesPopupData = { draft_id: string; title: string; format: NoteFormat; dictate: boolean; content: string }
 
 export type PopupComponentProps<D> = {
   popup: PopupEnvelope<D>
@@ -47,8 +71,96 @@ const infoDef: PopupDef<InfoPopupData> = {
   component: lazy(() => import('./templates/InfoPopup').then(module => ({ default: module.InfoPopup }))),
 }
 
+const MAX_ITEMS = 50
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
+const ISO_MINUTE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
+const isText = (value: unknown, max: number): value is string => typeof value === 'string' && value.length <= max
+const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
+const isTextList = (value: unknown, maxItems: number, max: number): value is string[] => Array.isArray(value) && value.length <= maxItems && value.every(item => isText(item, max))
+
+function parseHabitItem(raw: unknown): HabitPopupItem | null {
+  if (!isRecord(raw)) return null
+  const { id, name, category, routine_block, start_time, days_of_week, completed_today, streak } = raw
+  if (!isText(id, 80) || !id || !isText(name, 120) || !isText(category, 120) || !isText(routine_block, 20) || !isText(start_time, 10)) return null
+  if (!isTextList(days_of_week, 7, 10) || typeof completed_today !== 'boolean' || !isCount(streak)) return null
+  return { id, name, category, routine_block, start_time, days_of_week, completed_today, streak }
+}
+
+function parseHabitList(raw: unknown): HabitListPopupData | null {
+  if (!isRecord(raw) || (raw.filter !== 'today' && raw.filter !== 'all')) return null
+  if (!Array.isArray(raw.items) || raw.items.length > MAX_ITEMS) return null
+  const items = raw.items.map(parseHabitItem)
+  if (items.some(item => item === null)) return null
+  if (!isCount(raw.completed) || !isCount(raw.total) || !isTextList(raw.highlight_ids, MAX_ITEMS, 80)) return null
+  return { filter: raw.filter, items: items as HabitPopupItem[], completed: raw.completed, total: raw.total, highlight_ids: raw.highlight_ids }
+}
+
+function parseSchedule(raw: unknown): SchedulePopupData | null {
+  if (!isRecord(raw) || !isText(raw.date, 10) || !ISO_DAY.test(raw.date)) return null
+  if (!Array.isArray(raw.events) || raw.events.length > MAX_ITEMS) return null
+  const events: ScheduleEvent[] = []
+  for (const item of raw.events) {
+    if (!isRecord(item) || !isText(item.id, 80) || !item.id || !isText(item.title, 120) || !isText(item.start, 32) || !ISO_MINUTE.test(item.start)) return null
+    const reminder = item.reminder_at ?? null
+    if (reminder !== null && (!isText(reminder, 32) || !ISO_MINUTE.test(reminder))) return null
+    events.push({ id: item.id, title: item.title, start: item.start, reminder_at: reminder })
+  }
+  return { date: raw.date, events }
+}
+
+function parseWater(raw: unknown): WaterPopupData | null {
+  if (!isRecord(raw) || !isText(raw.date, 10) || !ISO_DAY.test(raw.date)) return null
+  const { current_ml, previous_ml, target_ml, percentage } = raw
+  if (!isCount(current_ml) || !isCount(previous_ml) || !isCount(target_ml) || !isCount(percentage)) return null
+  return { date: raw.date, current_ml, previous_ml, target_ml, percentage }
+}
+
+function parseLiveNotes(raw: unknown): LiveNotesPopupData | null {
+  if (!isRecord(raw) || !isText(raw.draft_id, 32) || !/^[a-z0-9]{8,32}$/.test(raw.draft_id)) return null
+  if (!isText(raw.title, 80) || (raw.format !== 'text' && raw.format !== 'bullets' && raw.format !== 'checklist')) return null
+  if (typeof raw.dictate !== 'boolean' || !isText(raw.content, 20_000)) return null
+  return { draft_id: raw.draft_id, title: raw.title, format: raw.format, dictate: raw.dictate, content: raw.content }
+}
+
+const habitListDef: PopupDef<HabitListPopupData> = {
+  id: POPUP_HABIT_LIST,
+  title: 'Hábitos',
+  icon: ListChecks,
+  parseData: parseHabitList,
+  component: lazy(() => import('./templates/HabitListPopup').then(module => ({ default: module.HabitListPopup }))),
+}
+
+const scheduleDef: PopupDef<SchedulePopupData> = {
+  id: POPUP_SCHEDULE,
+  title: 'Agenda',
+  icon: CalendarClock,
+  parseData: parseSchedule,
+  component: lazy(() => import('./templates/SchedulePopup').then(module => ({ default: module.SchedulePopup }))),
+}
+
+const waterDef: PopupDef<WaterPopupData> = {
+  id: POPUP_WATER,
+  title: 'Água de hoje',
+  icon: Droplets,
+  parseData: parseWater,
+  tone: data => data.target_ml > 0 && data.current_ml >= data.target_ml ? 'ok' : undefined,
+  component: lazy(() => import('./templates/WaterPopup').then(module => ({ default: module.WaterPopup }))),
+}
+
+const liveNotesDef: PopupDef<LiveNotesPopupData> = {
+  id: POPUP_LIVE_NOTES,
+  title: 'Anotação ao vivo',
+  icon: NotebookPen,
+  parseData: parseLiveNotes,
+  component: lazy(() => import('./templates/LiveNotesPopup').then(module => ({ default: module.LiveNotesPopup }))),
+}
+
 export const popupRegistry: Record<string, PopupDef<any>> = {
   [POPUP_INFO]: infoDef,
+  [POPUP_HABIT_LIST]: habitListDef,
+  [POPUP_SCHEDULE]: scheduleDef,
+  [POPUP_WATER]: waterDef,
+  [POPUP_LIVE_NOTES]: liveNotesDef,
 }
 
 export function getPopupDef(id: string): PopupDef<unknown> | undefined {

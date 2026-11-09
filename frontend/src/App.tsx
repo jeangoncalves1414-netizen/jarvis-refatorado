@@ -148,6 +148,8 @@ export default function App() {
     return () => document.removeEventListener('click', requestOnFirstInteraction)
   }, [])
 
+  const popups = usePopups()
+  const showPopup = popups.show
   const handleQuickAddWater = useCallback(async (ml = 250) => {
     playSuccess()
     try {
@@ -159,12 +161,15 @@ export default function App() {
       if (res.ok) {
         setNotice(`+${ml}ml de água registrados!`)
         broadcastSyncEvent('WATER_UPDATED', { amount_ml: ml })
+        // A rota devolve o popup de água montado com os totais do Life OS (lote 6).
+        const data = await res.json().catch(() => null)
+        if (data?.popup) showPopup(data.popup)
       }
     } catch {
       setNotice(`+${ml}ml de água registrados.`)
       broadcastSyncEvent('WATER_UPDATED', { amount_ml: ml })
     }
-  }, [setNotice])
+  }, [setNotice, showPopup])
 
   useEffect(() => {
     if (IS_MOBILE) return
@@ -195,7 +200,6 @@ export default function App() {
   const windows = useWindows()
   // Interface pedida pelo agente no contexto da resposta: janela (open_window) e tela (open_screen).
   // Ids e parâmetros são validados de novo aqui; o agente nunca gera interface.
-  const popups = usePopups()
   const showAgentPopup = (raw: unknown) => {
     if (!popups.show(raw)) setNotice('O agente pediu um popup inválido.')
   }

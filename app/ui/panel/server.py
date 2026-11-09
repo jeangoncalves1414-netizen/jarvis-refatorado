@@ -27,6 +27,7 @@ from app.ui.panel.api.runs import handle_runs_get, handle_runs_post
 from app.ui.panel.api.controls import handle_controls_post
 from app.ui.panel.api.mission_control import handle_mission_control_get
 from app.ui.panel.api.popups import handle_popups_get
+from app.ui.panel.api.notes_live import handle_notes_live_post
 from app.agent.action_gateway import request_origin, run_action
 from app.agent.run_tracking import background_run, in_background
 from app.core.runs import current_run
@@ -829,6 +830,15 @@ class PanelHandler(BaseHTTPRequestHandler):
                 amount_ml = int(payload.get("amount_ml") or 250)
                 from app.services.lifeos import LifeOSService
                 res = LifeOSService.add_water(amount_ml)
+                # Popup de água para o /agua (lote 6): montado com os totais do serviço; falha não afeta o registro.
+                try:
+                    from app.agent.popups import build_popup
+                    res["popup"] = build_popup(
+                        "water", {}, origin="command",
+                        animate={"from_ml": max(0, int(res["total_ml"]) - int(res["added_ml"])), "to_ml": int(res["total_ml"])},
+                    )
+                except Exception:
+                    pass
                 self._send_json(200, res)
             except Exception as exc:
                 self._send_json(500, {"ok": False, "error": str(exc)})
@@ -1956,6 +1966,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             handle_settings_post,
             handle_voice_post,
             handle_capture_post,
+            handle_notes_live_post,
             handle_planning_post,
             handle_actions_post,
             handle_approvals_post,
