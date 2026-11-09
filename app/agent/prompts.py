@@ -27,6 +27,13 @@ def _active_agent_profile(agent_profile: dict | None) -> dict:
 
 
 def _agent_name(agent_profile: dict | None) -> str:
+    try:
+        from app.agent.personas import get_persona
+        p_name = get_persona().get("name")
+        if p_name:
+            return p_name
+    except Exception:
+        pass
     return str(_active_agent_profile(agent_profile).get("name") or "").strip() or default_agent_profile()["name"]
 
 
@@ -44,10 +51,10 @@ def build_persona_section(base_persona: str, evolution_notes: list[str], agent_p
         "Nunca diga 'De acordo com minhas memórias' ou repita fatos sem necessidade.)"
     )
     try:
-        from app.agent.tools.persona_manager import get_persona_context
+        from app.agent.personas import get_persona_context
         persona_ctx = get_persona_context()
         if persona_ctx:
-            return f"{persona_ctx}\n{memory}"
+            return f"{persona_ctx}\n\n{memory}"
     except Exception:
         pass
     profile = _active_agent_profile(agent_profile)

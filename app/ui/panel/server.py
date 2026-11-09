@@ -27,6 +27,7 @@ from app.ui.panel.api.approvals import handle_approvals_get, handle_approvals_po
 from app.ui.panel.api.runs import handle_runs_get, handle_runs_post
 from app.ui.panel.api.routines import handle_routines_get, handle_routines_post
 from app.ui.panel.api.checklists import handle_checklists_get, handle_checklists_post
+from app.ui.panel.api.persona import handle_persona_get, handle_persona_post
 from app.ui.panel.api.controls import handle_controls_post
 from app.ui.panel.api.mission_control import handle_mission_control_get
 from app.ui.panel.api.popups import handle_popups_get
@@ -729,6 +730,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 handle_runs_get,
                 handle_routines_get,
                 handle_checklists_get,
+                handle_persona_get,
                 handle_mission_control_get,
                 handle_goals_get,
                 handle_popups_get,
@@ -2017,6 +2019,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             handle_runs_post,
             handle_routines_post,
             handle_checklists_post,
+            handle_persona_post,
             handle_controls_post,
             handle_goals_post,
         ):

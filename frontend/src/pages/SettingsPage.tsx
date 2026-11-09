@@ -7,7 +7,8 @@ import { PopupSettings } from '../components/PopupSettings'
 import { ContextSettings } from '../components/ContextSettings'
 import { HomeAssistantSettings } from '../components/HomeAssistantSettings'
 import { VoiceSettings } from '../components/VoiceSettings'
-import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download, User, Mic, Route, ShieldCheck, Cloud, Palette, HardDrive, Search, Star, ArrowUp, ArrowDown, Check, SlidersHorizontal, Bot, Compass } from 'lucide-react'
+import { PersonaBriefingSettings } from '../components/PersonaBriefingSettings'
+import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download, User, Mic, Route, ShieldCheck, Cloud, Palette, HardDrive, Search, Star, ArrowUp, ArrowDown, Check, SlidersHorizontal, Bot, Compass, Sparkles } from 'lucide-react'
 import type { AiSettings, LlmSettings, OxyyCatalog, OxyySettings, Proactive, SttSettings, TtsSettings, Tray, WakeWord } from '../types'
 import { isMobileStandalone, getMobileProvider, getMobileApiKeys, setMobileProvider, setMobileApiKeys, getMobileOxyyModels, setMobileOxyyModels, DEFAULT_MOBILE_KEYS, DEFAULT_OXXY_MODELS, type DirectChatProvider, countKeys, nativeDirectPost } from '../hooks/useDirectChat'
 import { isSfxEnabled, setSfxEnabled, playSuccess } from '../utils/sfx'
@@ -167,6 +168,12 @@ export function SettingsPage({
   const updateLayout = (next: SettingsLayout) => { setLayout(next); saveSettingsLayout(next) }
 
   const sections: SectionDef[] = [
+    {
+      id: 'personas', label: 'Personalidade e Briefings', icon: <Sparkles size={16} />, keywords: 'personalidade personas briefing matinal desafio matinal tom estilo nome jarvis sexta-feira regras assistente',
+      render: () => (
+        <PersonaBriefingSettings />
+      ),
+    },
     {
       id: 'general', label: 'Geral e perfil', icon: <User size={16} />, keywords: 'perfil agente nome personalidade estilo frase ativação briefing rotina diária módulos automações métricas',
       render: () => (<>

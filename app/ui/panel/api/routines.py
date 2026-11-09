@@ -62,6 +62,9 @@ def handle_routines_get(parts: list[str], handler: Any) -> tuple[int, dict] | No
             return 200, {"ok": True, "next_runs": routine_service.next_runs(_limit(handler, 10, 50))}
         if len(parts) == 3 and parts[2] == "meta":
             return 200, {"ok": True, "tools": routine_meta()}
+        if len(parts) == 3 and parts[2] == "templates":
+            from app.routines.templates import list_routine_templates
+            return 200, {"ok": True, "templates": list_routine_templates()}
         if len(parts) == 3 and parts[2] == "alerts":
             return 200, {"ok": True, "alerts": routine_service.store().alerts(_limit(handler, 30, 200))}
         if len(parts) == 3:
@@ -87,6 +90,13 @@ def handle_routines_post(path: str, body: bytes, _handler: Any) -> tuple[int, di
     try:
         if len(parts) == 2:
             created = routine_service.create(payload)
+            return 200, {"ok": True, **created}
+        if len(parts) == 4 and parts[2] == "templates" and parts[3] == "install":
+            from app.routines.templates import install_routine_template
+            template_id = str(payload.get("template_id") or "").strip()
+            if not template_id:
+                return 400, {"ok": False, "error": "Informe template_id."}
+            created = install_routine_template(template_id, routine_service)
             return 200, {"ok": True, **created}
         routine_id = parts[2]
         if len(parts) == 3:

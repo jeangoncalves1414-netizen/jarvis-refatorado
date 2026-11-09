@@ -73,6 +73,7 @@ except ImportError:
 from .lifestyle_tools import HabitTool, TaskTool, FinanceTool
 from .checklist_tool import ChecklistTool
 from .lifeos_tool import LifeOSTool
+from .persona_tool import PersonaTool
 from .open_window import OpenWindowTool
 from .open_screen import OpenScreenTool
 from .show_popup import ShowPopupTool
@@ -101,13 +102,14 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
         (r"\bluz\b|\bluzes\b|\blampada|\bar condicionado|\btomada|\bcena\b|\bcortina|\bfechadura|\bcasa\b", ("home",)),
         # Pedido com horário ou repetição vira rotina gravada.
         (r"\brotina|\btodo dia|\btodos os dias|\btoda (segunda|terca|quarta|quinta|sexta)|\btodo (sabado|domingo)|\bdias uteis|\ba cada \d+ ?min|\bas \d{1,2} ?h\b|\bas \d{1,2}:\d{2}", ("routine",)),
+        (r"\bpersona|\bpersonalidade|\btom de voz|\bdesafio matinal|\bmude seu nome|\btroque seu nome", ("persona_tool",)),
     )
 )
 
 # Loop agêntico: ferramentas de dados do dia a dia que entram em qualquer pedido, para qualquer provedor.
 LOOP_DATA_TOOLS = frozenset({
     "habit_tool", "task_tool", "checklist_tool", "lifeos_tool", "calendar", "vault_save_note", "vault_search",
-    "open_window", "open_screen", "wait",
+    "open_window", "open_screen", "wait", "persona_tool",
 })
 
 # Só no loop: assuntos das demais ferramentas comuns (as de dados já entram sempre).
@@ -212,6 +214,7 @@ class ToolRegistry:
         self._register(ChecklistTool())
         self._register(FinanceTool())
         self._register(LifeOSTool())
+        self._register(PersonaTool())
         self._register(OpenWindowTool())
         self._register(OpenScreenTool())
         self._register(ShowPopupTool())

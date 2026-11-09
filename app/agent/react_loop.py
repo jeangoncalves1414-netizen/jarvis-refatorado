@@ -578,8 +578,21 @@ class ReActLoopEngine:
             f"{'Usuária' if item.get('role') == 'user' else 'Assistente'}: {_short(item.get('content'), _CONVERSATION_CHARS)}"
             for item in state.conversation if isinstance(item, dict) and item.get("content")
         ) or "Sem mensagens anteriores."
+
+        try:
+            from app.agent.personas import get_persona, VALID_TONES
+            p = get_persona()
+            p_name = p.get("name", "Jarvis")
+            p_tone = p.get("tone", "amigável")
+            tone_desc = VALID_TONES.get(p_tone, "")
+            persona_intro = f"Você é {p_name}, um assistente com tom {p_tone} ({tone_desc}) que executa pedidos com ferramentas controladas pela Central.\n"
+            if p.get("custom_rules"):
+                persona_intro += f"Regras da persona: {p['custom_rules']}\n"
+        except Exception:
+            persona_intro = "Você é um agente que executa pedidos com ferramentas controladas pela Central.\n"
+
         return (
-            "Você é um agente que executa pedidos com ferramentas controladas pela Central.\n"
+            persona_intro +
             f"Objetivo: {state.goal}\n\n"
             f"Conversa recente:\n{conversation}\n\n"
             f"Etapas já feitas:\n{history}\n\n"

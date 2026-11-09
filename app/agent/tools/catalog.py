@@ -302,6 +302,29 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         reversibility="Nada a desfazer; use 'Parar pedido' para interromper a espera.",
         scope="Só este pedido; as próximas etapas esperam o fim da pausa.",
     ),
+    "persona_tool": ToolMetadata(
+        ("persona", "settings"), "low", reversible=True,
+        operation_arguments=("action",), default_operation="get",
+        operation_risks=_by_operation(
+            observe=("get",),
+            low=("update", "set_name", "set_tone", "set_challenge", "set_rules", "reset"),
+        ),
+        target_arguments=("name", "tone"), default_target="personalidade do assistente",
+        operation_effects=(
+            ("get", "Apenas lê as configurações da persona; nada é alterado."),
+            ("update", "Atualiza configurações de nome, tom, regras ou desafio matinal."),
+            ("set_name", "Altera o nome do assistente."),
+            ("set_tone", "Altera o tom de voz e respostas do assistente."),
+            ("set_challenge", "Altera as configurações do desafio matinal de exercícios."),
+            ("set_rules", "Atualiza as regras personalizadas da persona."),
+            ("reset", "Restaura as configurações de persona para os padrões de fábrica."),
+        ),
+        operation_reversibility=_same_text(
+            "Reversível: altere as configurações novamente.",
+            "update", "set_name", "set_tone", "set_challenge", "set_rules", "reset",
+        ),
+        scope="Apenas a identidade, nome, tom e diretrizes do assistente.",
+    ),
     # Rotinas gravadas. Criar ou executar é low: cada etapa passa pelo Kernel com o próprio risco
     # na hora de rodar (etapa alta ou crítica pede aprovação, salvo regra ou Modo liberado).
     "routine": ToolMetadata(
