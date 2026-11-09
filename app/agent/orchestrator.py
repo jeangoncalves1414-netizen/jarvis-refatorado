@@ -14,6 +14,7 @@ from app.agent.prompts import build_marker_agent_system_prompt, build_function_c
 from app.storage.runtime_settings import resolve_ai_routes
 from app.agent.runtime_modes import AgentMode
 from app.agent.mode_resolver import ModeResolver
+from app.agent.mode_router import resolve_active_mode
 from app.agent.tool_guardrails import ToolCallGuardrailController
 from app.agent.action_executor import ActionExecutor
 from app.agent.run_tracking import background_run, in_background, record_run_step, track_run
@@ -426,10 +427,10 @@ class AgentOrchestrator:
         # A pending approval retains this turn's limits, even during another chat.
         turn_guardrails = ToolCallGuardrailController()
         
-        # Detect mode if not explicitly provided
-        if mode == "general":
-            mode_resolution = self.mode_resolver.resolve(text)
-            mode = mode_resolution.mode.value
+        # Auto-routing inteligente de modo se não fornecido explicitamente
+        if mode in {"auto", "general"}:
+            resolved_mode, _ = resolve_active_mode(text, explicit_mode=mode)
+            mode = resolved_mode
         
         if mode == "tutor":
             system = build_tutor_system(
@@ -512,13 +513,16 @@ class AgentOrchestrator:
             # Contexto situacional do turno (fase contexto 1): texto pronto, sem chamada ao modelo.
             system += build_turn_sections(text, current_origin.get()).text
 
-            if mode == "planning":
+            if mode in {"planning", "thinking"}:
                 system += """
 
-MODO DE PLANEJAMENTO: responda com um plano público, conciso e verificável.
-Estruture em Objetivo, Plano de ação, Próximos passos e Riscos/decisões quando fizer sentido.
-Não exponha raciocínio interno, cadeias de pensamento ou texto de deliberação privada.
-Use ferramentas somente se elas ajudarem a validar ou executar uma etapa solicitada.
+MODO DE RACIOCÍNIO ANALÍTICO PROFUNDO (ULTRA-THINKING):
+Você está operando em capacidade analítica máxima. Pense e estruture sua reflexão nas seguintes 4 etapas rigorosas:
+1. Decomposição de premissas: Analise detalhadamente o problema, exponha hipóteses subjacentes, premissas fundamentais e restrições.
+2. Casos extremos e falhas potenciais: Explore pontos cegos, exceções, cenários de borda e possíveis modos de falha da abordagem.
+3. Avaliação de alternativas e trade-offs: Pese criticamente diferentes caminhos, comparando custos, riscos, benefícios e complexidade.
+4. Síntese e decisão final: Entregue a conclusão clara, recomendação assertiva ou plano de ação justificado, de forma verificável.
+Permita que o raciocínio seja profundo, exploratório e transparente.
 """
             elif mode == "research":
                 system += """
@@ -528,6 +532,26 @@ use a ferramenta web_search com action='research' antes de concluir. Ela deve pe
 mais de uma fonte e retornar os links consultados. Diferencie fatos encontrados de
 inferências e forneça URLs ou nomes das fontes usadas. Não invente fontes nem alegue
 ter pesquisado se não pesquisou.
+"""
+            elif mode == "coder":
+                system += """
+
+MODO CODER PRO:
+Você é um Engenheiro de Software Sênior de alto nível. Suas diretrizes obrigatórias são:
+- Código limpo, idiomático, legível e seguindo as melhores práticas e padrões de projeto da linguagem.
+- Tipagem estrita e completa (type hints em Python, types/interfaces robustas em TypeScript).
+- Tratamento robusto de exceções e erros de borda, sem falhas silenciosas.
+- Sempre entregue código COMPLETO, funcional e imediatamente executável — NUNCA use placeholders como 'TODO', '// implemente aqui' ou omita partes essenciais.
+- Se houver comandos de terminal ou execução, forneça comandos exatos e seguros.
+"""
+            elif mode == "lifeos":
+                system += """
+
+MODO LIFEOS (SECRETÁRIO ÁGIL):
+Você atua como assistente pessoal e secretário executivo de alta eficiência para rotina diária, hábitos e finanças.
+- Respostas ultra-sucintas e diretas: prefira 1 a 2 frases claras e objetivas.
+- Confirmação imediata e explícita de checklists, tarefas, registros de despesas, hábitos, treinos ou água.
+- Priorize ação rápida, clareza e organização sem prolixidade ou preâmbulos desnecessários.
 """
         
         # Usar function calling nativo para Gemini e Groq
@@ -620,7 +644,8 @@ ter pesquisado se não pesquisou.
                 on_function_call=on_function_call,
                 on_chunk=on_chunk,
                 on_reasoning=on_reasoning,
-                force_tool=False
+                force_tool=False,
+                mode=mode,
             )
             raw = result or "Sem resposta."
             summary, _ = parse_tool_markers(raw)
@@ -649,7 +674,7 @@ ter pesquisado se não pesquisou.
             tools_decl = None
             contents = self.llm_service.build_contents(history, text)
             if on_chunk and hasattr(self.llm_service, "generate_stream"):
-                response = self.llm_service.generate_stream(contents, on_chunk=on_chunk, tools=tools_decl, system_instruction=system, on_reasoning=on_reasoning)
+                response = self.llm_service.generate_stream(contents, on_chunk=on_chunk, tools=tools_decl, system_instruction=system, on_reasoning=on_reasoning, mode=mode)
             else:
                 response = self.llm_service.generate(contents, tools=tools_decl, system_instruction=system)
             summary = getattr(response, "text", None) or "Sem resposta."
@@ -896,6 +921,7 @@ ter pesquisado se não pesquisou.
 
         if history is None:
             history = get_session_history(session_id) if session_id else []
+        resolved_mode, mode_meta = resolve_active_mode(text, explicit_mode=mode, history=history)
         # Toda ação deste turno registra a origem (voz ou chat) no Action Kernel;
         # sem origem explícita, uma chamada aninhada herda a do pedido que a contém.
         origin_token = current_origin.set(origin) if origin in REQUEST_ORIGINS else None
@@ -913,7 +939,7 @@ ter pesquisado se não pesquisou.
         turn_extra: dict = {}
         try:
             plan = self._dispatch_request(
-                text, session_id, mode, history, enem_context, enem_question_id,
+                text, session_id, resolved_mode, history, enem_context, enem_question_id,
                 on_chunk, on_reasoning, on_search, profile_id, racing_mode, react_max_steps,
                 on_progress,
             )
@@ -929,6 +955,10 @@ ter pesquisado se não pesquisou.
             plan.context = {**(plan.context or {}), "ui_popups": list(popups)}
         if turn_extra:
             plan.context = {**(plan.context or {}), **turn_extra}
+        if plan.context is None:
+            plan.context = {}
+        plan.context["active_mode"] = resolved_mode
+        plan.context["mode_resolution"] = mode_meta
         check_run_cancelled()
         if session_id and plan.intent != "error" and not is_technical_error_memory(plan.summary):
             assistant_message = {"role": "assistant", "content": plan.summary, "run_id": current_run.get()[1]}
@@ -974,7 +1004,7 @@ ter pesquisado se não pesquisou.
                 return plan
 
         # Se o modo Racing estiver ativado e for uma pergunta geral
-        if racing_mode and mode not in {"tutor", "planning", "research"} and self.llm_service:
+        if racing_mode and mode not in {"tutor", "planning", "thinking", "research", "coder", "lifeos"} and self.llm_service:
             try:
                 from app.services.llm_racing import MultiLLMRacingService
                 racing_svc = MultiLLMRacingService(llm_service=self.llm_service)

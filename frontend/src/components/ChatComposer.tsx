@@ -11,7 +11,7 @@ import { Phone } from 'lucide-react'
 import { PromptSuggestions } from './PromptSuggestions'
 import { isMobileStandalone } from '../hooks/useDirectChat'
 
-export type ChatMode = 'general' | 'planning' | 'research' | 'coder' | 'browser' | 'react'
+export type ChatMode = 'auto' | 'general' | 'planning' | 'research' | 'coder' | 'browser' | 'react'
 
 export type PersonaMode = 'general' | 'dev' | 'analyst' | 'tutor' | 'creative'
 
@@ -393,12 +393,25 @@ export function ChatComposer({
               </svg>
             </button>
 
+            {/* Auto Mode toggle (Smart Auto-Routing) */}
+            <button
+              type="button"
+              className={`cc-pill${mode === 'auto' || mode === 'general' ? ' cc-pill-think' : ''}`}
+              onClick={() => onModeChange('auto')}
+              title="Modo Inteligente Automático (Auto-Routing entre Thinking, Deep Research, Coder Pro e LifeOS)"
+              style={mode === 'auto' || mode === 'general' ? { borderColor: 'rgba(168,85,247,0.6)', color: '#c084fc', background: 'rgba(168,85,247,0.14)' } : {}}
+            >
+              <span>✨</span>
+              <span className="cc-pill-label">Auto</span>
+              {(mode === 'auto' || mode === 'general') && <span className="cc-pill-dot" style={{ background: '#a855f7', boxShadow: '0 0 6px #a855f7' }} />}
+            </button>
+
             {/* Think toggle */}
             <button
               type="button"
               className={`cc-pill${mode === 'planning' ? ' cc-pill-think' : ''}`}
-              onClick={() => onModeChange(mode === 'planning' ? 'general' : 'planning')}
-              title="Modo Raciocínio (Think)"
+              onClick={() => onModeChange(mode === 'planning' ? 'auto' : 'planning')}
+              title="Modo Raciocínio Profundo (Think · Ultra-Thinking 4096 tokens)"
             >
               <span>🧠</span>
               <span className="cc-pill-label">Think</span>
@@ -411,7 +424,7 @@ export function ChatComposer({
             <button
               type="button"
               className={`cc-pill${mode === 'research' ? ' cc-pill-search' : ''}`}
-              onClick={() => onModeChange(mode === 'research' ? 'general' : 'research')}
+              onClick={() => onModeChange(mode === 'research' ? 'auto' : 'research')}
               title="Pesquisa Profunda na Web (Research Subagent)"
             >
               <span>🔬</span>
@@ -423,8 +436,8 @@ export function ChatComposer({
             <button
               type="button"
               className={`cc-pill${mode === 'coder' ? ' cc-pill-think' : ''}`}
-              onClick={() => onModeChange(mode === 'coder' ? 'general' : 'coder')}
-              title="Coder Subagent (Validação Sintática AST e Debug)"
+              onClick={() => onModeChange(mode === 'coder' ? 'auto' : 'coder')}
+              title="Coder Pro Subagent (Engenharia de Software, Tipagem Estrita e Debug)"
               style={mode === 'coder' ? { borderColor: 'rgba(34,197,94,0.6)', color: '#4ade80', background: 'rgba(34,197,94,0.12)' } : {}}
             >
               <span>💻</span>

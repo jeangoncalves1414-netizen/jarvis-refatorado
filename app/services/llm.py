@@ -270,6 +270,7 @@ class LLMService:
         tools: list[dict[str, Any]] | None = None,
         system_instruction: str | None = None,
         provider: str | None = None,
+        mode: str | None = None,
     ) -> LLMResponse:
         active = self.get_active_provider(provider)
         api_key = self._api_key_for(active)
@@ -281,7 +282,7 @@ class LLMService:
             return self._generate_groq_stream(contents, on_chunk, tools, system_instruction, api_key, on_reasoning)
         if active == "oxyy":
             return self._generate_oxyy_stream(contents, on_chunk, tools, system_instruction, api_key, on_reasoning)
-        return self._generate_gemini_stream(contents, on_chunk, tools, system_instruction, api_key, on_reasoning)
+        return self._generate_gemini_stream(contents, on_chunk, tools, system_instruction, api_key, on_reasoning, mode=mode)
 
     def _oxyy_client(self, api_key: str):
         from openai import OpenAI
@@ -400,6 +401,7 @@ class LLMService:
         system_instruction: str | None,
         api_key: str,
         on_reasoning: Any = None,
+        mode: str | None = None,
     ) -> LLMResponse:
         from google import genai
         from google.genai import types
@@ -408,8 +410,10 @@ class LLMService:
         config_args: dict[str, Any] = {}
         if system_instruction:
             config_args["system_instruction"] = system_instruction
-        # Only enable thinking_config if on_reasoning callback is provided (user wants to see thoughts)
-        if on_reasoning:
+        # Configurar Ultra-Thinking com budget estendido quando em planning/thinking
+        if mode in {"planning", "thinking"}:
+            config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True, thinking_budget=4096)
+        elif on_reasoning:
             config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
 
         full_chunks = []
@@ -655,11 +659,13 @@ class LLMService:
         force_tool: bool = False,
         on_reasoning: callable | None = None,
         provider: str | None = None,
+        mode: str | None = None,
     ) -> str | None:
         """Chat com function calling nativo para Gemini e Groq.
 
         on_reasoning recebe, em tempo real, os fragmentos de raciocínio do modelo
         (reasoning_content no Groq / thought parts no Gemini) para exibição ao vivo.
+        Quando mode for 'planning' ou 'thinking', ativa Ultra-Thinking no Gemini (thinking_budget=4096).
         """
         active_provider = self.get_active_provider(provider)
         if active_provider == "groq":
@@ -688,6 +694,7 @@ class LLMService:
             on_chunk=on_chunk,
             force_tool=force_tool,
             on_reasoning=on_reasoning,
+            mode=mode,
         )
 
     @track_model_call("gemini")
@@ -700,6 +707,7 @@ class LLMService:
         on_chunk: callable | None = None,
         force_tool: bool = False,
         on_reasoning: callable | None = None,
+        mode: str | None = None,
     ) -> str | None:
         api_key = self._api_key_for("gemini")
         if not api_key:
@@ -741,7 +749,10 @@ class LLMService:
             config_args: dict[str, Any] = {}
             if system_instruction:
                 config_args["system_instruction"] = system_instruction
-            config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
+            if mode in {"planning", "thinking"}:
+                config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True, thinking_budget=4096)
+            else:
+                config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
 
             if tools:
                 declarations = [
@@ -754,9 +765,9 @@ class LLMService:
                 ]
                 config_args["tools"] = [types.Tool(function_declarations=declarations)]
                 config_args["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
-                mode = "ANY" if force_tool else "AUTO"
+                fc_mode = "ANY" if force_tool else "AUTO"
                 config_args["tool_config"] = types.ToolConfig(
-                    function_calling_config=types.FunctionCallingConfig(mode=mode)
+                    function_calling_config=types.FunctionCallingConfig(mode=fc_mode)
                 )
 
             config = types.GenerateContentConfig(**config_args)
@@ -825,9 +836,14 @@ class LLMService:
             if fn_result_parts:
                 contents2.append(types.Content(role="user", parts=fn_result_parts))
 
+            thinking_cfg2 = (
+                types.ThinkingConfig(include_thoughts=True, thinking_budget=4096)
+                if mode in {"planning", "thinking"}
+                else types.ThinkingConfig(include_thoughts=True)
+            )
             config2 = types.GenerateContentConfig(
                 system_instruction=system_instruction if system_instruction else None,
-                thinking_config=types.ThinkingConfig(include_thoughts=True),
+                thinking_config=thinking_cfg2,
             )
             final_stream = client.models.generate_content_stream(
                 model=model_name,

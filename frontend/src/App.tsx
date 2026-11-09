@@ -111,7 +111,7 @@ export default function App() {
   const [playingUrl, setPlayingUrl] = useState('')
   const [cameraWorkspaceOpen, setCameraWorkspaceOpen] = useState(false)
   const [cameraQuestion, setCameraQuestion] = useState('')
-  const [chatMode, setChatMode] = useState<ChatMode>('general')
+  const [chatMode, setChatMode] = useState<ChatMode>('auto')
   const [chatAttachment, setChatAttachment] = useState<{ name: string; dataUrl: string } | null>(null)
   const [apiKeys, setApiKeysState] = useState<Record<string, string>>({})
 
