@@ -594,7 +594,7 @@ def set_mic_settings(values: dict[str, Any]) -> dict[str, Any]:
 
 # Loop agêntico (lote 6): quando o agente planeja, age, confere e continua sozinho.
 AGENT_LOOP_MODES = ("auto", "always", "off")
-AGENT_LOOP_DEFAULTS: dict[str, Any] = {"mode": "auto", "max_steps": 8, "max_model_calls": 10, "auto_verify": True}
+AGENT_LOOP_DEFAULTS: dict[str, Any] = {"mode": "auto", "max_steps": 8, "max_model_calls": 10, "auto_verify": True, "extract_memory_always": False}
 _AGENT_LOOP_LIMITS = {"max_steps": (1, 20), "max_model_calls": (1, 30)}
 _AGENT_LOOP_LABELS = {"max_steps": "O limite de etapas", "max_model_calls": "O limite de chamadas ao modelo"}
 
@@ -609,6 +609,8 @@ def get_agent_loop_settings() -> dict[str, Any]:
         result[key] = value if type(value) is int and low <= value <= high else AGENT_LOOP_DEFAULTS[key]
     verify = saved.get("auto_verify", True)
     result["auto_verify"] = verify if isinstance(verify, bool) else True
+    extract_always = saved.get("extract_memory_always", False)
+    result["extract_memory_always"] = extract_always if isinstance(extract_always, bool) else False
     return result
 
 
@@ -635,6 +637,10 @@ def set_agent_loop_settings(values: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(values["auto_verify"], bool):
             raise ValueError("A verificação automática deve ser ligada ou desligada (true/false).")
         current["auto_verify"] = values["auto_verify"]
+    if "extract_memory_always" in values:
+        if not isinstance(values["extract_memory_always"], bool):
+            raise ValueError("A extração de memórias de toda mensagem deve ser ligada ou desligada (true/false).")
+        current["extract_memory_always"] = values["extract_memory_always"]
     data = _read()
     data["agent_loop"] = current
     _write(data)

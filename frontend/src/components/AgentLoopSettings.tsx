@@ -3,9 +3,9 @@ import { Switch } from './Switch'
 
 /** Configuração do loop agêntico (lote 6): quando o agente planeja, age, confere e continua sozinho. */
 export type AgentLoopMode = 'auto' | 'always' | 'off'
-export type AgentLoopConfig = { mode: AgentLoopMode; max_steps: number; max_model_calls: number; auto_verify: boolean }
+export type AgentLoopConfig = { mode: AgentLoopMode; max_steps: number; max_model_calls: number; auto_verify: boolean; extract_memory_always: boolean }
 
-const DEFAULTS: AgentLoopConfig = { mode: 'auto', max_steps: 8, max_model_calls: 10, auto_verify: true }
+const DEFAULTS: AgentLoopConfig = { mode: 'auto', max_steps: 8, max_model_calls: 10, auto_verify: true, extract_memory_always: false }
 const MODE_HELP: Record<AgentLoopMode, string> = {
   auto: 'Usa o loop quando o pedido tem várias partes ("adiciona… e depois agenda…"). Pedidos simples seguem direto.',
   always: 'Todo pedido da conversa passa pelo loop. Gasta mais chamadas ao modelo.',
@@ -89,6 +89,7 @@ export function AgentLoopSettings() {
         </label>
       </div>
       <Switch label="Verificação automática" description="Depois de cada escrita, relê o dado (sem chamar o modelo) para confirmar que ficou salvo." checked={config.auto_verify} disabled={busy} onChange={checked => edit({ auto_verify: checked })} glowColor="green" />
+      <Switch label="Extrair memórias de toda mensagem" description="Desligado (recomendado), o agente só extrai memórias quando a mensagem tem um sinal como &quot;meu nome é&quot;, &quot;eu moro&quot;, &quot;lembra que&quot; ou &quot;prefiro&quot;. Ligado, cada mensagem faz uma chamada extra ao modelo em segundo plano." checked={config.extract_memory_always} disabled={busy} onChange={checked => edit({ extract_memory_always: checked })} glowColor="green" />
       <button className="outline-button" type="button" disabled={busy} onClick={() => void save()}>{status === 'saving' ? 'Salvando…' : 'Salvar configuração do agente'}</button>
       {message && <p className={status === 'error' ? 'settings-error' : 'settings-muted'} role={status === 'error' ? 'alert' : 'status'}>{message}</p>}
     </article>

@@ -95,6 +95,31 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
     )
 )
 
+# Loop agêntico: ferramentas de dados do dia a dia que entram em qualquer pedido, para qualquer provedor.
+LOOP_DATA_TOOLS = frozenset({
+    "habit_tool", "task_tool", "lifeos_tool", "calendar", "vault_save_note", "vault_search",
+    "open_window", "open_screen",
+})
+
+# Só no loop: assuntos das demais ferramentas comuns (as de dados já entram sempre).
+LOOP_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
+    (re.compile(pattern), tools)
+    for pattern, tools in (
+        (r"\bpesquis|\bbusca|\bprocur|\bnoticia|\bpesquisa", ("web_search",)),
+        (r"\bapp\b|\baplicativo|\bprograma|\bnavegador|\bchrome|\bjanela", ("open_windows_app",)),
+        (r"\bvolume|\bbrilho|\bdesligar\b|\breiniciar|\bbloquear|\bsistema\b", ("system_control",)),
+        (r"\bmusica|\btoca\b|\btocar\b|\bspotify|\bplaylist", ("spotify",)),
+        (r"\btimer\b|\btemporizador|\bcronometro|\balarme|\bminutos\b", ("timer",)),
+        (r"\bwhats|\bzap\b|\bmensagem", ("whatsapp",)),
+        (r"\barquivo|\bpasta\b|\bdocumento|\bdownloads\b", ("file_manager",)),
+        (r"\bimagem|\bdesenh|\bfoto\b", ("image_generator",)),
+        (r"\bfilme|\bserie\b", ("cinema",)),
+        (r"\bplano\b|\bplanejament|\bplanejar", ("planning_workspace",)),
+        (r"\bscript\b|\bcodigo\b|\bexecut", ("script_runner",)),
+        (r"\btela\b|\bvejo\b|\bscreenshot|\bprint\b", ("vision",)),
+    )
+)
+
 GENERAL_TOOL_NAMES = {
     "file_manager", "system_control", "jarvis_mode", "web_search", "browser_agent", "timer",
     "whatsapp", "spotify", "clipboard", "news_reader", "open_windows_app", "script_runner",
@@ -236,29 +261,35 @@ class ToolRegistry:
         mode: str = "general",
         provider: str | None = None,
         user_text: str = "",
+        *,
+        narrow: bool = False,
     ) -> frozenset[str]:
         """Ferramentas registradas permitidas neste modo e turno.
 
         É a mesma lista que o modelo enxerga (`get_tool_declarations`) e que o
         executor do turno aplica, para que o servidor não aceite uma ferramenta
         que o modelo não recebeu.
+
+        ``narrow=True`` (loop agêntico) aplica a filtragem por palavras do pedido a qualquer
+        provedor, mantendo sempre as ferramentas de dados (``LOOP_DATA_TOOLS``).
         """
         allowed = TUTOR_TOOL_NAMES if mode == "tutor" else GENERAL_TOOL_NAMES
 
         # Otimização de TPM para provedores com limite estrito de taxa (ex: Groq)
-        if provider == "groq" and mode != "tutor":
+        if (provider == "groq" or narrow) and mode != "tutor":
             core_groq = {
                 "web_search", "system_control", "open_windows_app", "timer",
                 "spotify", "whatsapp", "calendar", "file_manager",
                 "cinema", "script_runner", "image_generator", "vision", "planning_workspace", "open_window"
             }
             user_lower = (user_text or "").lower()
-            dynamic_tools = set(core_groq)
+            # No loop (narrow) só entram as ferramentas de dados e as que o pedido menciona.
+            dynamic_tools = set(LOOP_DATA_TOOLS) if narrow else set(core_groq)
             for t_name in allowed:
                 if t_name in user_lower or t_name.replace("_", " ") in user_lower:
                     dynamic_tools.add(t_name)
             normalized = normalize_name(user_text)
-            for pattern, tools in GROQ_KEYWORD_TOOLS:
+            for pattern, tools in GROQ_KEYWORD_TOOLS + (LOOP_KEYWORD_TOOLS if narrow else ()):
                 if pattern.search(normalized):
                     dynamic_tools.update(tools)
             allowed = allowed.intersection(dynamic_tools)

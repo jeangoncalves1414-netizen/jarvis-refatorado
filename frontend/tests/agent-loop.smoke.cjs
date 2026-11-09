@@ -36,7 +36,7 @@ const { assertSourceHasNoBrokenText, assertPageHasNoBrokenText } = require('./br
     let failNextSave = false
     let waterFails = true
     const waterPosts = []
-    let loopSettings = { mode: 'auto', max_steps: 8, max_model_calls: 10, auto_verify: true }
+    let loopSettings = { mode: 'auto', max_steps: 8, max_model_calls: 10, auto_verify: true, extract_memory_always: false }
     await page.route('**/api/**', async route => {
       const request = route.request()
       const url = new URL(request.url())
@@ -147,10 +147,12 @@ const { assertSourceHasNoBrokenText, assertPageHasNoBrokenText } = require('./br
     await card.getByLabel('Sempre').check()
     await card.getByLabel('Limite de etapas (1 a 20)').fill('12')
     await card.getByLabel('Limite de chamadas ao modelo (1 a 30)').fill('15')
-    await card.getByRole('switch').click()
+    await card.getByRole('switch').first().click()
+    assert.equal(await card.getByRole('switch').nth(1).getAttribute('aria-checked'), 'false')
+    await card.getByRole('switch').nth(1).click()
     await card.getByRole('button', { name: 'Salvar configuração do agente' }).click()
     await card.getByText('Configuração do agente salva.', { exact: true }).waitFor()
-    assert.deepEqual(loopPosts.at(-1), { mode: 'always', max_steps: 12, max_model_calls: 15, auto_verify: false })
+    assert.deepEqual(loopPosts.at(-1), { mode: 'always', max_steps: 12, max_model_calls: 15, auto_verify: false, extract_memory_always: true })
     failNextSave = true
     await card.getByRole('button', { name: 'Salvar configuração do agente' }).click()
     await card.getByRole('alert').filter({ hasText: 'O limite de etapas deve ser um número inteiro de 1 a 20.' }).waitFor()

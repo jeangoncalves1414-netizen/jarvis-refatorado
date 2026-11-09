@@ -662,7 +662,7 @@ export function SettingsPage({
       </>),
     },
     {
-      id: 'agent', label: 'Agente e popups', icon: <Bot size={16} />, keywords: 'agente loop etapas chamadas modelo limite verificação automática sequência continuar sozinho popups animados fechar sozinho máximo na tela',
+      id: 'agent', label: 'Agente e popups', icon: <Bot size={16} />, keywords: 'agente loop etapas chamadas modelo limite verificação automática extrair memórias toda mensagem tokens sequência continuar sozinho popups animados fechar sozinho máximo na tela',
       render: () => (<>
       {desktop && <AgentLoopSettings />}
       {desktop && <PopupSettings />}

@@ -75,7 +75,7 @@ const notesPopup = (draft, title, dictate, format = 'bullets') => envelope(`note
       else if (url.pathname === '/api/mission-control') data = { ok: true, components: [], summary: {}, goals: [], pending_actions: [], recent_actions: [] }
       else if (url.pathname === '/api/approvals') data = { ok: true, mode: { enabled: false, persist: false }, rules: [], durations: {} }
       else if (url.pathname === '/api/planning') data = { ok: true, workspace: { content: '', is_open: false }, preferences: {} }
-      else if (url.pathname === '/api/settings/agent-loop') data = { ok: true, settings: { mode: 'auto', max_steps: 8, max_model_calls: 10, auto_verify: true } }
+      else if (url.pathname === '/api/settings/agent-loop') data = { ok: true, settings: { mode: 'auto', max_steps: 8, max_model_calls: 10, auto_verify: true, extract_memory_always: false } }
       else if (url.pathname === '/api/settings/popups') {
         if (request.method() === 'POST') { popupSettings = JSON.parse(request.postData() || '{}'); popupPosts.push(popupSettings) }
         data = { ok: true, settings: popupSettings }

@@ -31,15 +31,43 @@ def normalize(text: str) -> str:
     return " ".join(value.casefold().split())
 
 
-def _action_verbs(words: list[str]) -> int:
+_CLAUSE_SPLIT = re.compile(r"[,;.]|\b(?:e|depois|entao|em seguida|por fim|tambem|ai)\b")
+_LEADING_FILLERS = frozenset({"jarvis", "pode", "poderia", "agora", "entao", "tambem", "ai", "por", "favor", "me"})
+# Conversa/pergunta: abre o pedido (depois dos preenchimentos) ou aparece em qualquer lugar do texto.
+_CONVERSATION_STARTS = (
+    "o que", "por que", "porque", "como", "explica", "explique", "qual", "quais", "quem", "onde", "quanto", "quantos",
+    "voce acha", "voce acredita", "voce sabe",
+)
+_CONVERSATION_ANYWHERE = ("voce acha", "por que")
+
+
+def _is_conversation(normalized: str, words: list[str]) -> bool:
+    if "?" in normalized:
+        return True
+    padded = f" {normalized} "
+    if any(f" {phrase} " in padded for phrase in _CONVERSATION_ANYWHERE):
+        return True
+    head = list(words)
+    while head and head[0] in _LEADING_FILLERS:
+        head.pop(0)
+    start = " ".join(head)
+    return any(start == phrase or start.startswith(phrase + " ") for phrase in _CONVERSATION_STARTS)
+
+
+def _action_verbs(normalized: str) -> int:
+    """Conta verbos de ação só no começo de cada oração ("adiciona ler, depois agenda dentista")."""
     count = 0
-    for index, word in enumerate(words):
-        if word in _NOT_ACTIONS:
-            # "agenda dentista", "liga a luz": substantivo no início da frase ou depois de vírgula/conector é verbo.
-            if word in _IMPERATIVE_NOUNS and (index == 0 or words[index - 1] in {"e", "depois", "entao", "tambem", ","}):
-                count += 1
+    for clause in _CLAUSE_SPLIT.split(normalized.replace("por favor", " ")):
+        words = re.findall(r"[a-z0-9]+", clause)
+        while words and words[0] in _LEADING_FILLERS:
+            words.pop(0)
+        if not words:
             continue
-        if word in {"bebi", "gastei", "comprei"} or any(word.startswith(stem) for stem in _ACTION_STEMS if len(word) >= len(stem) + 1):
+        word = words[0]
+        if word in _NOT_ACTIONS:
+            # "agenda dentista", "liga a luz": substantivo no início da oração é verbo no imperativo.
+            count += word in _IMPERATIVE_NOUNS
+        elif word in {"bebi", "gastei", "comprei"} or any(word.startswith(stem) for stem in _ACTION_STEMS if len(word) >= len(stem) + 1):
             count += 1
     return count
 
@@ -58,15 +86,14 @@ def should_use_agent_loop(text: str, mode: str, settings: dict[str, Any]) -> tup
         return False, "texto vazio"
     if choice == "always":
         return True, "loop sempre ligado"
-    tokens = re.findall(r"[a-z0-9]+|[,;]", normalized)
-    words = [token for token in tokens if token not in {",", ";"}]
+    words = re.findall(r"[a-z0-9]+", normalized)
     if len(words) < 4:
         return False, "pedido curto"
-    verbs = _action_verbs(tokens)
+    if _is_conversation(normalized, words):
+        return False, "pergunta ou conversa"
+    verbs = _action_verbs(normalized)
     if any(phrase in normalized for phrase in _VERIFY) and verbs >= 1:
         return True, "pedido com verificação"
-    if normalized.endswith("?") and verbs == 0:
-        return False, "pergunta"
     if verbs >= 2:
         return True, "pedido com várias ações"
     if verbs >= 1 and any((f" {item} " in f" {normalized} ") if item != ";" else item in normalized for item in _SEQUENCE):

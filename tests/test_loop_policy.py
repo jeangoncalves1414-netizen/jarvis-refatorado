@@ -24,6 +24,15 @@ def test_multi_part_requests_use_the_loop(text):
     "me explica como funciona a fotossíntese nas plantas",
     "adiciona ler nos meus hábitos de hoje",
     "",
+    # MG7: perguntas e conversa não entram no loop, mesmo citando verbos de ação.
+    "o que você acha de criar um app e abrir uma empresa",
+    "meu pc está ligado mas a tela fica desligada, por que",
+    "me explica como marcar consulta e registrar empresa",
+    "como eu adiciono hábitos e depois agendo compromissos",
+    "por que o app não consegue abrir e criar tarefas",
+    "você acha melhor criar uma tarefa ou marcar um lembrete",
+    "dá para adicionar ler nos hábitos e agendar dentista?",
+    "explique como registrar uma despesa e depois abrir as finanças",
 ])
 def test_greetings_questions_and_single_requests_stay_on_native_path(text):
     assert should_use_agent_loop(text, "general", AUTO)[0] is False

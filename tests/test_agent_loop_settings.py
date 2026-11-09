@@ -44,9 +44,9 @@ def _post(url, payload):
 
 def test_defaults_and_save(base_url, isolated_lote6_data):
     status, data = _get(f"{base_url}/api/settings/agent-loop")
-    assert status == 200 and data["settings"] == {"mode": "auto", "max_steps": 8, "max_model_calls": 10, "auto_verify": True}
+    assert status == 200 and data["settings"] == {"mode": "auto", "max_steps": 8, "max_model_calls": 10, "auto_verify": True, "extract_memory_always": False}
     status, data = _post(f"{base_url}/api/settings/agent-loop", {"mode": "always", "max_steps": 20, "max_model_calls": 1, "auto_verify": False})
-    assert status == 200 and data["settings"] == {"mode": "always", "max_steps": 20, "max_model_calls": 1, "auto_verify": False}
+    assert status == 200 and data["settings"] == {"mode": "always", "max_steps": 20, "max_model_calls": 1, "auto_verify": False, "extract_memory_always": False}
     assert _get(f"{base_url}/api/settings/agent-loop")[1]["settings"]["mode"] == "always"
     saved = json.loads((isolated_lote6_data.root / "data" / "runtime_settings.json").read_text(encoding="utf-8"))
     assert saved["agent_loop"]["max_steps"] == 20
@@ -76,4 +76,4 @@ def test_invalid_json_and_corrupted_file_fall_back_to_defaults(base_url, isolate
     assert error.value.code == 400
     path = isolated_lote6_data.root / "data" / "runtime_settings.json"
     path.write_text(json.dumps({"agent_loop": {"mode": "x", "max_steps": 99, "max_model_calls": -1, "auto_verify": "no"}}), encoding="utf-8")
-    assert runtime_settings.get_agent_loop_settings() == {"mode": "auto", "max_steps": 8, "max_model_calls": 10, "auto_verify": True}
+    assert runtime_settings.get_agent_loop_settings() == {"mode": "auto", "max_steps": 8, "max_model_calls": 10, "auto_verify": True, "extract_memory_always": False}

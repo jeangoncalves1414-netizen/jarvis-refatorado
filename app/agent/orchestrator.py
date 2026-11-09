@@ -81,6 +81,13 @@ def _build_search_marker(tool_results: dict[str, dict[str, Any]]) -> str:
         return ""
 
 
+# Frases que justificam gastar uma chamada ao modelo para extrair memória (comparadas sem acento).
+_MEMORY_TRIGGERS = (
+    "prefiro", "prefer", "me lembre", "lembra que", "lembre que", "lembre-se", "quero que voce",
+    "meu nome e", "me chamo", "eu moro", "moro em", "eu trabalho", "eu estudo", "eu sou",
+    "minha idade", "meu aniversario", "nao esqueca", "anota que", "guarda que", "sempre que",
+)
+
 _RACE_STATUS = {"winner": "respondeu primeiro e foi usado", "empty": "devolveu resposta vazia", "failed": "falhou", "discarded": "descartado (outro respondeu antes)"}
 
 
@@ -300,6 +307,19 @@ class AgentOrchestrator:
                     job.fail(f"Resumo diário falhou ({type(e).__name__}).")
                     print(f"Erro ao gerar resumo diário: {e}")
 
+    @staticmethod
+    def _should_extract_memory(normalized: str) -> bool:
+        """Gatilho da extração de memória em segundo plano (sem acento, minúsculas)."""
+        try:
+            from app.storage.runtime_settings import get_agent_loop_settings
+            if get_agent_loop_settings().get("extract_memory_always"):
+                return True
+        except Exception:
+            pass
+        from app.agent.loop_policy import normalize
+        value = normalize(normalized)
+        return any(trigger in value for trigger in _MEMORY_TRIGGERS)
+
     def _remember_preferences(self, text: str, normalized: str) -> None:
         # Detecta preferências explícitas em linguagem natural e salva no memory_store (síncrono)
         _preference_triggers = ("prefiro", "prefer", "me lembre", "lembra que", "quero que voce", "quero que você")
@@ -320,8 +340,12 @@ class AgentOrchestrator:
                 # Salva a preferência genérica sem categorizar o estilo
                 self.memory_store.add_preference("general_preference", text.strip()[:120])
 
-        # Também salva na memória semântica vetorial (assíncrono, quando disponível)
+        # Também salva na memória semântica vetorial (assíncrono, quando disponível).
+        # A extração custa uma chamada ao modelo: só roda com gatilho na mensagem ou com a opção
+        # "Extrair memórias de toda mensagem" ligada em Configurações > Agente.
         if not self.semantic_memory or not self.llm_service:
+            return
+        if not self._should_extract_memory(normalized):
             return
 
         def _extract():
@@ -968,7 +992,7 @@ ter pesquisado se não pesquisou.
                 use_loop, reason = should_use_agent_loop(text, mode, get_agent_loop_settings())
                 if use_loop:
                     record_run_step(f"Loop agêntico escolhido ({reason}).")
-                    allowed = self.registry.allowed_tool_names(mode="general", provider=provider, user_text=text)
+                    allowed = self.registry.allowed_tool_names(mode="general", provider=provider, user_text=text, narrow=True)
                     plan = self._run_agent_loop(text, mode, session_id, history, react_max_steps, on_progress, allowed_tools=allowed)
                     self.last_plan = plan
                     return plan
