@@ -38,6 +38,7 @@ from app.agent.action_gateway import request_origin, run_action
 from app.agent.run_tracking import background_run, in_background
 from app.core.runs import current_run
 from app.ui.panel.api.goals import handle_goals_get, handle_goals_post
+from app.ui.panel.api.mcp import handle_mcp_get, handle_mcp_post, handle_mcp_delete
 from app.storage.vector.semantic_memory import is_technical_error_memory
 from app.core.control_plane import ControlPlanePolicy, RequestPrincipal
 from app.core.execution_receipts import receipts
@@ -737,6 +738,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 handle_popups_get,
                 handle_places_get,
                 handle_notifications_get,
+                handle_mcp_get,
             ):
                 result = handler_fn(parts, self)
                 if result:
@@ -792,6 +794,11 @@ class PanelHandler(BaseHTTPRequestHandler):
         path = parsed_path.path
         if path.startswith("/api/") and self._authorize_api(path, "DELETE") is None:
             return
+        if path.startswith("/api/mcp/"):
+            res = handle_mcp_delete(path, self)
+            if res:
+                self._send_json(*res)
+                return
         if path.startswith("/api/study/categories/"):
             try:
                 from app.storage.session_store import delete_category
@@ -2034,6 +2041,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             handle_controls_post,
             handle_goals_post,
             handle_notifications_post,
+            handle_mcp_post,
         ):
             result = handler_fn(path, body, self)
             if result:
@@ -2279,6 +2287,12 @@ class PanelServer:
             )
             self._ws_thread.start()
 
+        try:
+            from app.mcp import mcp_manager
+            mcp_manager.start()
+        except Exception as exc:
+            print(f"[Jarvis] Erro ao iniciar MCP Manager: {exc}")
+
     def start_wake_word(self) -> None:
         """Inicia o detector de wake word (Vosk PT-BR, sem API key)."""
         global _wake_word_detector
@@ -2296,5 +2310,10 @@ class PanelServer:
             print(f"[Jarvis] Wake word desativado: {e}")
 
     def stop(self) -> None:
+        try:
+            from app.mcp import mcp_manager
+            mcp_manager.stop()
+        except Exception:
+            pass
         if self.http_server:
             self.http_server.shutdown()

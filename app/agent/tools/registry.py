@@ -156,6 +156,51 @@ TUTOR_TOOL_NAMES = {
 }
 
 
+class DynamicMCPTool(BaseTool):
+    """Ferramenta MCP dinâmica registrada a partir de um servidor MCP conectado."""
+
+    def __init__(
+        self,
+        server_id: str,
+        raw_name: str,
+        description: str,
+        parameters: dict[str, Any],
+        manager: Any,
+        metadata: ToolMetadata | None = None,
+    ) -> None:
+        self.server_id = server_id
+        self.raw_name = raw_name
+        self._name = f"mcp_{server_id}_{raw_name}"
+        self._description = description or f"Ferramenta {raw_name} provida pelo servidor MCP {server_id}."
+        self._parameters = parameters or {"type": "object", "properties": {}}
+        self._manager = manager
+        self._metadata = metadata
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def description(self) -> str:
+        return self._description
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return self._parameters
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        if self._metadata is not None:
+            return self._metadata
+        from app.agent.tools.catalog import classify_mcp_tool_metadata
+        return classify_mcp_tool_metadata(self.server_id, self.raw_name, self._description)
+
+    def execute(self, args: dict[str, Any], context: dict[str, Any] | None = None) -> ToolResult:
+        if hasattr(self._manager, "call_tool_sync"):
+            return self._manager.call_tool_sync(self.server_id, self.raw_name, args or {})
+        return ToolResult(ok=False, message=f"Gerenciador MCP indisponível para executar '{self.name}'.")
+
+
 class ToolRegistry:
     def __init__(
         self,
@@ -270,6 +315,21 @@ class ToolRegistry:
     def _register(self, tool: BaseTool) -> None:
         self.tools[tool.name] = tool
 
+    def register_mcp_tool(self, tool: BaseTool) -> None:
+        """Registra ferramenta MCP no registro e no catálogo de segurança."""
+        self._register(tool)
+        from app.agent.tools.catalog import register_mcp_tool_metadata
+        register_mcp_tool_metadata(tool.name, tool.metadata)
+
+    def unregister_mcp_tools(self, server_id: str) -> None:
+        """Desregistra todas as ferramentas de um servidor MCP específico."""
+        prefix = f"mcp_{server_id}_"
+        to_del = [name for name in list(self.tools.keys()) if name.startswith(prefix)]
+        for name in to_del:
+            self.tools.pop(name, None)
+        from app.agent.tools.catalog import unregister_mcp_tool_metadata
+        unregister_mcp_tool_metadata(server_id)
+
     def get_tool_metadata(self, name: str):
         tool = self.get_tool(name)
         if tool is None:
@@ -299,7 +359,10 @@ class ToolRegistry:
         ``narrow=True`` (loop agêntico) aplica a filtragem por palavras do pedido a qualquer
         provedor, mantendo sempre as ferramentas de dados (``LOOP_DATA_TOOLS``).
         """
-        allowed = TUTOR_TOOL_NAMES if mode == "tutor" else GENERAL_TOOL_NAMES
+        allowed = set(TUTOR_TOOL_NAMES if mode == "tutor" else GENERAL_TOOL_NAMES)
+        mcp_tools = {name for name in self.tools if name.startswith("mcp_")}
+        if mode != "tutor":
+            allowed.update(mcp_tools)
 
         # Otimização de TPM para provedores com limite estrito de taxa (ex: Groq)
         if (provider == "groq" or narrow) and mode != "tutor":
@@ -314,6 +377,10 @@ class ToolRegistry:
             for t_name in allowed:
                 if t_name in user_lower or t_name.replace("_", " ") in user_lower:
                     dynamic_tools.add(t_name)
+            for m_name in mcp_tools:
+                clean_mcp = m_name.replace("mcp_", "").replace("_", " ")
+                if m_name in user_lower or clean_mcp in user_lower:
+                    dynamic_tools.add(m_name)
             normalized = normalize_name(user_text)
             for pattern, tools in GROQ_KEYWORD_TOOLS + (LOOP_KEYWORD_TOOLS if narrow else ()):
                 if pattern.search(normalized):

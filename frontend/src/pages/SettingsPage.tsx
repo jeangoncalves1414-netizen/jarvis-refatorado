@@ -10,7 +10,8 @@ import { ContextSettings } from '../components/ContextSettings'
 import { HomeAssistantSettings } from '../components/HomeAssistantSettings'
 import { VoiceSettings } from '../components/VoiceSettings'
 import { PersonaBriefingSettings } from '../components/PersonaBriefingSettings'
-import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download, User, Mic, Route, ShieldCheck, Cloud, Palette, HardDrive, Search, Star, ArrowUp, ArrowDown, Check, SlidersHorizontal, Bot, Compass, Sparkles, Globe } from 'lucide-react'
+import { McpSettings } from '../components/McpSettings'
+import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download, User, Mic, Route, ShieldCheck, Cloud, Palette, HardDrive, Search, Star, ArrowUp, ArrowDown, Check, SlidersHorizontal, Bot, Compass, Sparkles, Globe, Server } from 'lucide-react'
 import type { AiSettings, LlmSettings, OxyyCatalog, OxyySettings, Proactive, SttSettings, TtsSettings, Tray, WakeWord } from '../types'
 import { isMobileStandalone, getMobileProvider, getMobileApiKeys, setMobileProvider, setMobileApiKeys, getMobileOxyyModels, setMobileOxyyModels, DEFAULT_MOBILE_KEYS, DEFAULT_OXXY_MODELS, type DirectChatProvider, countKeys, nativeDirectPost } from '../hooks/useDirectChat'
 import { isSfxEnabled, setSfxEnabled, playSuccess } from '../utils/sfx'
@@ -694,6 +695,13 @@ export function SettingsPage({
       id: 'approvals', label: 'Aprovações automáticas', icon: <ShieldCheck size={16} />, keywords: 'aprovações automáticas modo liberado ferramentas regras permitir aprovar',
       render: () => (<>
         <AutoApprovalsManager />
+      </>),
+    },
+    {
+      id: 'mcp', label: 'Servidores MCP (Extensões)', icon: <Server size={16} />, keywords: 'mcp model context protocol servidores extensões ferramentas plugins integrações stdio',
+      render: () => (<>
+        {desktop && <McpSettings />}
+        {!desktop && <article className="settings-card"><p className="eyebrow">SERVIDORES MCP</p><h2>Disponível no PC</h2><p>Servidores MCP via stdio rodam localmente no computador.</p></article>}
       </>),
     },
     {

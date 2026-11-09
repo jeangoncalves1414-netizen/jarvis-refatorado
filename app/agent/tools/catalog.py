@@ -995,5 +995,87 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
 }
 
 
+_READ_KEYWORDS = (
+    "read", "get", "list", "search", "find", "fetch", "describe",
+    "query", "check", "inspect", "show", "view", "scan", "peek", "status", "info",
+)
+_HIGH_WRITE_KEYWORDS = (
+    "delete", "remove", "destroy", "drop", "kill", "terminate",
+    "format", "exec", "execute", "run", "stop", "restart", "shutdown",
+)
+_WRITE_KEYWORDS = (
+    "write", "create", "add", "update", "edit", "modify", "set",
+    "post", "put", "patch", "send", "insert", "install", "apply", "upload", "push",
+)
+
+
+def classify_mcp_tool_metadata(server_id: str, tool_name: str, description: str = "") -> ToolMetadata:
+    """Calcula ToolMetadata para uma ferramenta MCP com base em seu nome e descrição."""
+    name_lower = tool_name.lower().replace("-", "_")
+    tokens = set(name_lower.split("_"))
+    desc_lower = description.lower()
+
+    # Checa leitura primeiro
+    is_read = any(k in tokens for k in _READ_KEYWORDS) or any(name_lower.startswith(k) for k in _READ_KEYWORDS)
+    if not is_read and any(f"{k} " in desc_lower or f" {k}" in desc_lower for k in ("read", "list", "get", "fetch", "search")):
+        if not any(k in tokens for k in _HIGH_WRITE_KEYWORDS + _WRITE_KEYWORDS):
+            is_read = True
+
+    if is_read:
+        return ToolMetadata(
+            capabilities=("mcp", server_id),
+            default_risk="observe",
+            requires_confirmation=False,
+            reversible=True,
+            effect=f"Lê dados do servidor MCP '{server_id}' ({tool_name}).",
+            reversibility="Nada a desfazer: operação de leitura sem alteração.",
+            scope=f"Servidor MCP '{server_id}'.",
+        )
+
+    # Checa escrita de alto risco
+    is_high = any(k in tokens for k in _HIGH_WRITE_KEYWORDS) or any(name_lower.startswith(k) for k in _HIGH_WRITE_KEYWORDS)
+    if is_high:
+        return ToolMetadata(
+            capabilities=("mcp", server_id),
+            default_risk="high",
+            requires_confirmation=True,
+            reversible=False,
+            effect=f"Executa operação crítica no servidor MCP '{server_id}' ({tool_name}).",
+            reversibility="Não garantida: ação potencialmente irreversível no servidor externo.",
+            scope=f"Servidor MCP '{server_id}'.",
+        )
+
+    # Demais escritas
+    return ToolMetadata(
+        capabilities=("mcp", server_id),
+        default_risk="low",
+        requires_confirmation=True,
+        reversible=False,
+        effect=f"Modifica dados no servidor MCP '{server_id}' ({tool_name}).",
+        reversibility="Reversível se a ação correspondente de remoção ou edição for chamada.",
+        scope=f"Servidor MCP '{server_id}'.",
+    )
+
+
+def register_mcp_tool_metadata(full_name: str, metadata: ToolMetadata) -> None:
+    """Registra dinamicamente metadados de uma ferramenta MCP no catálogo de segurança."""
+    TOOL_CATALOG[full_name] = metadata
+
+
+def unregister_mcp_tool_metadata(server_id: str) -> None:
+    """Remove ferramentas do servidor MCP do catálogo."""
+    prefix = f"mcp_{server_id}_"
+    keys_to_remove = [k for k in TOOL_CATALOG if k.startswith(prefix)]
+    for k in keys_to_remove:
+        del TOOL_CATALOG[k]
+
+
 def metadata_for(tool_name: str, fallback: ToolMetadata) -> ToolMetadata:
-    return TOOL_CATALOG.get(tool_name, fallback)
+    if tool_name in TOOL_CATALOG:
+        return TOOL_CATALOG[tool_name]
+    if tool_name.startswith("mcp_"):
+        parts = tool_name.split("_", 2)
+        if len(parts) >= 3:
+            server_id, raw_name = parts[1], parts[2]
+            return classify_mcp_tool_metadata(server_id, raw_name)
+    return fallback
