@@ -66,17 +66,17 @@ type SettingsPageProps = {
 }
 
 const providerLabel: Record<string, string> = {
-  fish: 'Fish Audio S2.1 Pro ° Oficial',
-  gemini: 'Gemini Flash TTS ° Oficial',
-  edge: 'Edge TTS (Antonio) ° Local',
-  oxyy: 'Oxyy Audio ° Oxyy',
+  fish: 'Fish Audio S2.1 Pro · Oficial',
+  gemini: 'Gemini Flash TTS · Oficial',
+  edge: 'Edge TTS (Antonio) · Local',
+  oxyy: 'Oxyy Audio · Oxyy',
 }
 
 const OFFICIAL_PROVIDERS = [
-  { id: 'gemini', label: 'Gemini ° Oficial (Google)', desc: 'Rota direta com a API da Google Gemini' },
-  { id: 'groq', label: 'Groq ° Oficial (Groq Inc)', desc: 'Processamento ultrarrápido Llama/Whisper' },
-  { id: 'openrouter', label: 'OpenRouter ° Oficial', desc: 'Roteamento direto para 100+ modelos' },
-  { id: 'fish', label: 'Fish Audio ° Oficial', desc: 'Vozes neurais customizadas' },
+  { id: 'gemini', label: 'Gemini · Oficial (Google)', desc: 'Rota direta com a API da Google Gemini' },
+  { id: 'groq', label: 'Groq · Oficial (Groq Inc)', desc: 'Processamento ultrarrápido Llama/Whisper' },
+  { id: 'openrouter', label: 'OpenRouter · Oficial', desc: 'Roteamento direto para 100+ modelos' },
+  { id: 'fish', label: 'Fish Audio · Oficial', desc: 'Vozes neurais customizadas' },
 ]
 
 export function SettingsPage({
@@ -248,7 +248,7 @@ export function SettingsPage({
                     <div>
                       <strong>{routeLabels[capability]}</strong>
                       <span className="route-badge">
-                        {route?.effective ? (route.fallback_used ? 'Fallback ° Oficial' : 'Ativo ° Oxyy/Oficial') : 'Chave ausente'}
+                        {route?.effective ? (route.fallback_used ? 'Fallback · Oficial' : 'Ativo · Oxyy/Oficial') : 'Chave ausente'}
                       </span>
                     </div>
                     <small>{route?.effective?.provider || '—'} · {route?.effective?.model || 'nenhum modelo'}</small>
@@ -271,7 +271,7 @@ export function SettingsPage({
             </div>
             <p>
               Selecione o provedor e modelo principal e a rota de fallback para cada capacidade.
-              Opções via Oxyy são sufixadas com <strong>° Oxyy</strong> e provedores diretos com <strong>° Oficial</strong>.
+              Opções via Oxyy são sufixadas com <strong>· Oxyy</strong> e provedores diretos com <strong>· Oficial</strong>.
             </p>
 
             <div style={{ margin: '16px 0', padding: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid rgba(251,191,36,0.2)' }}>
@@ -282,9 +282,9 @@ export function SettingsPage({
                   onChange={event => onSetProvider(event.target.value as 'gemini' | 'groq' | 'oxyy')}
                   style={{ marginTop: 6 }}
                 >
-                  <option value="oxyy">Oxyy · 200+ modelos ° Catálogo Principal</option>
-                  <option value="gemini">Gemini ° Oficial (Google API Direct)</option>
-                  <option value="groq">Groq ° Oficial (Groq Llama 3.3 Direct)</option>
+                  <option value="oxyy">Oxyy · 200+ modelos · Catálogo Principal</option>
+                  <option value="gemini">Gemini · Oficial (Google API Direct)</option>
+                  <option value="groq">Groq · Oficial (Groq Llama 3.3 Direct)</option>
                 </select>
               </label>
             </div>
@@ -306,15 +306,15 @@ export function SettingsPage({
                   return (
                     <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       <label className="field-label" style={{ fontWeight: 600 }}>
-                        {label} — Modelo ° Oxyy
+                        {label} — Modelo · Oxyy
                         <select
                           value={oxyySettings?.models?.[key] || defaultModels[key] || ''}
                           onChange={event => onSaveOxyy({ ...(oxyySettings?.models || {}), [key]: event.target.value })}
                         >
-                          <option value={defaultModels[key] || ''}>{defaultModels[key] || label} ° Oxyy</option>
+                          <option value={defaultModels[key] || ''}>{defaultModels[key] || label} · Oxyy</option>
                           {options.filter(m => m.id !== defaultModels[key]).map(model => (
                             <option value={model.id} key={model.id}>
-                              {model.name || model.id} ° Oxyy ({model.provider || 'Oxyy'})
+                              {model.name || model.id} · Oxyy ({model.provider || 'Oxyy'})
                             </option>
                           ))}
                         </select>
@@ -347,19 +347,19 @@ export function SettingsPage({
                       <label className="field-label" style={{ fontWeight: 600 }}>
                         Voz / TTS — Provedor & Modelo
                         <select value={currentValue} onChange={event => handleTtsChange(event.target.value)}>
-                          <optgroup label="° Oficial — Provedores Diretos">
-                            <option value="fish">Fish Audio S2.1 Pro ° Oficial {ttsSettings?.fish_configured ? '✓' : '(sem chave)'}</option>
-                            <option value="gemini">Gemini Flash TTS ° Oficial (Google)</option>
-                            <option value="edge">Edge TTS (Antonio) ° Local (Microsoft)</option>
+                          <optgroup label="· Oficial — Provedores Diretos">
+                            <option value="fish">Fish Audio S2.1 Pro · Oficial {ttsSettings?.fish_configured ? '✓' : '(sem chave)'}</option>
+                            <option value="gemini">Gemini Flash TTS · Oficial (Google)</option>
+                            <option value="edge">Edge TTS (Antonio) · Local (Microsoft)</option>
                           </optgroup>
-                          <optgroup label="° Oxyy — Via Catálogo">
-                            <option value="oxyy:tts-1-hd">tts-1-hd ° Oxyy</option>
-                            <option value="oxyy:tts-1">tts-1 ° Oxyy</option>
+                          <optgroup label="· Oxyy — Via Catálogo">
+                            <option value="oxyy:tts-1-hd">tts-1-hd · Oxyy</option>
+                            <option value="oxyy:tts-1">tts-1 · Oxyy</option>
                             {oxyyTtsOptions
                               .filter(m => m.id !== 'tts-1-hd' && m.id !== 'tts-1')
                               .map(model => (
                                 <option value={`oxyy:${model.id}`} key={model.id}>
-                                  {model.name || model.id} ° Oxyy ({model.provider || 'Oxyy'})
+                                  {model.name || model.id} · Oxyy ({model.provider || 'Oxyy'})
                                 </option>
                               ))}
                           </optgroup>
@@ -386,15 +386,15 @@ export function SettingsPage({
                   return (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       <label className="field-label" style={{ fontWeight: 600 }}>
-                        Chat / Raciocínio — Modelo ° Oxyy
+                        Chat / Raciocínio — Modelo · Oxyy
                         <select
                           value={oxyySettings?.models?.['chat'] || defaultChatModel}
                           onChange={event => onSaveOxyy({ ...(oxyySettings?.models || {}), chat: event.target.value })}
                         >
-                          <option value={defaultChatModel}>gpt-4o-mini ° Oxyy</option>
+                          <option value={defaultChatModel}>gpt-4o-mini · Oxyy</option>
                           {chatOptions.filter(m => m.id !== defaultChatModel).map(model => (
                             <option value={model.id} key={model.id}>
-                              {model.name || model.id} ° Oxyy ({model.provider || 'Oxyy'})
+                              {model.name || model.id} · Oxyy ({model.provider || 'Oxyy'})
                             </option>
                           ))}
                         </select>
@@ -412,9 +412,9 @@ export function SettingsPage({
                     onChange={event => onSetSttProvider(event.target.value as 'local' | 'groq' | 'oxyy' | 'google')}
                   >
                     <option value="local">STT local (faster-whisper, opcional)</option>
-                    <option value="groq">Groq Whisper ° Oficial</option>
-                    <option value="oxyy">Oxyy Whisper ° Oxyy</option>
-                    <option value="google">Google Speech ° Oficial (Fallback)</option>
+                    <option value="groq">Groq Whisper · Oficial</option>
+                    <option value="oxyy">Oxyy Whisper · Oxyy</option>
+                    <option value="google">Google Speech · Oficial (Fallback)</option>
                   </select>
                 </label>
                 <label className="field-label" style={{ flex: 1 }}>
@@ -493,7 +493,7 @@ export function SettingsPage({
               <div className="field-label">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
-                    <KeyRound size={14} style={{ color: '#78e68c' }} /> Groq API Key ° Oficial
+                    <KeyRound size={14} style={{ color: '#78e68c' }} /> Groq API Key · Oficial
                   </span>
                   {keyValues.groq && (
                     <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
@@ -526,7 +526,7 @@ export function SettingsPage({
               <div className="field-label">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
-                    <KeyRound size={14} style={{ color: '#a855f7' }} /> Gemini API Key ° Oficial (Google)
+                    <KeyRound size={14} style={{ color: '#a855f7' }} /> Gemini API Key · Oficial (Google)
                   </span>
                   {keyValues.gemini && (
                     <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
@@ -559,7 +559,7 @@ export function SettingsPage({
               <div className="field-label">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
-                    <KeyRound size={14} style={{ color: '#ffaa00' }} /> OpenRouter API Key ° Oficial
+                    <KeyRound size={14} style={{ color: '#ffaa00' }} /> OpenRouter API Key · Oficial
                   </span>
                   {keyValues.openrouter && (
                     <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
@@ -592,7 +592,7 @@ export function SettingsPage({
               <div className="field-label">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
-                    <KeyRound size={14} style={{ color: '#fbbf24' }} /> Fish Audio API Key ° Oficial
+                    <KeyRound size={14} style={{ color: '#fbbf24' }} /> Fish Audio API Key · Oficial
                   </span>
                   {keyValues.fish && (
                     <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>

@@ -1,5 +1,6 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const assert = require('node:assert/strict')
+const { assertSourceHasNoBrokenText, assertPageHasNoBrokenText } = require('./broken-text.cjs')
 
 ;(async () => {
   const browser = await chromium.launch({ headless: true })
@@ -73,6 +74,7 @@ const assert = require('node:assert/strict')
     await page.getByLabel('Mensagem para o agente').press('Enter')
     await page.getByRole('dialog', { name: 'Conversa por voz' }).waitFor()
     assert.equal(await page.locator('.live-call-orb-wrapper, .reactor-orb-stage').count(), 0)
+    assertSourceHasNoBrokenText(); await assertPageHasNoBrokenText(page)
     assert.deepEqual(errors, [])
     console.log('PASS — cancelamento pelo chat, paleta e /parar, retry, isolamento, reload, desconexão, 360 px e ligação sem orb')
   } finally { await browser.close() }

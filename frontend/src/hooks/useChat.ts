@@ -112,6 +112,8 @@ export function useChat(options: UseChatOptions = {}) {
   const finalReasoningRef = useRef('')
   const finalReplyRef = useRef('')
   const finalRunIdRef = useRef<string | undefined>(undefined)
+  // run_id do pedido em andamento neste aparelho (vem do agent_progress); agent_reply de outro pedido não fecha o turno.
+  const turnRunIdRef = useRef<string | undefined>(undefined)
   const waitForReplyRef = useRef<((reply: string) => void) | null>(null)
   const sessionMutationRef = useRef(0)
   // Segurança contra turno sem evento final: início do turno e último sinal recebido do servidor.
@@ -141,6 +143,7 @@ export function useChat(options: UseChatOptions = {}) {
     const content = buildAssistantContent(reasoning, visibleReply)
     const history = [...pendingHistoryRef.current, { role: 'assistant' as const, content, run_id: finalRunIdRef.current }]
     finalRunIdRef.current = undefined
+    turnRunIdRef.current = undefined
     setAnswer(visibleReply)
     setMessages(history)
     setAgentProgress(null)
@@ -402,6 +405,8 @@ export function useChat(options: UseChatOptions = {}) {
       setChatError(message)
     } else {
       setAnswer(generic)
+      // O texto de "answer" só aparece com a conversa vazia; com histórico a falha precisa ir para o aviso de erro.
+      setChatError(generic)
     }
     setStreamingReply('')
     setLiveSearch(null)
@@ -421,6 +426,7 @@ export function useChat(options: UseChatOptions = {}) {
   const sendText = async (message: string, mode = 'general', racingMode = false, origin?: RequestOrigin): Promise<string> => {
     if (!message || loading) return ''
     turnStartRef.current = Date.now()
+    turnRunIdRef.current = undefined
     lastActivityRef.current = Date.now()
     setLoading(true)
     setLiveSearch(null)
@@ -464,6 +470,7 @@ export function useChat(options: UseChatOptions = {}) {
   const sendVisionQuestion = async (prompt: string, image: string, label = 'Imagem') => {
     if (!prompt || loading) return
     turnStartRef.current = Date.now()
+    turnRunIdRef.current = undefined
     lastActivityRef.current = Date.now()
     setLoading(true)
     setLiveSearch(null)
@@ -558,6 +565,7 @@ export function useChat(options: UseChatOptions = {}) {
         lastActivityRef.current = Date.now()
         if (type === 'agent_progress') {
           const progress = parseProgress(data as Record<string, unknown>)
+          if (progress?.run_id && !turnRunIdRef.current && !messagesRef.current.some(item => item.role === 'assistant' && item.run_id === progress.run_id)) turnRunIdRef.current = progress.run_id
           if (progress) setAgentProgress(['done', 'cancelled', 'limit'].includes(progress.phase) ? null : progress)
           return
         }
@@ -565,9 +573,11 @@ export function useChat(options: UseChatOptions = {}) {
           // Resposta do loop agêntico retomado depois de uma aprovação.
           const reply = typeof data.reply === 'string' ? data.reply.trim() : ''
           const runId = typeof data.run_id === 'string' ? data.run_id : undefined
-          setAgentProgress(null)
+          const closesTurn = Boolean(waitForReplyRef.current && runId && runId === turnRunIdRef.current)
+          // Resposta de outro pedido não apaga o contador do pedido que ainda está em andamento.
+          if (closesTurn || !waitForReplyRef.current) setAgentProgress(null)
           if (!reply) return
-          if (waitForReplyRef.current) {
+          if (closesTurn && waitForReplyRef.current) {
             finalRunIdRef.current = runId
             finalReasoningRef.current = ''
             finalReplyRef.current = reply

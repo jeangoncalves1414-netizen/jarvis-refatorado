@@ -28,6 +28,7 @@ import { usePopups } from './popups/PopupProvider'
 import { PopupHost } from './popups/PopupHost'
 import { extractPopups } from './popups/registry'
 import { broadcastSyncEvent } from './utils/syncChannel'
+import { addWaterDraft, flushWaterDrafts, loadWaterDrafts, postWater } from './utils/waterDrafts'
 import { requestNotificationPermission } from './utils/notifications'
 import { autoSyncOnOpen } from './utils/jarvisCloud'
 import type { AiSettings, BridgeStatus, Climate, Dashboard, Finance, IdentityProfile, LlmSettings, LogEntry, Memory, Metrics, OxyyCatalog, OxyySettings, ProfileMemory, Proactive, SttSettings, Tray, TtsSettings, WakeWord, Weather } from './types'
@@ -151,25 +152,38 @@ export default function App() {
   const popups = usePopups()
   const showPopup = popups.show
   const handleQuickAddWater = useCallback(async (ml = 250) => {
+    const result = await postWater(ml)
+    if (!result.ok) {
+      // Sem confirmação do servidor nada é somado: o valor fica como rascunho para reenviar.
+      addWaterDraft(ml)
+      setNotice(`Não consegui registrar +${ml}ml de água (${result.error}). Guardei o registro neste aparelho e reenvio quando o Jarvis responder.`)
+      return
+    }
     playSuccess()
-    try {
-      const res = await fetch('/api/evolute/water/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount_ml: ml }),
-      })
-      if (res.ok) {
-        setNotice(`+${ml}ml de água registrados!`)
-        broadcastSyncEvent('WATER_UPDATED', { amount_ml: ml })
-        // A rota devolve o popup de água montado com os totais do Life OS (lote 6).
-        const data = await res.json().catch(() => null)
-        if (data?.popup) showPopup(data.popup)
-      }
-    } catch {
-      setNotice(`+${ml}ml de água registrados.`)
-      broadcastSyncEvent('WATER_UPDATED', { amount_ml: ml })
+    setNotice(`+${ml}ml de água registrados!`)
+    broadcastSyncEvent('WATER_UPDATED', { amount_ml: ml })
+    // A rota devolve o popup de água montado com os totais do Life OS (lote 6).
+    if (result.data?.popup) showPopup(result.data.popup as Parameters<typeof showPopup>[0])
+    if (loadWaterDrafts().length) {
+      const flushed = await flushWaterDrafts()
+      if (flushed.sent) { setNotice(`Reenviei ${flushed.sentMl}ml de água que estavam guardados.`); broadcastSyncEvent('WATER_UPDATED', { amount_ml: flushed.sentMl }) }
     }
   }, [setNotice, showPopup])
+
+  // Reenvia registros de água guardados quando o app abre ou a rede volta.
+  useEffect(() => {
+    const retry = () => {
+      if (!loadWaterDrafts().length) return
+      void flushWaterDrafts().then(flushed => {
+        if (!flushed.sent) return
+        setNotice(`Reenviei ${flushed.sentMl}ml de água que estavam guardados.`)
+        broadcastSyncEvent('WATER_UPDATED', { amount_ml: flushed.sentMl })
+      })
+    }
+    retry()
+    window.addEventListener('online', retry)
+    return () => window.removeEventListener('online', retry)
+  }, [setNotice])
 
   useEffect(() => {
     if (IS_MOBILE) return

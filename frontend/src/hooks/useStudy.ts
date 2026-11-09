@@ -210,14 +210,14 @@ export function useStudy(setNotice: SetNotice) {
 
   const restoreStudySession = async (id: string) => {
     const response = await fetch(`/api/sessions/${id}/restore`, { method: 'POST' })
-    if (!response.ok) { setNotice('NÃ£o foi possÃ­vel restaurar a sessÃ£o.'); return }
+    if (!response.ok) { setNotice('Não foi possível restaurar a sessão.'); return }
     await refreshStudy()
   }
 
   const purgeStudySession = async (id: string) => {
-    if (!confirm('Apagar esta sessÃ£o permanentemente? Esta aÃ§Ã£o nÃ£o pode ser desfeita.')) return
+    if (!confirm('Apagar esta sessão permanentemente? Esta ação não pode ser desfeita.')) return
     const response = await fetch(`/api/sessions/${id}?permanent=1`, { method: 'DELETE' })
-    if (!response.ok) { setNotice('NÃ£o foi possÃ­vel apagar permanentemente.'); return }
+    if (!response.ok) { setNotice('Não foi possível apagar permanentemente.'); return }
     setTrashedStudySessions(previous => previous.filter(session => session.id !== id))
   }
 
@@ -475,9 +475,9 @@ export function useStudy(setNotice: SetNotice) {
     setWhiteboard(next)
     try {
       const response = await fetch(`/api/sessions/${studySessionId}/whiteboard`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ whiteboard: next }) })
-      if (!response.ok) { whiteboardRef.current = previousWhiteboard; setWhiteboard(previousWhiteboard); setNotice('NÃ£o foi possÃ­vel colar a imagem no quadro.'); return undefined }
+      if (!response.ok) { whiteboardRef.current = previousWhiteboard; setWhiteboard(previousWhiteboard); setNotice('Não foi possível colar a imagem no quadro.'); return undefined }
       return id
-    } catch { whiteboardRef.current = previousWhiteboard; setWhiteboard(previousWhiteboard); setNotice('Erro de conexÃ£o ao colar imagem.'); return undefined }
+    } catch { whiteboardRef.current = previousWhiteboard; setWhiteboard(previousWhiteboard); setNotice('Erro de conexão ao colar imagem.'); return undefined }
   }
 
   const addWhiteboardImage = async (x: number, y: number) => {
@@ -560,7 +560,7 @@ export function useStudy(setNotice: SetNotice) {
     whiteboardRef.current = next
     setWhiteboard(next)
     const response = await fetch(`/api/sessions/${studySessionId}/whiteboard`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ whiteboard: next }) })
-    if (!response.ok) setNotice('NÃ£o foi possÃ­vel duplicar o elemento.')
+    if (!response.ok) setNotice('Não foi possível duplicar o elemento.')
   }
 
   const clearWhiteboard = async () => {

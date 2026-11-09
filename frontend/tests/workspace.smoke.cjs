@@ -2,6 +2,7 @@
 // All API traffic is intercepted: these tests never alter personal data.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const assert = require('node:assert/strict')
+const { assertSourceHasNoBrokenText, assertPageHasNoBrokenText } = require('./broken-text.cjs')
 const { mkdirSync } = require('node:fs')
 const path = require('node:path')
 const output = process.env.PANEL_TEST_OUTPUT || path.join(require('node:os').tmpdir(), 'agent-workspace-review')
@@ -407,6 +408,7 @@ mkdirSync(output, { recursive: true })
     assert.equal(lastRemoval.device_token, 'credencial-de-teste')
     assert.equal(await desktopToken(), null)
     console.log('PASS: remoção de dispositivo com confirmação, aviso do controle local, falha de rede, credencial velha, 360 px e limpeza da credencial local')
+    assertSourceHasNoBrokenText(); await assertPageHasNoBrokenText(page)
     assert.deepEqual(errors, [])
     console.log('PASS: chat/mode, navigation, approvals 410, goal 500 draft, filters/details, disconnect/recovery, palette, mobile drawers/layout. Screenshots: ' + output)
   } finally { await browser.close() }

@@ -1,5 +1,6 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const assert = require('node:assert/strict')
+const { assertSourceHasNoBrokenText, assertPageHasNoBrokenText } = require('./broken-text.cjs')
 
 // Lote 6, Fase 3: fila/pilha dos popups, ttl, mesma chave, Fixar, Esc, movimento reduzido,
 // deduplicação com context.ui_popups, clique fora livre, 360 px e configuração dos popups.
@@ -413,6 +414,7 @@ const notesPopup = (draft, title, dictate, format = 'bullets') => envelope(`note
     assert.equal(apiCalls.filter(item => item === '/api/chat').length, chatBefore)
     await placesWindow.getByRole('button', { name: 'Fechar janela' }).click()
 
+    assertSourceHasNoBrokenText(); await assertPageHasNoBrokenText(page)
     assert.deepEqual(errors, [])
     console.log('PASS — ttl, mesma chave, fila 3+2, clique fora, paleta fecha popups, Fixar, Esc, sem duplicar com o complete, inválido avisa, movimento reduzido, 360 px, configuração, hábitos em sequência, água com meta batida, agenda com destaque, /habitos, /hidratacao, /nota com Checklist e erro 500, ditado com "fim da nota", tarefas animadas, /pendencias, lugares com mapa, /lugares só busca ao enviar')
   } finally { await browser.close() }

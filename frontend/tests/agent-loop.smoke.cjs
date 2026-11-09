@@ -1,5 +1,6 @@
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const assert = require('node:assert/strict')
+const { assertSourceHasNoBrokenText, assertPageHasNoBrokenText } = require('./broken-text.cjs')
 
 // Lote 6, Fase 2: contador do loop agêntico, resposta retomada e configuração "Agente e popups".
 ;(async () => {
@@ -33,6 +34,8 @@ const assert = require('node:assert/strict')
     const savedHistories = []
     const loopPosts = []
     let failNextSave = false
+    let waterFails = true
+    const waterPosts = []
     let loopSettings = { mode: 'auto', max_steps: 8, max_model_calls: 10, auto_verify: true }
     await page.route('**/api/**', async route => {
       const request = route.request()
@@ -42,6 +45,9 @@ const assert = require('node:assert/strict')
       else if (url.pathname.endsWith('/history')) {
         if (request.method() === 'POST') savedHistories.push(JSON.parse(request.postData() || '{}').history)
         data = { history: [] }
+      } else if (url.pathname === '/api/evolute/water/add') {
+        waterPosts.push(JSON.parse(request.postData() || '{}').amount_ml)
+        if (waterFails) { status = 500; data = { ok: false, error: 'banco indisponível' } } else data = { ok: true, total_ml: 500, added_ml: 250 }
       } else if (url.pathname === '/api/runs') data = { ok: true, runs: [], next_cursor: null }
       else if (url.pathname === '/api/mission-control') data = { ok: true, components: [], summary: {}, goals: [], pending_actions: [], recent_actions: [] }
       else if (url.pathname === '/api/approvals') data = { ok: true, mode: { enabled: false, persist: false }, rules: [], durations: {} }
@@ -94,6 +100,45 @@ const assert = require('node:assert/strict')
     await page.waitForTimeout(200)
     assert.equal(await page.locator('.ws-message.assistant').filter({ hasText: 'Tudo feito depois da aprovação.' }).count(), 1)
 
+    // MG9: a resposta retomada de OUTRO pedido não fecha o turno em andamento; entra como mensagem própria.
+    await composer.fill('segunda pergunta')
+    await composer.press('Enter')
+    await page.waitForFunction(() => window.__wsSent.length === 2)
+    await page.evaluate(event => window.__wsEmit(event), { ...progress, run_id: 'run-2', step: 1, phase: 'planning' })
+    await page.getByText('Etapa 1 de 8', { exact: true }).waitFor()
+    await page.evaluate(() => window.__wsEmit({ type: 'agent_reply', session_id: 'session-1', run_id: 'run-antigo', reply: 'Resposta do pedido antigo.' }))
+    await page.locator('.ws-message.assistant').filter({ hasText: 'Resposta do pedido antigo.' }).waitFor()
+    assert.equal(await page.getByText('Etapa 1 de 8', { exact: true }).count(), 1, 'o contador do pedido em andamento continua')
+    await page.evaluate(() => window.__wsEmit({ type: 'complete', session_id: 'session-1', summary: 'Resposta da segunda pergunta.', intent: 'agent_loop', actions: [], context: { run_id: 'run-2' } }))
+    await page.locator('.ws-message.assistant').filter({ hasText: 'Resposta da segunda pergunta.' }).waitFor()
+    await page.waitForFunction(() => !document.querySelector('.ws-agent-progress'))
+    const afterB = savedHistories.at(-1).slice(-2)
+    assert.deepEqual(afterB.map(item => item.content), ['Resposta do pedido antigo.', 'Resposta da segunda pergunta.'])
+    assert.deepEqual(afterB.map(item => item.run_id), ['run-antigo', 'run-2'])
+
+    // MG23: se a gravação da água falha, mostra o erro real, não soma e guarda o rascunho; depois reenvia.
+    await composer.fill('/agua')
+    await page.keyboard.press('Enter')
+    await page.getByText('Não consegui registrar +250ml de água (banco indisponível)', { exact: false }).first().waitFor()
+    assert.equal(await page.getByText('+250ml de água registrados', { exact: false }).count(), 0)
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('jarvis-water-drafts') || '[]').length), 1)
+    waterFails = false
+    await composer.fill('/agua')
+    await page.keyboard.press('Enter')
+    await page.getByText('Reenviei 250ml de água que estavam guardados.', { exact: false }).first().waitFor()
+    assert.equal(await page.evaluate(() => localStorage.getItem('jarvis-water-drafts')), null)
+    assert.deepEqual(waterPosts, [250, 250, 250])
+
+    // Turno com erro: a falha aparece e o chat não fica preso; o próximo envio funciona.
+    await composer.fill('terceira pergunta')
+    await composer.press('Enter')
+    await page.waitForFunction(() => window.__wsSent.length === 3)
+    await page.evaluate(() => window.__wsEmit({ type: 'error', session_id: 'session-1', message: 'Falha na comunicação com o Jarvis.' }))
+    await page.locator('.ws-error').filter({ hasText: 'Não foi possível obter resposta do Jarvis' }).waitFor()
+    await composer.fill('quarta pergunta')
+    await composer.press('Enter')
+    await page.waitForFunction(() => window.__wsSent.length === 4)
+
     // Configurações > Agente e popups.
     await page.locator('.ws-sidebar').getByRole('button', { name: 'Configurações', exact: true }).click()
     await page.locator('.st-nav').getByRole('button', { name: 'Agente e popups' }).click()
@@ -113,6 +158,7 @@ const assert = require('node:assert/strict')
     await page.setViewportSize({ width: 360, height: 844 })
     await card.waitFor()
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+    assertSourceHasNoBrokenText(); await assertPageHasNoBrokenText(page)
     assert.deepEqual(errors, [])
     console.log('PASS — contador do loop, resposta retomada sem duplicar, isolamento por conversa, configuração do agente, erro do servidor e 360 px')
   } finally { await browser.close() }

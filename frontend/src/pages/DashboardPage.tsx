@@ -9,6 +9,7 @@ import type { Dashboard, Finance, Proactive, Tray, TtsSettings } from '../types'
 import { playClick, playSuccess } from '../utils/sfx'
 import { broadcastSyncEvent, onSyncEvent } from '../utils/syncChannel'
 import { isMobileStandalone } from '../hooks/useDirectChat'
+import { addWaterDraft, flushWaterDrafts, loadWaterDrafts, postWater } from '../utils/waterDrafts'
 
 type DashboardPageProps = {
   dashboard: Dashboard | null
@@ -37,6 +38,8 @@ export function DashboardPage({
   const [lifeScore, setLifeScore] = useState<number | null>(null)
   const [waterMl, setWaterMl] = useState<number>(0)
   const [addingWater, setAddingWater] = useState(false)
+  const [waterError, setWaterError] = useState('')
+  const [waterPending, setWaterPending] = useState(() => loadWaterDrafts().length)
   const [briefingLoading, setBriefingLoading] = useState(false)
   const [briefingText, setBriefingText] = useState<string | null>(null)
 
@@ -78,24 +81,32 @@ export function DashboardPage({
   const handleAddWater = async (amount: number = 250) => {
     if (addingWater) return
     setAddingWater(true)
-    playSuccess()
     try {
-      const res = await fetch('/api/evolute/water/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount_ml: amount })
-      })
-      const data = await res.json()
-      if (data.ok) {
-        setWaterMl(data.total_ml ?? (waterMl + amount))
-        broadcastSyncEvent('WATER_UPDATED', { total_ml: data.total_ml })
+      const result = await postWater(amount)
+      if (!result.ok) {
+        // Sem confirmação do servidor nada é somado: guarda o rascunho para reenviar.
+        addWaterDraft(amount)
+        setWaterPending(loadWaterDrafts().length)
+        setWaterError(`Não consegui registrar +${amount}ml (${result.error}). Guardei neste aparelho para reenviar.`)
+        return
       }
-    } catch {
-      setWaterMl(prev => prev + amount)
-      broadcastSyncEvent('WATER_UPDATED', { amount })
+      playSuccess()
+      setWaterError('')
+      if (typeof result.data?.total_ml === 'number') setWaterMl(result.data.total_ml)
+      else fetchStatus()
+      broadcastSyncEvent('WATER_UPDATED', { total_ml: result.data?.total_ml })
+      if (loadWaterDrafts().length) await handleResendWater()
     } finally {
       setAddingWater(false)
     }
+  }
+
+  const handleResendWater = async () => {
+    const flushed = await flushWaterDrafts()
+    setWaterPending(flushed.pending)
+    if (flushed.sent) { fetchStatus(); broadcastSyncEvent('WATER_UPDATED', { amount: flushed.sentMl }) }
+    if (flushed.pending) setWaterError(`Ainda não consegui reenviar${flushed.error ? ` (${flushed.error})` : ''}. ${flushed.pending} registro(s) de água guardado(s) neste aparelho.`)
+    else setWaterError('')
   }
 
   const handleTriggerBriefing = async () => {
@@ -200,6 +211,12 @@ export function DashboardPage({
                 {addingWater ? '…' : '+250ml'}
               </button>
             </div>
+            {(waterError || waterPending > 0) && (
+              <small role="alert" style={{ display: 'block', marginTop: 6, color: '#f87171' }}>
+                {waterError || `${waterPending} registro(s) de água guardado(s) neste aparelho.`}{' '}
+                <button type="button" className="lifeos-water-btn" onClick={() => { void handleResendWater() }} disabled={addingWater}>Reenviar</button>
+              </small>
+            )}
           </div>
 
           {/* Anti-Vice / Clean Streak section */}

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from app.core.capability_health import track_model_call
+from app.core.runs import RunCancelled
 from app.storage.runtime_settings import get_llm_provider, resolve_ai_routes
 from app.services.stm_filters import stm_filter
 
@@ -1225,13 +1226,16 @@ class LLMService:
                 if on_function_call:
                     try:
                         tool_result = str(on_function_call(fn_name, args))
+                    except RunCancelled:
+                        raise
                     except Exception as exfn:
                         print(f"[Groq] Erro ao executar tool {fn_name}: {exfn}")
+                        tool_result = f"A ferramenta {fn_name} falhou; nada foi confirmado."
 
                 formatted_messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
-                    "content": tool_result or "Acao concluida com sucesso.",
+                    "content": tool_result or f"A ferramenta {fn_name} não devolveu resultado; nada foi confirmado.",
                 })
 
             # Segunda rodada sem o bloco assistant/tool_calls. Alguns modelos
@@ -1266,10 +1270,12 @@ class LLMService:
                     print(f"[Groq] Retry do turno final falhou: {retry_err}")
                     final_text = ""
                 if not final_text:
-                    final_text = f"Pronto. Resultados obtidos:\n{tool_summary}"
+                    final_text = f"Resultados das ferramentas:\n{tool_summary}"
                     _emit_chunk(final_text)
             return final_text if final_text else (first_text or None)
 
+        except RunCancelled:
+            raise
         except Exception as e:
             err_msg = str(e)
             # Tratar caso o Groq retorne erro 400 tool_use_failed com failed_generation
@@ -1290,7 +1296,13 @@ class LLMService:
 
                     tool_result = ""
                     if on_function_call:
-                        tool_result = str(on_function_call(fn_name, args))
+                        try:
+                            tool_result = str(on_function_call(fn_name, args))
+                        except RunCancelled:
+                            raise
+                        except Exception as exfn:
+                            print(f"[Groq] Erro ao executar tool {fn_name}: {exfn}")
+                            tool_result = f"A ferramenta {fn_name} falhou; nada foi confirmado."
 
                     # Gerar resposta final em linguagem natural (streaming, com reasoning)
                     formatted_messages.append({"role": "user", "content": f"O resultado da acao {fn_name} foi: {tool_result}. Responda ao usuario com elegancia em 1 frase."})
@@ -1301,7 +1313,7 @@ class LLMService:
                             _emit_chunk(txt)
                         return txt
                     except Exception:
-                        return tool_result or "Acao processada com sucesso."
+                        return tool_result or f"A ferramenta {fn_name} não devolveu resultado; nada foi confirmado."
 
             print(f"[Groq Function Calling Stream] Erro: {e}")
             err_str = str(e).lower()
@@ -1317,6 +1329,8 @@ class LLMService:
                         on_chunk=on_chunk,
                         on_reasoning=on_reasoning,
                     )
+                except RunCancelled:
+                    raise
                 except Exception as retry_413_err:
                     print(f"[Groq] Falha após compactação: {retry_413_err}")
 
@@ -1339,6 +1353,8 @@ class LLMService:
                             on_reasoning=on_reasoning,
                             tried_keys=tried_keys,
                         )
+                    except RunCancelled:
+                        raise
                     except Exception as retry_err:
                         print(f"[Groq] Falha com chave secundária: {retry_err}")
 

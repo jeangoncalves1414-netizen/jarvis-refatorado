@@ -1,6 +1,7 @@
 // Isolated API fixtures; no real model, action or user data is touched.
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const assert = require('node:assert/strict')
+const { assertSourceHasNoBrokenText, assertPageHasNoBrokenText } = require('./broken-text.cjs')
 const { mkdirSync } = require('node:fs')
 const path = require('node:path')
 const output = path.join(require('node:os').tmpdir(), 'agent-workspace-review')
@@ -93,6 +94,7 @@ mkdirSync(output, { recursive: true })
     await page.screenshot({ path: path.join(output, 'mobile-request-360.png') })
     await detail.getByRole('button', { name: 'Abrir conversa' }).click()
     await page.getByRole('heading', { name: 'O que vamos fazer hoje?' }).waitFor()
+    assertSourceHasNoBrokenText(); await assertPageHasNoBrokenText(page)
     assert.deepEqual(errors, [])
     console.log('PASS: request grouping, cancel 500/retry/pending/terminal, reload, stale detail, recovery, pagination, session filter, mobile 360 and conversation link.')
   } finally { await browser.close() }

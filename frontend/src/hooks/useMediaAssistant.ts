@@ -581,12 +581,23 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
               agentContextRef.current?.({ ui_popups: [data.popup] })
             } else if (data.status === 'complete') {
               if (data.plan?.context) agentContextRef.current?.(data.plan.context)
-              // O loop agêntico não transmite pedaços: a resposta final vem inteira no plano.
+              // Respostas que não chegam em pedaços (loop agêntico, atalhos como "crie uma tarefa X", erros do modelo): a resposta inteira vem no plano.
               const summary = typeof data.plan?.summary === 'string' ? data.plan.summary.trim() : ''
-              if (!fullReply.trim() && summary && ['agent_loop', 'react_loop'].includes(data.plan?.intent)) {
+              if (!fullReply.trim() && summary && data.plan?.intent !== 'cancelled') {
                 fullReply = summary
                 sentenceBuffer += summary
               }
+              if (sentenceBuffer.trim()) {
+                enqueuePhrase(sentenceBuffer)
+                sentenceBuffer = ''
+              }
+            } else if (data.status === 'error') {
+              // Erro do modelo ou do backend: fala e mostra a mensagem em vez de sumir com o balão.
+              const rawError = typeof data.error === 'string' && data.error.trim() ? data.error : (typeof data.plan?.summary === 'string' ? data.plan.summary : '')
+              const errorMessage = rawError.trim() || 'Não consegui responder agora. Tente de novo.'
+              setLiveCallStatus(errorMessage)
+              fullReply = fullReply.trim() ? `${fullReply} ${errorMessage}` : errorMessage
+              sentenceBuffer = sentenceBuffer.trim() ? `${sentenceBuffer} ${errorMessage}` : errorMessage
               if (sentenceBuffer.trim()) {
                 enqueuePhrase(sentenceBuffer)
                 sentenceBuffer = ''
@@ -1297,7 +1308,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       isSpeakingRef.current = false
       setLiveCallRecording(false)
       setLiveOrbState('idle')
-      setLiveCallStatus('LigaÃ§Ã£o pausada. Toque para retomar.')
+      setLiveCallStatus('Ligação pausada. Toque para retomar.')
       return
     }
     if (liveRecognitionRef.current) {
@@ -1326,7 +1337,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       startNativeSpeech(true)
       return
     }
-    // No PC (mesma mÃ¡quina do backend) a fala Ã© detectada pelo Python (SpeechRecognition + PyAudio), como no projeto antigo.
+    // No PC (mesma máquina do backend) a fala é detectada pelo Python (SpeechRecognition + PyAudio), como no projeto antigo.
     // Sem PyAudio/SpeechRecognition, ou em outro aparelho, usa o VAD do navegador e mostra o motivo.
     const backend = await startBackendCapture()
     if (backend.ok) return
