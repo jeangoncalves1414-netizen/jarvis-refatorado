@@ -78,6 +78,7 @@ from .persona_tool import PersonaTool
 from .open_window import OpenWindowTool
 from .open_screen import OpenScreenTool
 from .show_popup import ShowPopupTool
+from .notification_tool import NotificationTool
 from .routine_tool import RoutineTool
 from .places_search import PlacesSearchTool
 from .planning_workspace import PlanningWorkspaceTool
@@ -99,6 +100,7 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
         (r"\blembrete|\bagenda|\bcompromisso", ("calendar",)),
         (r"\btela\b|\bpainel\b|\babre\b|\babrir\b|\babra\b", ("open_screen",)),
         (r"\bpopup|\bmostra\b|\bmostre\b|\bmostrar\b", ("show_popup",)),
+        (r"\bnotifica|\baviso\b|\balerta\b|\btoast\b", ("notification",)),
         (r"\blugar|\bperto\b|\bendereco|\bmapa\b|\bonde fica\b", ("places_search",)),
         (r"\bluz\b|\bluzes\b|\blampada|\bar condicionado|\btomada|\bcena\b|\bcortina|\bfechadura|\bcasa\b", ("home",)),
         # Pedido com horário ou repetição vira rotina gravada.
@@ -142,6 +144,7 @@ GENERAL_TOOL_NAMES = {
     "desktop_search", "kasa_control", "home", "document_generator", "telegram_bot", "mobile_adb",
     "wormhole", "wallpaper_engine", "clipboard_intelligence",
     "habit_tool", "task_tool", "checklist_tool", "finance_tool", "lifeos_tool", "open_window", "open_screen", "show_popup",
+    "notification",
     "places_search",
     "planning_workspace", "routine",
     "vault_search", "vault_daily_log", "vault_save_note", "vault_update_profile",
@@ -223,6 +226,7 @@ class ToolRegistry:
         self._register(OpenWindowTool())
         self._register(OpenScreenTool())
         self._register(ShowPopupTool())
+        self._register(NotificationTool())
         self._register(RoutineTool())
         self._register(PlacesSearchTool())
         self._register(PlanningWorkspaceTool())

@@ -244,11 +244,17 @@ class EventWatcher:
                         if duration >= for_sec and key not in self._resource_triggered and not in_cooldown:
                             # Dispara alerta
                             summary = f"Uso de {metric_name.upper()} em {val:.1f}% (limiar: {thresh}% por {for_sec}s)."
+                            res_actions = [
+                                {"label": "Ver Hábitos", "action": "habits"},
+                                {"label": "Ouvir Briefing", "action": "briefing"},
+                            ]
                             self._fire_alert(
                                 routine_id=None,
                                 title=f"Alerta de Sistema: {metric_name.upper()}",
                                 lines=[summary],
                                 summary=summary,
+                                actions=res_actions,
+                                urgency="high" if val >= 90 else "normal",
                             )
                             self._resource_triggered.add(key)
                             self._last_fired[key] = now_ts
@@ -280,6 +286,7 @@ class EventWatcher:
 
                 should_fire = False
                 summary = ""
+                routine_actions: list[dict[str, Any]] | None = None
 
                 if ev_type == "resource":
                     metric_name = str(params.get("metric") or "cpu").lower()
@@ -332,6 +339,12 @@ class EventWatcher:
                             should_fire = True
                             title = getattr(event, "title", "Compromisso")
                             summary = f"Compromisso '{title}' em {int(diff_min)} min."
+                            event_url = getattr(event, "url", None) or getattr(event, "link", None) or getattr(event, "location", None)
+                            cal_acts: list[dict[str, Any]] = []
+                            if event_url and (str(event_url).startswith("http://") or str(event_url).startswith("https://")):
+                                cal_acts.append({"label": "Abrir Reunião", "action": "open_link", "url": str(event_url)})
+                            cal_acts.append({"label": "Ouvir Briefing", "action": "briefing"})
+                            routine_actions = cal_acts
                             self._fired_calendar_events.add(event_id)
                             break
 
@@ -354,6 +367,7 @@ class EventWatcher:
                             title=f"Rotina: {routine['name']}",
                             lines=[summary],
                             summary=summary,
+                            actions=routine_actions,
                         )
                         dispatched.append({"kind": "routine_alert", "routine_id": routine_id, "summary": summary})
                     else:
@@ -369,11 +383,30 @@ class EventWatcher:
 
             return dispatched
 
-    def _fire_alert(self, routine_id: str | None, title: str, lines: list[str], summary: str) -> None:
-        """Gera o popup de aviso, grava no histórico e publica o evento."""
+    def _fire_alert(
+        self,
+        routine_id: str | None,
+        title: str,
+        lines: list[str],
+        summary: str,
+        actions: list[dict[str, Any]] | None = None,
+        urgency: str = "normal",
+    ) -> None:
+        """Gera o popup de aviso, grava no histórico, publica o evento e emite notificação nativa do Windows."""
         try:
             popup = popups.build_popup("info", {"title": title, "lines": lines, "tone": "warn"}, origin="chat")
             popups.emit(popup)
+        except Exception:
+            pass
+
+        try:
+            from app.services.windows_notifications import send_notification
+            send_notification(
+                title=title,
+                message=summary or ("\n".join(lines)),
+                actions=actions,
+                urgency=urgency,
+            )
         except Exception:
             pass
 

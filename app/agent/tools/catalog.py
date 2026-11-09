@@ -385,6 +385,13 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         effect="Mostra um popup do painel; nenhum dado é alterado.", reversibility="Reversível: feche o popup.",
         scope="Só a camada de popups do painel.",
     ),
+    "notification": ToolMetadata(
+        ("ui", "notification"), "low", reversible=True,
+        target_arguments=("title", "command"), default_target="notificação do Windows",
+        effect="Dispara uma notificação nativa do Windows no desktop; nenhum dado permanente é alterado.",
+        reversibility="Reversível: feche a notificação ou execute a ação desejada.",
+        scope="Apenas a área de notificações do sistema operacional.",
+    ),
     "places_search": ToolMetadata(
         ("places", "observe"), "observe", target_arguments=("query", "command"), default_target="busca de lugares",
         effect="Envia o texto da busca ao provedor de mapas e lê os resultados; nada é alterado.",

@@ -694,6 +694,39 @@ def set_popup_settings(values: dict[str, Any]) -> dict[str, Any]:
     return get_popup_settings()
 
 
+# Notificações do Windows (Fase 3): notificações acionáveis com botões e deep links
+NOTIFICATION_DEFAULTS: dict[str, Any] = {"enabled": True, "sound": True}
+
+
+def get_notification_settings() -> dict[str, Any]:
+    saved = _read().get("notifications")
+    saved = saved if isinstance(saved, dict) else {}
+    result: dict[str, Any] = {}
+    for key in ("enabled", "sound"):
+        value = saved.get(key, NOTIFICATION_DEFAULTS[key])
+        result[key] = value if isinstance(value, bool) else NOTIFICATION_DEFAULTS[key]
+    return result
+
+
+def set_notification_settings(values: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(values, dict):
+        raise ValueError("Configuração de notificações inválida.")
+    unknown = set(values) - set(NOTIFICATION_DEFAULTS)
+    if unknown:
+        raise ValueError("Campo desconhecido na configuração de notificações: " + ", ".join(sorted(unknown)) + ".")
+    current = get_notification_settings()
+    for key in ("enabled", "sound"):
+        if key in values:
+            if not isinstance(values[key], bool):
+                raise ValueError(f"O campo '{key}' deve ser booleano (true/false).")
+            current[key] = values[key]
+    data = _read()
+    data["notifications"] = current
+    _write(data)
+    return get_notification_settings()
+
+
+
 # Busca de lugares (lote 6): e-mail de contato opcional enviado ao Nominatim (política de uso do OSM).
 def get_places_settings() -> dict[str, Any]:
     saved = _read().get("places")

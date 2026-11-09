@@ -32,6 +32,7 @@ from app.ui.panel.api.controls import handle_controls_post
 from app.ui.panel.api.mission_control import handle_mission_control_get
 from app.ui.panel.api.popups import handle_popups_get
 from app.ui.panel.api.places import handle_places_get
+from app.ui.panel.api.notifications import handle_notifications_get, handle_notifications_post
 from app.ui.panel.api.notes_live import handle_notes_live_post
 from app.agent.action_gateway import request_origin, run_action
 from app.agent.run_tracking import background_run, in_background
@@ -735,10 +736,20 @@ class PanelHandler(BaseHTTPRequestHandler):
                 handle_goals_get,
                 handle_popups_get,
                 handle_places_get,
+                handle_notifications_get,
             ):
                 result = handler_fn(parts, self)
                 if result:
-                    self._send_json(*result)
+                    status_code, data = result
+                    if isinstance(data, bytes):
+                        self.send_response(status_code)
+                        self.send_header("Content-Type", "text/html; charset=utf-8")
+                        self.send_header("Content-Length", str(len(data)))
+                        self._send_cors()
+                        self.end_headers()
+                        self.wfile.write(data)
+                    else:
+                        self._send_json(status_code, data)
                     return
 
             # /api/chat GET → list sessions (legacy compat)
@@ -2022,6 +2033,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             handle_persona_post,
             handle_controls_post,
             handle_goals_post,
+            handle_notifications_post,
         ):
             result = handler_fn(path, body, self)
             if result:
