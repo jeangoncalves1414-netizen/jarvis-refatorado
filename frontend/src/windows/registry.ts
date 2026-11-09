@@ -138,7 +138,6 @@ const routinesDef: WindowDef<RoutinesWindowParams> = {
   parseParams: parseWith({ routine_id: text(60) }) as WindowDef<RoutinesWindowParams>['parseParams'],
   component: lazy(() => import('./RoutinesWindow').then(module => ({ default: module.RoutinesWindow }))),
 }
-}
 
 export const windowRegistry: { [K in WindowId]: WindowDef<WindowParamsMap[K]> } = {
   [WINDOW_HOME]: homeDef,
