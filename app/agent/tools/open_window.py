@@ -72,6 +72,8 @@ WINDOWS: dict[str, WindowSpec] = {
             "date": _iso_date,
         },
     ),
+    # Busca de lugares com mapa: query/near só preenchem o campo e disparam a busca na janela.
+    "places": WindowSpec("Lugares", {"query": _text(120), "near": _text(80)}),
 }
 
 
@@ -123,7 +125,9 @@ class OpenWindowTool(BaseTool):
                         "A janela pc-controls não aceita parâmetros. "
                         "Parâmetros opcionais da janela finance: period (week|month|all) escolhe o período da lista; "
                         "type (expense|income), category, amount, description e date (AAAA-MM-DD) apenas "
-                        "pré-preenchem o formulário. Nada é gravado até o usuário salvar."
+                        "pré-preenchem o formulário. Nada é gravado até o usuário salvar. "
+                        "Janela places (busca de lugares com mapa): query (até 120 caracteres) e near (até 80) "
+                        "preenchem a busca."
                     ),
                 },
             },

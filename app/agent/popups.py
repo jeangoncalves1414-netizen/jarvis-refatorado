@@ -7,7 +7,7 @@ está em ``frontend/src/popups/registry.ts``.
 Um popup nasce de dois jeitos:
 - pela ferramenta ``show_popup`` (pedido explícito);
 - automaticamente, depois de uma ferramenta de dados que deu certo (``AUTO_POPUPS``: hábitos,
-  agenda e água), sem chamada extra ao modelo.
+  tarefas, agenda, água e lugares), sem chamada extra ao modelo.
 
 ``emit`` publica o evento ``ui_popup`` no barramento (WebSocket do chat), acumula o popup no
 coletor do turno (vai em ``plan.context["ui_popups"]``) e avisa o SSE da ligação. Popup nunca
@@ -205,6 +205,74 @@ def _water_builder(_params: dict[str, Any], context: dict[str, Any]) -> dict[str
     }
 
 
+def _animated_ids(context: dict[str, Any], *names: str) -> set[str]:
+    animate = context.get("animate") or {}
+    found: set[str] = set()
+    for name in names:
+        values = animate.get(name)
+        if isinstance(values, list):
+            found.update(str(value) for value in values if value)
+    return found
+
+
+def _task_list_builder(params: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    from app.services.tasks import TaskService
+
+    scope = params.get("filter", "pending")
+    # "pending" mostra as pendentes e sempre as que a ação acabou de mexer (ex.: recém-concluída).
+    focus = _animated_ids(context, "added_ids", "toggled_ids", "updated_ids")
+    items: list[dict[str, Any]] = []
+    for task in TaskService.list_tasks(completed=None):
+        task_id = str(task.get("id") or "")
+        completed = bool(task.get("completed"))
+        if not task_id or (scope == "pending" and completed and task_id not in focus):
+            continue
+        items.append({
+            "id": task_id,
+            "title": str(task.get("title") or "")[:200],
+            "priority": max(1, min(4, _int_or(task.get("priority"), 4))),
+            "due_date": str(task.get("due_date") or "")[:10],
+            "completed": completed,
+        })
+    if len(items) > MAX_POPUP_ITEMS:
+        kept = {item["id"] for item in items if item["id"] in focus}
+        rest = [item["id"] for item in items if item["id"] not in focus][: max(0, MAX_POPUP_ITEMS - len(kept))]
+        kept.update(rest)
+        items = [item for item in items if item["id"] in kept]
+    return {
+        "filter": scope,
+        "items": items,
+        "pending": sum(1 for item in items if not item["completed"]),
+        "total": len(items),
+    }
+
+
+def _places_builder(params: dict[str, Any], _context: dict[str, Any]) -> dict[str, Any]:
+    from app.services import places
+
+    query, near = places.validate_search(params.get("query", ""), params.get("near", ""))
+    # O popup só mostra uma busca já feita pelo Action Kernel (ferramenta ou janela Lugares):
+    # montar o popup nunca envia nada ao provedor de mapas.
+    found = places.cached_search(query, near)
+    if not found or not found.get("ok"):
+        raise ValueError("Busque o lugar primeiro (places_search ou janela Lugares); o popup só mostra buscas já feitas.")
+    return {
+        "query": query,
+        "near": near,
+        "provider": found.get("provider") if found.get("provider") in ("osm", "google") else "osm",
+        "results": [{"id": f"p{index}", **item} for index, item in enumerate(found.get("results") or [])],
+        "bbox": found.get("bbox"),
+        "attribution": str(found.get("attribution") or ""),
+        "notice": str(found.get("notice") or ""),
+    }
+
+
+def _places_key(params: dict[str, Any], _data: dict[str, Any]) -> str:
+    from app.services import places
+
+    return f"places:{places.search_key(params.get('query', ''), params.get('near', ''))}"
+
+
 def _live_notes_builder(params: dict[str, Any], _context: dict[str, Any]) -> dict[str, Any]:
     return {
         "draft_id": uuid.uuid4().hex[:16],
@@ -254,6 +322,22 @@ POPUP_TEMPLATES: dict[str, PopupSpec] = {
         key=lambda _params, data: f"notes:{data['draft_id']}",
         description="anotação escrita enquanto a usuária fala; title, format text|bullets|checklist, dictate",
         sticky=True,
+    ),
+    # Fase 5 (extras).
+    "task_list": PopupSpec(
+        title="Tarefas",
+        params={"filter": _choice("pending", "all")},
+        builder=_task_list_builder,
+        key=lambda _params, _data: "tasks",
+        description="tarefas; filter pending|all (padrão pending)",
+    ),
+    "places": PopupSpec(
+        title="Lugares",
+        params={"query": _text(120), "near": _text(80)},
+        builder=_places_builder,
+        key=_places_key,
+        required=frozenset({"query"}),
+        description="resultado de uma busca de lugares já feita; query (até 120), near (até 80)",
     ),
 }
 
@@ -323,7 +407,35 @@ def _auto_water(_args: dict[str, Any], result: Any) -> list[tuple[str, dict[str,
     return [("water", {}, {"from_ml": max(0, int(previous)), "to_ml": max(0, int(total))})]
 
 
+def _auto_tasks(kind: str) -> AutoPopup:
+    def make(_args: dict[str, Any], result: Any) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+        ids = [str(item) for item in _result_data(result).get("task_ids") or [] if item]
+        return [("task_list", {"filter": "pending"}, {kind: ids})] if ids else []
+    return make
+
+
+def _auto_places(_args: dict[str, Any], result: Any) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+    data = _result_data(result)
+    query = data.get("query")
+    if not isinstance(query, str) or not query.strip():
+        return []
+    near = data.get("near") if isinstance(data.get("near"), str) else ""
+    params: dict[str, Any] = {"query": query}
+    if near:
+        params["near"] = near
+    count = len(data.get("results") or [])
+    return [("places", params, {"added_ids": [f"p{index}" for index in range(count)]})]
+
+
 AUTO_POPUPS: dict[tuple[str, str], AutoPopup] = {
+    ("task_tool", "create"): _auto_tasks("added_ids"),
+    ("task_tool", "create_many"): _auto_tasks("added_ids"),
+    ("task_tool", "toggle"): _auto_tasks("toggled_ids"),
+    ("task_tool", "complete"): _auto_tasks("toggled_ids"),
+    ("task_tool", "done"): _auto_tasks("toggled_ids"),
+    ("task_tool", "update"): _auto_tasks("updated_ids"),
+    # places_search não tem "action": a operação é vazia.
+    ("places_search", ""): _auto_places,
     ("habit_tool", "create"): _auto_habits("added_ids"),
     ("habit_tool", "create_many"): _auto_habits("added_ids"),
     ("habit_tool", "check"): _auto_habits("checked_ids"),

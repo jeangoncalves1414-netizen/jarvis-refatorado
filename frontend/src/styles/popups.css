@@ -106,6 +106,27 @@
 .ws-popup-notes-status.saved { color: var(--ws-ok); }
 .ws-popup-notes-status.error { color: var(--ws-danger); }
 
+/* Tarefas (Fase 5) */
+.ws-popup-task { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ws-popup-task-title { position: relative; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ws-text); }
+.ws-popup-task[data-done="true"] .ws-popup-task-title { color: var(--ws-muted); }
+.ws-popup-task-strike { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: currentColor; transform-origin: left center; }
+.ws-popup-task-due { flex: none; color: var(--ws-muted); font-size: 10px; }
+.ws-popup-task-priority { flex: none; padding: 0 5px; border: 1px solid var(--ws-border); border-radius: 999px; color: var(--ws-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.ws-popup-task-priority.p1 { border-color: color-mix(in srgb, var(--ws-danger) 50%, var(--ws-border)); color: var(--ws-danger); }
+.ws-popup-task-priority.p2 { border-color: color-mix(in srgb, var(--ws-warn) 50%, var(--ws-border)); color: var(--ws-warn); }
+
+/* Lugares (Fase 5) */
+.ws-popup-places-notice { margin: 0 0 6px; color: var(--ws-warn); font-size: 11px; }
+.ws-popup-place { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.ws-popup-place > svg { flex: none; margin-top: 2px; color: var(--ws-accent); }
+.ws-popup-place-what { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.ws-popup-place-what strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.ws-popup-place-what small { color: var(--ws-muted); font-size: 10px; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.ws-popup-place-rating { flex: none; display: inline-flex; align-items: center; gap: 2px; color: var(--ws-warn); font-size: 11px; }
+.ws-popup-places-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.ws-popup-places-attribution { color: var(--ws-muted); font-size: 10px; }
+
 @media (max-width: 640px) {
   .ws-popup-layer { top: 8px; right: 8px; left: 8px; bottom: auto; width: auto; max-width: none; align-items: stretch; }
 }

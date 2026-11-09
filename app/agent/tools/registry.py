@@ -73,6 +73,7 @@ from .lifeos_tool import LifeOSTool
 from .open_window import OpenWindowTool
 from .open_screen import OpenScreenTool
 from .show_popup import ShowPopupTool
+from .places_search import PlacesSearchTool
 from .planning_workspace import PlanningWorkspaceTool
 from .catalog import metadata_for
 from .lifestyle_tools import normalize_name
@@ -90,6 +91,7 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
         (r"\blembrete|\bagenda|\bcompromisso", ("calendar",)),
         (r"\btela\b|\bpainel\b|\babre\b|\babrir\b|\babra\b", ("open_screen",)),
         (r"\bpopup|\bmostra\b|\bmostre\b|\bmostrar\b", ("show_popup",)),
+        (r"\blugar|\bperto\b|\bendereco|\bmapa\b|\bonde fica\b", ("places_search",)),
     )
 )
 
@@ -101,6 +103,7 @@ GENERAL_TOOL_NAMES = {
     "desktop_search", "kasa_control", "document_generator", "telegram_bot", "mobile_adb",
     "wormhole", "wallpaper_engine", "clipboard_intelligence",
     "habit_tool", "task_tool", "finance_tool", "lifeos_tool", "open_window", "open_screen", "show_popup",
+    "places_search",
     "planning_workspace",
     "vault_search", "vault_daily_log", "vault_save_note", "vault_update_profile",
 }
@@ -175,6 +178,7 @@ class ToolRegistry:
         self._register(OpenWindowTool())
         self._register(OpenScreenTool())
         self._register(ShowPopupTool())
+        self._register(PlacesSearchTool())
         self._register(PlanningWorkspaceTool())
         self._register(ScreenPeelerTool())
         self._register(PhantomTyperTool())

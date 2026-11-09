@@ -1,9 +1,9 @@
 import {
-  AudioLines, CalendarClock, Camera, CloudSun, Download, Droplets, Eye, Film, Flame, ListChecks, MessageSquare, Mic, MonitorCog, NotebookPen, Search, Sparkles, Volume2, Wallet, X, Zap,
+  AudioLines, CalendarClock, Camera, CloudSun, Download, Droplets, Eye, Film, Flame, ListChecks, ListTodo, MapPinned, MessageSquare, Mic, MonitorCog, NotebookPen, Search, Sparkles, Volume2, Wallet, X, Zap,
   type LucideIcon,
 } from 'lucide-react'
 import { navigation } from '../navigation'
-import { WINDOW_FINANCE, WINDOW_PC_CONTROLS } from '../windows/registry'
+import { WINDOW_FINANCE, WINDOW_PC_CONTROLS, WINDOW_PLACES } from '../windows/registry'
 import type { ChatMode } from '../components/ChatComposer'
 
 // Registro único de comandos. A paleta (Ctrl+K) e o menu "/" do compositor são montados a partir
@@ -17,7 +17,8 @@ export type LocalOperation = 'new-chat' | 'dictation' | 'toggle-sfx' | 'prefill-
 
 export type CommandAction =
   | { kind: 'navigate'; screen: string }
-  | { kind: 'open-window'; windowId: string }
+  // `argParam` (opcional) leva o texto após a palavra como parâmetro da janela (ex.: /lugares padaria).
+  | { kind: 'open-window'; windowId: string; argParam?: string }
   // Popup montado pelo backend sem IA (GET /api/popups/<template>). `argParam` recebe o texto após a
   // palavra; `params` são fixos do comando.
   | { kind: 'popup'; template: string; argParam?: string; params?: Record<string, string> }
@@ -45,7 +46,7 @@ export type CommandDef = {
 // Funções fornecidas pelo App. Todas as ações do registro terminam em uma delas.
 export type CommandHandlers = {
   navigate: (screen: string) => void
-  openWindow: (windowId: string) => void
+  openWindow: (windowId: string, params?: Record<string, string>) => void
   setMode: (mode: ChatMode) => void
   prefill: (text: string) => void
   newChat: () => void
@@ -106,6 +107,9 @@ export const commands: CommandDef[] = [
   { id: 'popup-habits', label: 'Hábitos de hoje', title: 'Mostrar hábitos de hoje', description: 'Popup com os hábitos de hoje e o que já foi feito, sem precisar da IA', aliases: ['habitos de hoje', 'meus habitos'], slash: 'habitos', group: 'Life OS', action: { kind: 'popup', template: 'habit_list' }, worksOffline: true, icon: ListChecks },
   { id: 'popup-water', label: 'Hidratação', title: 'Mostrar água de hoje', description: 'Popup com a água de hoje contra a meta, sem registrar nada', aliases: ['hidratacao', 'agua de hoje', 'meta de agua'], slash: 'hidratacao', group: 'Life OS', action: { kind: 'popup', template: 'water' }, worksOffline: true, icon: Droplets },
   { id: 'popup-schedule', label: 'Compromissos de hoje', title: 'Mostrar compromissos de hoje', description: 'Popup com a agenda de hoje em linha do tempo', aliases: ['compromissos', 'agenda de hoje'], slash: 'compromissos', group: 'Life OS', action: { kind: 'popup', template: 'schedule' }, worksOffline: true, icon: CalendarClock },
+  { id: 'popup-tasks', label: 'Pendências', title: 'Mostrar tarefas pendentes', description: 'Popup com as tarefas pendentes, sem precisar da IA', aliases: ['pendencias', 'minhas tarefas', 'tarefas pendentes'], slash: 'pendencias', group: 'Life OS', action: { kind: 'popup', template: 'task_list' }, worksOffline: true, icon: ListTodo },
+  // A busca usa o OpenStreetMap (internet), mas não usa IA; a janela só busca quando você confirma.
+  { id: 'window-places', label: 'Lugares', title: 'Buscar lugares no mapa', description: 'Procurar estabelecimentos e endereços no OpenStreetMap, sem precisar da IA', aliases: ['mapa', 'endereco', 'lugar', 'onde fica'], slash: 'lugares', argHint: 'busca', group: 'Life OS', action: { kind: 'open-window', windowId: WINDOW_PLACES, argParam: 'query' }, worksOffline: true, icon: MapPinned },
   // Escrever à mão funciona sem IA; o ditado precisa de reconhecimento de fala (o popup avisa quando não há).
   { id: 'popup-live-notes', label: 'Nova anotação', title: 'Nova anotação ao vivo', description: 'Escreva ou dite uma anotação (texto, lista ou checklist) salva no cofre', aliases: ['anotacao', 'anotar', 'notas'], slash: 'nota', argHint: 'título', group: 'Life OS', action: { kind: 'popup', template: 'live_notes', argParam: 'title', params: { dictate: 'false' } }, worksOffline: true, icon: NotebookPen },
 
@@ -271,7 +275,8 @@ export function runCommand(command: CommandDef, handlers: CommandHandlers, args 
       handlers.navigate(action.screen)
       return
     case 'open-window':
-      handlers.openWindow(action.windowId)
+      if (action.argParam && args) handlers.openWindow(action.windowId, { [action.argParam]: args.slice(0, 120) })
+      else handlers.openWindow(action.windowId)
       return
     case 'popup':
       handlers.openPopup(action.template, { ...(action.params ?? {}), ...(action.argParam && args ? { [action.argParam]: args } : {}) })

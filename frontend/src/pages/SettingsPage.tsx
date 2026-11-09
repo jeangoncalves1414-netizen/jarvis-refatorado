@@ -93,6 +93,7 @@ export function SettingsPage({
     gemini: apiKeys.gemini || '',
     openrouter: apiKeys.openrouter || '',
     fish: apiKeys.fish || '',
+    google_places: apiKeys.google_places || '',
   })
 
   // Sincroniza quando apiKeys chegar do servidor (fetch assíncrono)
@@ -105,6 +106,7 @@ export function SettingsPage({
         gemini: prev.gemini || apiKeys.gemini || '',
         openrouter: prev.openrouter || apiKeys.openrouter || '',
         fish: prev.fish || apiKeys.fish || '',
+        google_places: prev.google_places || apiKeys.google_places || '',
       }))
     }
   }, [apiKeys])
@@ -115,6 +117,7 @@ export function SettingsPage({
     gemini: false,
     openrouter: false,
     fish: false,
+    google_places: false,
   })
 
   const toggleKeyVisibility = (key: string) => {
@@ -614,6 +617,40 @@ export function SettingsPage({
                     style={{ padding: '6px 10px' }}
                   >
                     {visibleKeys.fish ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Google Places API Key (opcional): sem ela, a busca de lugares usa o OpenStreetMap */}
+              <div className="field-label">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                    <KeyRound size={14} style={{ color: '#34d399' }} /> Google Places API Key (opcional)
+                  </span>
+                  {keyValues.google_places && (
+                    <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>
+                      {keyValues.google_places.split(',').filter(k => k.trim()).length} chave(s) configurada(s){visibleKeys.google_places ? ` · ${maskKeyList(keyValues.google_places)}` : ''}
+                    </span>
+                  )}
+                </div>
+                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Sem chave, a busca de lugares usa o OpenStreetMap (gratuito). Com chave, usa o Google Places e cai no OpenStreetMap se o Google falhar.</small>
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <input
+                    type="password"
+                    value={keyValues.google_places}
+                    onChange={e => handleKeyChange('google_places', e.target.value)}
+                    placeholder="AIza..."
+                    aria-label="Google Places API Key (opcional)"
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="outline-button"
+                    onClick={() => toggleKeyVisibility('google_places')}
+                    title={visibleKeys.google_places ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
+                    style={{ padding: '6px 10px' }}
+                  >
+                    {visibleKeys.google_places ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
               </div>

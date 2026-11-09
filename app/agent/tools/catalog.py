@@ -309,6 +309,12 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         effect="Mostra um popup do painel; nenhum dado é alterado.", reversibility="Reversível: feche o popup.",
         scope="Só a camada de popups do painel.",
     ),
+    "places_search": ToolMetadata(
+        ("places", "observe"), "observe", target_arguments=("query", "command"), default_target="busca de lugares",
+        effect="Envia o texto da busca ao provedor de mapas e lê os resultados; nada é alterado.",
+        reversibility="Nada a desfazer.",
+        scope="Envia o texto da busca ao OpenStreetMap ou ao Google (só com chave configurada).",
+    ),
     # Cofre de memória (Markdown local, sincronizado com o celular).
     "vault_search": ToolMetadata(
         ("vault", "observe"), "observe", target_arguments=("query",), default_target="cofre de memória",

@@ -61,6 +61,31 @@ def test_invalid_params_are_rejected(params):
     assert "ui_window" not in result.data
 
 
+def test_places_window_accepts_query_and_near():
+    result = OpenWindowTool().execute({"window_id": "places", "params": {"query": " padaria ", "near": "Bela Vista"}})
+    assert result.ok is True
+    assert result.data["ui_window"] == {"window_id": "places", "params": {"query": "padaria", "near": "Bela Vista"}}
+    assert OpenWindowTool().execute({"window_id": "places"}).data["ui_window"] == {"window_id": "places", "params": {}}
+
+
+@pytest.mark.parametrize("params", [{"query": "x" * 121}, {"near": "y" * 81}, {"query": 5}, {"q": "padaria"}, {"bbox": "1,2,3,4"}])
+def test_places_window_rejects_invalid_params(params):
+    result = OpenWindowTool().execute({"window_id": "places", "params": params})
+    assert result.ok is False
+    assert "ui_window" not in result.data
+
+
+def test_window_ids_match_frontend_registry():
+    import re
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "frontend" / "src" / "windows" / "registry.ts").read_text(encoding="utf-8")
+    constants = dict(re.findall(r"export const (WINDOW_\w+) = '([^']+)'", source))
+    block = re.search(r"export const windowRegistry[^=]*=\s*\{(.*?)\n\}", source, re.S)
+    assert block, "windowRegistry não encontrado em registry.ts"
+    assert {constants[name] for name in re.findall(r"\[(WINDOW_\w+)\]\s*:", block.group(1))} == set(WINDOWS)
+
+
 def test_validate_window_request_raises_for_unknown_id():
     with pytest.raises(ValueError):
         validate_window_request("nao-existe", {})

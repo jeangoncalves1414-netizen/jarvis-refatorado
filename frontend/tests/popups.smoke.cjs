@@ -12,6 +12,15 @@ const envelope = (id, key, template, title, data, animate = {}) => ({ id: `pop_$
 const habit = (id, name, done = false, streak = 0) => ({ id, name, category: 'geral', routine_block: 'morning', start_time: '07:00', days_of_week: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'], completed_today: done, streak })
 const habitPopup = (id, items, added) => envelope(id, 'habits', 'habit_list', 'Hábitos', { filter: 'today', items, completed: items.filter(item => item.completed_today).length, total: items.length, highlight_ids: added }, { added_ids: added })
 const waterPopup = (id, key, previous, current, target = 3000) => envelope(id, key, 'water', 'Água de hoje', { date: '2026-08-04', current_ml: current, previous_ml: previous, target_ml: target, percentage: Math.round(current / target * 100) }, { from_ml: previous, to_ml: current })
+// Fase 5: tarefas e lugares.
+const task = (id, title, completed = false, priority = 4, due_date = '') => ({ id, title, priority, due_date, completed })
+const taskPopup = (id, items, animate) => envelope(id, 'tasks', 'task_list', 'Tarefas', { filter: 'pending', items, pending: items.filter(item => !item.completed).length, total: items.length }, animate)
+const placeResults = () => [
+  { name: 'Padaria Central', address: 'Rua A, 10, São Paulo', lat: -23.55, lon: -46.63, category: 'bakery' },
+  { name: 'Padaria Bela Vista', address: 'Rua B, 20, São Paulo', lat: -23.56, lon: -46.64, category: 'bakery' },
+  { name: 'Padoca do Bairro', address: 'Rua C, 30, São Paulo', lat: -23.57, lon: -46.65, category: 'bakery', rating: 4.6 },
+]
+const placesPopup = id => envelope(id, 'places:abc123', 'places', 'Lugares', { query: 'padaria', near: '', provider: 'osm', results: placeResults().map((item, index) => ({ id: `p${index}`, ...item })), bbox: [-46.651, -23.571, -46.629, -23.549], attribution: '© colaboradores do OpenStreetMap', notice: '' }, { added_ids: ['p0', 'p1', 'p2'] })
 const notesPopup = (draft, title, dictate, format = 'bullets') => envelope(`notes-${draft}`, `notes:${draft}`, 'live_notes', 'Anotação ao vivo', { draft_id: draft, title, format, dictate, content: '' })
 
 ;(async () => {
@@ -53,6 +62,7 @@ const notesPopup = (draft, title, dictate, format = 'bullets') => envelope(`note
       { seq: 3, type: 'transcript', text: 'fim da nota', stt_ms: 100 },
     ]
     let popupSettings = { enabled: true, auto: true, ttl_seconds: 8, max_visible: 3 }
+    const placeCalls = []
     await page.route('**/api/**', async route => {
       const request = route.request()
       const url = new URL(request.url())
@@ -80,6 +90,12 @@ const notesPopup = (draft, title, dictate, format = 'bullets') => envelope(`note
         if (noteStatus !== 200) { status = noteStatus; data = { ok: false, error: 'Falha simulada no cofre.' } }
         else data = { ok: true, path: '05-Notas/Compras-note00.md' }
       }
+      // Fase 5: busca de lugares (janela) e tarefas.
+      else if (url.pathname === '/api/places') {
+        placeCalls.push({ q: url.searchParams.get('q'), near: url.searchParams.get('near') })
+        data = { ok: true, query: url.searchParams.get('q'), near: url.searchParams.get('near') || '', provider: 'osm', results: placeResults(), bbox: [-46.641, -23.561, -46.629, -23.549], attribution: '© colaboradores do OpenStreetMap', notice: '', action: { id: 'act_1', status: 'succeeded' } }
+      }
+      else if (url.pathname === '/api/popups/task_list') data = { ok: true, popup: taskPopup('cmd-tasks', [task('cmd-t1', 'Pagar luz', false, 1)], {}) }
       else if (url.pathname === '/api/settings/mic') data = { ok: true, engine: 'auto' }
       else if (url.pathname === '/api/voice/capture/status') data = { ok: true, available: true, active: false, reason: '' }
       else if (url.pathname === '/api/voice/capture/start') { captureCalls.push('start'); data = { ok: true, seq: 0, threshold: 300 } }
@@ -91,6 +107,12 @@ const notesPopup = (draft, title, dictate, format = 'bullets') => envelope(`note
         data = { ok: true, events: events.slice(0, 2), seq: events.length ? events.slice(0, 2).at(-1).seq : after, active: true }
       }
       await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) })
+    })
+    // Mapa do OSM simulado: nenhuma requisição sai para a internet.
+    const mapLoads = []
+    await page.route('https://www.openstreetmap.org/**', async route => {
+      mapLoads.push(route.request().url())
+      await route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>mapa</title>' })
     })
     await page.goto(process.env.PANEL_TEST_URL || 'http://127.0.0.1:5173')
     await page.locator('.ws-chat-header strong').filter({ hasText: 'Conversa um' }).waitFor()
@@ -323,7 +345,75 @@ const notesPopup = (draft, title, dictate, format = 'bullets') => envelope(`note
     assert.deepEqual(notePosts.at(-1), { draft_id: 'note0002bbbb', title: 'Mercado', format: 'bullets', content: '- comprar pão\n- comprar leite' })
     await live.getByText('Salvo no cofre', { exact: false }).waitFor()
 
+    // ── Fase 5: tarefas e lugares ────────────────────────────────────────────
+    await closeAll()
+    await page.waitForFunction(() => document.querySelectorAll('.ws-popup').length === 0)
+    await away()
+
+    // Tarefas: as novas entram com destaque; concluir na mesma chave risca sem empilhar.
+    await show(taskPopup('tasks1', [task('t-1', 'Lavar louça'), task('t-2', 'Pagar luz', false, 1), task('t-3', 'Ligar pro banco')], { added_ids: ['t-2', 't-3'] }))
+    const tasks = card('Tarefas')
+    await tasks.locator('[data-popup-item="t-3"]').waitFor()
+    assert.equal(await tasks.locator('.ws-popup-task[data-new="true"]').count(), 2)
+    await tasks.getByText('3 pendente(s)', { exact: true }).waitFor()
+    await show(taskPopup('tasks2', [task('t-1', 'Lavar louça', true), task('t-2', 'Pagar luz', false, 1), task('t-3', 'Ligar pro banco')], { toggled_ids: ['t-1'] }))
+    await tasks.locator('.ws-popup-task[data-done="true"] .ws-popup-task-strike').waitFor()
+    await tasks.getByText('2 pendente(s)', { exact: true }).waitFor()
+    assert.equal(await cards.count(), 1)
+    await tasks.getByText('P1', { exact: true }).waitFor()
+    await tasks.getByRole('button', { name: 'Fechar popup' }).click()
+    await page.waitForFunction(() => document.querySelectorAll('.ws-popup').length === 0)
+
+    // /pendencias monta o popup pela API, sem chat.
+    await composer.fill('/pendencias')
+    await page.keyboard.press('Enter')
+    await card('Tarefas').getByText('Pagar luz').waitFor()
+    assert.ok(apiCalls.includes('/api/popups/task_list'))
+    await closeAll()
+    await page.waitForFunction(() => document.querySelectorAll('.ws-popup').length === 0)
+
+    // Lugares: 3 resultados entram em sequência, atribuição visível, "Ver no mapa" abre a janela.
+    await show(placesPopup('places1'))
+    const placesCard = card('Lugares')
+    await placesCard.locator('[data-popup-item="p2"]').waitFor()
+    assert.equal(await placesCard.locator('.ws-popup-place').count(), 3)
+    await placesCard.getByText('© colaboradores do OpenStreetMap', { exact: false }).waitFor()
+    await placesCard.getByText('4.6', { exact: false }).waitFor()
+    await placesCard.getByRole('button', { name: 'Ver no mapa' }).click()
+    const placesWindow = page.locator('.ws-window').filter({ has: page.locator('.ws-window-titlebar strong', { hasText: 'Lugares' }) })
+    await placesWindow.locator('iframe').waitFor()
+    assert.deepEqual(placeCalls.at(-1), { q: 'padaria', near: null })
+    await placesWindow.getByRole('button', { name: 'Fechar janela' }).click()
+    await placesWindow.waitFor({ state: 'detached' })
+    await closeAll()
+
+    // /lugares padaria: abre a janela e busca; digitar não busca, só enviar.
+    const callsBefore = placeCalls.length
+    await composer.fill('/lugares padaria')
+    await page.keyboard.press('Enter')
+    await placesWindow.locator('iframe').waitFor()
+    assert.equal(placeCalls.length, callsBefore + 1)
+    assert.equal(await placesWindow.getByLabel('O que procurar').inputValue(), 'padaria')
+    const src = await placesWindow.locator('iframe').getAttribute('src')
+    const iframeUrl = new URL(src)
+    assert.equal(iframeUrl.origin + iframeUrl.pathname, 'https://www.openstreetmap.org/export/embed.html')
+    assert.ok(iframeUrl.searchParams.get('bbox') && iframeUrl.searchParams.get('marker') === '-23.55,-46.63', src)
+    await placesWindow.getByText('Mapa: © colaboradores do OpenStreetMap', { exact: false }).waitFor()
+    await placesWindow.getByRole('link', { name: 'Abrir no mapa' }).waitFor()
+    // Escolher outro resultado move o marcador.
+    await placesWindow.getByRole('button', { name: /Padaria Bela Vista/ }).click()
+    await page.waitForFunction(() => document.querySelector('.ws-places-map iframe')?.getAttribute('src')?.includes('marker=-23.56%2C-46.64'))
+    await placesWindow.getByLabel('O que procurar').fill('farmácia')
+    await placesWindow.getByLabel('Perto de').fill('Centro')
+    await page.waitForTimeout(400)
+    assert.equal(placeCalls.length, callsBefore + 1)
+    await placesWindow.getByLabel('Perto de').press('Enter')
+    for (let i = 0; i < 20 && placeCalls.length === callsBefore + 1; i += 1) await page.waitForTimeout(100)
+    assert.deepEqual(placeCalls.at(-1), { q: 'farmácia', near: 'Centro' })
+    assert.equal(apiCalls.filter(item => item === '/api/chat').length, chatBefore)
+    await placesWindow.getByRole('button', { name: 'Fechar janela' }).click()
+
     assert.deepEqual(errors, [])
-    console.log('PASS — ttl, mesma chave, fila 3+2, clique fora, paleta fecha popups, Fixar, Esc, sem duplicar com o complete, inválido avisa, movimento reduzido, 360 px, configuração, hábitos em sequência, água com meta batida, agenda com destaque, /habitos, /hidratacao, /nota com Checklist e erro 500, ditado com "fim da nota"')
+    console.log('PASS — ttl, mesma chave, fila 3+2, clique fora, paleta fecha popups, Fixar, Esc, sem duplicar com o complete, inválido avisa, movimento reduzido, 360 px, configuração, hábitos em sequência, água com meta batida, agenda com destaque, /habitos, /hidratacao, /nota com Checklist e erro 500, ditado com "fim da nota", tarefas animadas, /pendencias, lugares com mapa, /lugares só busca ao enviar')
   } finally { await browser.close() }
 })().catch(err => { console.error(err); process.exit(1) })

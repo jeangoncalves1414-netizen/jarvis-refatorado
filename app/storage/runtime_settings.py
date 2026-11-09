@@ -100,6 +100,7 @@ def sync_api_keys_to_env() -> None:
             "gemini": ("GEMINI_API_KEY", "GEMINI_API_KEYS"),
             "openrouter": ("OPENROUTER_API_KEY", "OPENROUTER_API_KEYS"),
             "fish": ("FISH_API_KEY", "FISH_API_KEYS"),
+            "google_places": ("GOOGLE_PLACES_API_KEY", "GOOGLE_PLACES_API_KEYS"),
         }
         for key_id, (env_key, env_keys) in mapping.items():
             val = str(keys.get(key_id) or "").strip()
@@ -120,6 +121,7 @@ def get_api_keys() -> dict[str, str]:
         "gemini": ("GEMINI_API_KEY", "GEMINI_API_KEYS"),
         "openrouter": ("OPENROUTER_API_KEY", "OPENROUTER_API_KEYS"),
         "fish": ("FISH_API_KEY", "FISH_API_KEYS"),
+        "google_places": ("GOOGLE_PLACES_API_KEY", "GOOGLE_PLACES_API_KEYS"),
     }
     result = {}
     for key_id, (env_key, env_keys) in mapping.items():
@@ -146,13 +148,14 @@ def set_api_keys(keys: dict[str, str], settings_obj: Any | None = None) -> dict[
         raise ValueError("keys deve ser um dicionário.")
     data = _read()
     current = data.get("api_keys", {}) if isinstance(data.get("api_keys"), dict) else {}
-    allowed = {"oxyy", "groq", "gemini", "openrouter", "fish"}
+    allowed = {"oxyy", "groq", "gemini", "openrouter", "fish", "google_places"}
     mapping = {
         "oxyy": ("OXYY_API_KEY", "OXYY_API_KEYS"),
         "groq": ("GROQ_API_KEY", "GROQ_API_KEYS"),
         "gemini": ("GEMINI_API_KEY", "GEMINI_API_KEYS"),
         "openrouter": ("OPENROUTER_API_KEY", "OPENROUTER_API_KEYS"),
         "fish": ("FISH_API_KEY", "FISH_API_KEYS"),
+        "google_places": ("GOOGLE_PLACES_API_KEY", "GOOGLE_PLACES_API_KEYS"),
     }
     for key_id, val in keys.items():
         if key_id in allowed:
@@ -683,6 +686,15 @@ def set_popup_settings(values: dict[str, Any]) -> dict[str, Any]:
     data["popups"] = current
     _write(data)
     return get_popup_settings()
+
+
+# Busca de lugares (lote 6): e-mail de contato opcional enviado ao Nominatim (política de uso do OSM).
+def get_places_settings() -> dict[str, Any]:
+    saved = _read().get("places")
+    saved = saved if isinstance(saved, dict) else {}
+    email = saved.get("email", "")
+    valid = isinstance(email, str) and 3 <= len(email.strip()) <= 120 and "@" in email and " " not in email.strip()
+    return {"email": email.strip() if valid else ""}
 
 
 # ---------------------------------------------------------------------------

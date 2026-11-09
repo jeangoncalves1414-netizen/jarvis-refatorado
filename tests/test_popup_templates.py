@@ -14,7 +14,7 @@ from app.agent.orchestrator import AgentOrchestrator
 from app.agent.react_loop import ReActLoopEngine
 from app.agent.tools.calendar_tool import CalendarTool
 from app.agent.tools.lifeos_tool import LifeOSTool
-from app.agent.tools.lifestyle_tools import HabitTool
+from app.agent.tools.lifestyle_tools import HabitTool, TaskTool
 from app.agent.tools.memory_vault_tool import VaultSaveNoteTool, VaultSearchTool
 from app.agent.tools.open_screen import OpenScreenTool
 from app.agent.tools.registry import ToolRegistry
@@ -35,7 +35,7 @@ TOMORROW = (date.today() + timedelta(days=1)).isoformat()
 def real_registry():
     registry = ToolRegistry.__new__(ToolRegistry)
     registry.tools = {tool.name: tool for tool in (
-        OpenScreenTool(), HabitTool(), CalendarTool(), LifeOSTool(), ShowPopupTool(), VaultSaveNoteTool(), VaultSearchTool(),
+        OpenScreenTool(), HabitTool(), TaskTool(), CalendarTool(), LifeOSTool(), ShowPopupTool(), VaultSaveNoteTool(), VaultSearchTool(),
     )}
     return registry
 
@@ -165,6 +165,39 @@ def test_auto_popups_disabled_do_not_emit(env):
 
 def test_failed_tool_never_emits(env):
     assert popups.popups_for_result("lifeos_tool", {"action": "set_water"}, SimpleNamespace(ok=False, data={"data": {"total_ml": 1}})) == []
+
+
+# ── Tarefas (Fase 5) ─────────────────────────────────────────────────────────
+
+def test_task_create_many_emits_task_list_with_added_ids(env):
+    script(env, [acoes(("task_tool", {"action": "create_many", "tasks": [{"title": "Pagar luz", "priority": 1}, {"title": "Ligar pro banco"}]})), "FINISH: Criei."])
+    plan = env.agent.handle_request("cria as tarefas pagar luz e ligar pro banco e depois confere se ficou certo", session_id="s1")
+    published = [p for p in popup_events(env) if p["template"] == "task_list"]
+    assert len(published) == 1
+    popup = published[0]
+    assert popup["key"] == "tasks" and popup["data"]["filter"] == "pending"
+    titles = {item["title"]: item for item in popup["data"]["items"]}
+    assert set(titles) == {"Pagar luz", "Ligar pro banco"} and titles["Pagar luz"]["priority"] == 1
+    assert set(popup["animate"]["added_ids"]) == {item["id"] for item in popup["data"]["items"]}
+    assert popup["data"]["pending"] == 2 and popup["data"]["total"] == 2
+    assert popup in plan.context["ui_popups"]
+
+
+def test_task_toggle_keeps_completed_task_visible_in_pending_popup(env):
+    TaskTool().execute({"action": "create", "title": "Lavar louça"})
+    TaskTool().execute({"action": "create", "title": "Já feita"})
+    TaskTool().execute({"action": "toggle", "title": "Já feita"})
+    script(env, [acoes(("task_tool", {"action": "toggle", "title": "Lavar louça"})), "FINISH: Concluí."])
+    env.agent.handle_request("marca a tarefa lavar louça como feita e depois confere se ficou certo", session_id="s1")
+    [popup] = [p for p in popup_events(env) if p["template"] == "task_list"]
+    items = {item["title"]: item for item in popup["data"]["items"]}
+    # A recém-concluída aparece riscada; a concluída antes fica fora do filtro "pending".
+    assert set(items) == {"Lavar louça"} and items["Lavar louça"]["completed"] is True
+    assert popup["animate"] == {"toggled_ids": [items["Lavar louça"]["id"]]}
+    all_popup = popups.build_popup("task_list", {"filter": "all"}, origin="command")
+    assert {item["title"] for item in all_popup["data"]["items"]} == {"Lavar louça", "Já feita"}
+    with pytest.raises(ValueError):
+        popups.validate_popup_request("task_list", {"filter": "hoje"})
 
 
 # ── Anotação ao vivo ─────────────────────────────────────────────────────────

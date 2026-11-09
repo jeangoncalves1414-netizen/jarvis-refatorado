@@ -542,8 +542,8 @@ export default function App() {
   const commandHandlers: CommandHandlers = {
     stopRequest: () => { void conversationRun.stop() },
     navigate: screen => { playToggle(); setActive(screen) },
-    openWindow: windowId => {
-      if (isManagedWindow(windowId)) { if (!windows.open(windowId)) setNotice('Não foi possível abrir a janela.') }
+    openWindow: (windowId, params) => {
+      if (isManagedWindow(windowId)) { if (!windows.open(windowId, params)) setNotice('Não foi possível abrir a janela.') }
       else if (windowId === WINDOW_LIFE_OS) openEvoluteWindow()
       else if (windowId === WINDOW_CINEMA) setCinemaLauncherOpen(true)
       else if (windowId === WINDOW_CAMERAS) { setCameraQuestion(''); setCameraWorkspaceOpen(true) }

@@ -1,5 +1,6 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
-import { CalendarClock, Droplets, Info, ListChecks, NotebookPen, type LucideIcon } from 'lucide-react'
+import { CalendarClock, Droplets, Info, ListChecks, ListTodo, MapPinned, NotebookPen, type LucideIcon } from 'lucide-react'
+import { parseBbox, parsePlace, type PlaceBbox, type PlaceProvider, type PlaceResult } from '../utils/places'
 import type { PopupEnvelope, PopupOrigin } from './types'
 
 // Registro dos modelos de popup. Espelho de app/agent/popups.py (POPUP_TEMPLATES): mesmos ids.
@@ -11,6 +12,8 @@ export const POPUP_HABIT_LIST = 'habit_list'
 export const POPUP_SCHEDULE = 'schedule'
 export const POPUP_WATER = 'water'
 export const POPUP_LIVE_NOTES = 'live_notes'
+export const POPUP_TASK_LIST = 'task_list'
+export const POPUP_PLACES = 'places'
 
 export type InfoPopupData = { title: string; lines: string[]; tone: 'info' | 'ok' | 'warn' }
 
@@ -33,6 +36,12 @@ export type WaterPopupData = { date: string; current_ml: number; previous_ml: nu
 
 export type NoteFormat = 'text' | 'bullets' | 'checklist'
 export type LiveNotesPopupData = { draft_id: string; title: string; format: NoteFormat; dictate: boolean; content: string }
+
+export type TaskPopupItem = { id: string; title: string; priority: number; due_date: string; completed: boolean }
+export type TaskListPopupData = { filter: 'pending' | 'all'; items: TaskPopupItem[]; pending: number; total: number }
+
+export type PopupPlace = PlaceResult & { id: string }
+export type PlacesPopupData = { query: string; near: string; provider: PlaceProvider; results: PopupPlace[]; bbox: PlaceBbox | null; attribution: string; notice: string }
 
 export type PopupComponentProps<D> = {
   popup: PopupEnvelope<D>
@@ -155,12 +164,58 @@ const liveNotesDef: PopupDef<LiveNotesPopupData> = {
   component: lazy(() => import('./templates/LiveNotesPopup').then(module => ({ default: module.LiveNotesPopup }))),
 }
 
+function parseTaskList(raw: unknown): TaskListPopupData | null {
+  if (!isRecord(raw) || (raw.filter !== 'pending' && raw.filter !== 'all')) return null
+  if (!Array.isArray(raw.items) || raw.items.length > MAX_ITEMS) return null
+  const items: TaskPopupItem[] = []
+  for (const item of raw.items) {
+    if (!isRecord(item) || !isText(item.id, 80) || !item.id || !isText(item.title, 200) || !isText(item.due_date, 10)) return null
+    if (typeof item.priority !== 'number' || !Number.isInteger(item.priority) || item.priority < 1 || item.priority > 4 || typeof item.completed !== 'boolean') return null
+    items.push({ id: item.id, title: item.title, priority: item.priority, due_date: item.due_date, completed: item.completed })
+  }
+  if (!isCount(raw.pending) || !isCount(raw.total)) return null
+  return { filter: raw.filter, items, pending: raw.pending, total: raw.total }
+}
+
+function parsePlaces(raw: unknown): PlacesPopupData | null {
+  if (!isRecord(raw) || !isText(raw.query, 120) || !raw.query || !isText(raw.near, 80)) return null
+  if (raw.provider !== 'osm' && raw.provider !== 'google') return null
+  if (!Array.isArray(raw.results) || raw.results.length > 8) return null
+  const results: PopupPlace[] = []
+  for (const item of raw.results) {
+    const place = parsePlace(item)
+    if (!place || !place.id) return null
+    results.push(place as PopupPlace)
+  }
+  const bbox = parseBbox(raw.bbox)
+  if (bbox === undefined || !isText(raw.attribution, 120) || !isText(raw.notice, 300)) return null
+  return { query: raw.query, near: raw.near, provider: raw.provider, results, bbox, attribution: raw.attribution, notice: raw.notice }
+}
+
+const taskListDef: PopupDef<TaskListPopupData> = {
+  id: POPUP_TASK_LIST,
+  title: 'Tarefas',
+  icon: ListTodo,
+  parseData: parseTaskList,
+  component: lazy(() => import('./templates/TaskListPopup').then(module => ({ default: module.TaskListPopup }))),
+}
+
+const placesDef: PopupDef<PlacesPopupData> = {
+  id: POPUP_PLACES,
+  title: 'Lugares',
+  icon: MapPinned,
+  parseData: parsePlaces,
+  component: lazy(() => import('./templates/PlacesPopup').then(module => ({ default: module.PlacesPopup }))),
+}
+
 export const popupRegistry: Record<string, PopupDef<any>> = {
   [POPUP_INFO]: infoDef,
   [POPUP_HABIT_LIST]: habitListDef,
   [POPUP_SCHEDULE]: scheduleDef,
   [POPUP_WATER]: waterDef,
   [POPUP_LIVE_NOTES]: liveNotesDef,
+  [POPUP_TASK_LIST]: taskListDef,
+  [POPUP_PLACES]: placesDef,
 }
 
 export function getPopupDef(id: string): PopupDef<unknown> | undefined {
