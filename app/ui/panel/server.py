@@ -1400,7 +1400,26 @@ class PanelHandler(BaseHTTPRequestHandler):
                     session = voice_call_engine.start_call(payload.get("session_id", ""))
                     self._send_json(200, {"ok": True, "session_id": session.session_id, "state": session.state.value})
                 elif sub == "interrupt":
-                    res = voice_call_engine.interrupt_call(payload.get("session_id", ""))
+                    res = voice_call_engine.interrupt_call(
+                        payload.get("session_id", ""),
+                        interrupted_text=payload.get("interrupted_text", "")
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif sub == "cancel":
+                    res = voice_call_engine.cancel_active_action(payload.get("session_id", ""))
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif sub == "filler":
+                    sid = payload.get("session_id", "")
+                    cat = payload.get("category", "thinking")
+                    filler = voice_call_engine.get_filler(cat, session_id=sid)
+                    self._send_json(200, {"ok": True, "filler": filler, "silent_mode": voice_call_engine.is_silent_mode(sid)})
+                elif sub == "silent_mode":
+                    sid = payload.get("session_id", "")
+                    silent = payload.get("silent")
+                    if silent is None:
+                        res = voice_call_engine.toggle_silent_mode(sid)
+                    else:
+                        res = voice_call_engine.set_silent_mode(sid, silent=bool(silent))
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif sub == "mute":
                     res = voice_call_engine.toggle_mute(payload.get("session_id", ""))

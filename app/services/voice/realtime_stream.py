@@ -64,9 +64,22 @@ class RealTimeStreamManager:
                 ctrl = json.loads(raw_data)
                 cmd = ctrl.get("command", "")
                 if cmd == "barge_in":
-                    return self.call_engine.interrupt_call(session_id)
+                    return self.call_engine.interrupt_call(
+                        session_id,
+                        interrupted_text=ctrl.get("interrupted_text", "")
+                    )
+                elif cmd == "cancel":
+                    return self.call_engine.cancel_active_action(session_id)
                 elif cmd == "toggle_mute":
                     return self.call_engine.toggle_mute(session_id)
+                elif cmd == "toggle_silent_mode":
+                    return self.call_engine.toggle_silent_mode(session_id)
+                elif cmd == "set_silent_mode":
+                    return self.call_engine.set_silent_mode(session_id, silent=bool(ctrl.get("silent", True)))
+                elif cmd == "get_filler":
+                    cat = ctrl.get("category", "thinking")
+                    filler = self.call_engine.get_filler(cat, session_id=session_id)
+                    return {"ok": True, "filler": filler, "silent_mode": self.call_engine.is_silent_mode(session_id)}
                 elif cmd == "evaluate_turn":
                     return self.call_engine.evaluate_turn(
                         session_id,
