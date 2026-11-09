@@ -3,11 +3,15 @@
 Gerencia sessões de chamada por voz em tempo real (Full-Duplex RTC Call),
 suportando VAD (Voice Activity Detection), interrupção imediata (Barge-In)
 e controle de estados da ligação: IDLE -> CONNECTING -> LISTENING -> THINKING -> SPEAKING -> INTERRUPTED.
+Inclui fillers de voz de baixa latência, suporte a modo silencioso, cancelamento ativo
+e context stitching refinado pós-interrupção.
 """
 from __future__ import annotations
 
+import re
 import time
 import math
+import random
 import asyncio
 from enum import Enum
 from dataclasses import dataclass, field
@@ -24,6 +28,71 @@ try:
     VOICE_EMOTION_AVAILABLE = True
 except ImportError:
     VOICE_EMOTION_AVAILABLE = False
+
+
+SEARCH_FILLERS = [
+    "Procurando na web...",
+    "Deixa eu conferir as fontes...",
+    "Dando uma olhada nos sites...",
+]
+
+THINKING_FILLERS = [
+    "Só um momento...",
+    "Hm, analisando aqui...",
+    "Deixa eu pensar bem nisso...",
+]
+
+# Regex para comandos de cancelamento imediato por voz
+CANCEL_COMMAND_REGEX = re.compile(
+    r"^(?:jarvis[,.]?\s*)?(?:cancela(?:r)?(?:\s+(?:a\s+pesquisa|isso|agora|tudo))?|para(?:r)?(?:\s+(?:de\s+(?:pesquisar|buscar)|tudo|agora))?|deixa\s+pra\s+l[aá]|aborta(?:r)?)[.!]?$",
+    re.IGNORECASE,
+)
+
+# Regex para ativar modo silencioso / sem narração
+SILENCE_ENABLE_REGEX = re.compile(
+    r"\b(?:n[aã]o\s+precisa\s+(?:narrar|falar(?:\s+nada)?(?:\s+enquanto\s+pesquisa)?)|pesquis(?:e|a)\s+em\s+sil[eê]ncio|pesquis(?:e|a)\s+sem\s+falar(?:\s+nada)?|modo\s+silencioso|ativ(?:e|ar)\s+(?:o\s+)?modo\s+silencioso|fiqu?e\s+em\s+sil[eê]ncio|sem\s+narrar)\b",
+    re.IGNORECASE,
+)
+
+# Regex para desativar modo silencioso / voltar a narrar
+SILENCE_DISABLE_REGEX = re.compile(
+    r"\b(?:pode\s+(?:narrar|falar)|desativ(?:e|ar)\s+(?:o\s+)?modo\s+silencioso|sa(?:i|ia)\s+do\s+modo\s+silencioso|desativ(?:e|ar)\s+sil[eê]ncio)\b",
+    re.IGNORECASE,
+)
+
+
+def is_cancel_command(text: str) -> bool:
+    """Verifica se a fala do usuário é um comando de cancelamento ativo."""
+    if not text:
+        return False
+    cleaned = text.strip()
+    return bool(CANCEL_COMMAND_REGEX.match(cleaned))
+
+
+def detect_silence_command(text: str) -> tuple[bool, bool]:
+    """Detecta intenção de silêncio ou retorno de narração.
+
+    Retorna (is_command, enable_silence).
+    """
+    if not text:
+        return (False, False)
+    # Verifica primeiro comandos explícitos de desativação (prevalecem sobre menções a "modo silencioso")
+    if SILENCE_DISABLE_REGEX.search(text):
+        return (True, False)
+    if SILENCE_ENABLE_REGEX.search(text):
+        return (True, True)
+    return (False, False)
+
+
+def build_context_stitching_prompt(interrupted_text: str, user_speech: str) -> str:
+    """Mescla o trecho que o Jarvis estava dizendo antes do barge-in com a nova fala do usuário."""
+    interrupted_clean = (interrupted_text or "").strip()
+    user_clean = (user_speech or "").strip()
+    return (
+        f'[Contexto da Interrupção: Você estava dizendo: "{interrupted_clean}". '
+        f'O usuário te interrompeu dizendo: "{user_clean}". '
+        'Responda de forma ágil e coesa, incorporando a observação ao que já estava sendo discutido sem repetir tudo do zero.]'
+    )
 
 
 class CallState(str, Enum):
@@ -50,11 +119,15 @@ class CallSession:
     created_at: float
     state: CallState = CallState.IDLE
     is_muted: bool = False
+    silent_mode: bool = False
     metrics: CallMetrics = field(default_factory=CallMetrics)
     last_user_activity: float = field(default_factory=time.time)
     current_transcript: str = ""
     last_ai_reply: str = ""
     words_spoken: int = 0
+    last_interrupted_text: str = ""
+    last_filler: str = ""
+    filler_index: int = 0
     last_emotion: dict = field(default_factory=dict)
     last_turn_eval: dict = field(default_factory=dict)
 
@@ -129,7 +202,7 @@ class VoiceCallEngine:
             "barge_in_triggered": was_interrupted
         }
 
-    def interrupt_call(self, session_id: str) -> dict[str, Any]:
+    def interrupt_call(self, session_id: str, interrupted_text: str = "") -> dict[str, Any]:
         """Força a interrupção da fala da IA pelo usuário (barge-in manual)."""
         session = self.active_sessions.get(session_id)
         if not session:
@@ -137,8 +210,90 @@ class VoiceCallEngine:
 
         session.state = CallState.INTERRUPTED
         session.metrics.interruption_count += 1
+        if interrupted_text:
+            session.last_interrupted_text = interrupted_text
         session.state = CallState.LISTENING
-        return {"ok": True, "session_id": session_id, "state": session.state.value, "interrupted": True}
+        return {
+            "ok": True,
+            "session_id": session_id,
+            "state": session.state.value,
+            "interrupted": True,
+            "interrupted_text": session.last_interrupted_text,
+        }
+
+    def cancel_active_action(self, session_id: str) -> dict[str, Any]:
+        """Cancela a ação em andamento (pesquisa, thinking, loop agêntico) e retorna confirmação por voz."""
+        session = self.active_sessions.get(session_id)
+        if not session:
+            return {"ok": False, "error": "Sessão não encontrada."}
+
+        session.state = CallState.LISTENING
+        return {
+            "ok": True,
+            "session_id": session_id,
+            "state": session.state.value,
+            "cancelled": True,
+            "confirmation": "Cancelado. O que você gostaria de fazer agora?",
+        }
+
+    def get_filler(self, category: str = "thinking", session_id: str = "", index: int | None = None) -> str:
+        """Retorna um filler contextual em pt-BR de baixa latência.
+
+        Se a sessão estiver em silent_mode, retorna string vazia.
+        """
+        session = self.active_sessions.get(session_id)
+        if session and session.silent_mode:
+            return ""
+
+        cat = (category or "").lower().strip()
+        if cat in ("search", "web", "pesquisa", "searching"):
+            pool = SEARCH_FILLERS
+        else:
+            pool = THINKING_FILLERS
+
+        if index is not None:
+            chosen = pool[index % len(pool)]
+        elif session:
+            chosen = pool[session.filler_index % len(pool)]
+            session.filler_index += 1
+            session.last_filler = chosen
+        else:
+            chosen = random.choice(pool)
+
+        return chosen
+
+    def set_silent_mode(self, session_id: str, silent: bool = True) -> dict[str, Any]:
+        """Define o modo silencioso (silence / progress narration off) para a sessão."""
+        session = self.active_sessions.get(session_id)
+        if not session:
+            return {"ok": False, "error": "Sessão não encontrada."}
+        session.silent_mode = bool(silent)
+        return {"ok": True, "session_id": session_id, "silent_mode": session.silent_mode}
+
+    def toggle_silent_mode(self, session_id: str) -> dict[str, Any]:
+        """Alterna o modo silencioso na sessão."""
+        session = self.active_sessions.get(session_id)
+        if not session:
+            return {"ok": False, "error": "Sessão não encontrada."}
+        session.silent_mode = not session.silent_mode
+        return {"ok": True, "session_id": session_id, "silent_mode": session.silent_mode}
+
+    def is_silent_mode(self, session_id: str) -> bool:
+        """Retorna se a sessão está com silent_mode ativo."""
+        session = self.active_sessions.get(session_id)
+        return bool(session and session.silent_mode)
+
+    def build_context_stitching_prompt(self, interrupted_text: str, user_speech: str) -> str:
+        """Gera o prompt com context stitching refinado pós-interrupção."""
+        return build_context_stitching_prompt(interrupted_text, user_speech)
+
+    def is_cancel_command(self, text: str) -> bool:
+        """Verifica se o texto é um comando de cancelamento ativo por voz."""
+        return is_cancel_command(text)
+
+    def detect_silence_command(self, text: str) -> tuple[bool, bool]:
+        """Detecta comandos de alternância de modo silencioso."""
+        return detect_silence_command(text)
 
     def toggle_mute(self, session_id: str) -> dict[str, Any]:
         """Alterna o estado de Mute do microfone."""
@@ -210,7 +365,7 @@ class VoiceCallEngine:
         }
 
     def get_session_status(self, session_id: str) -> dict[str, Any]:
-        """Retorna o status completo da chamada, incluindo emoção e último turno."""
+        """Retorna o status completo da chamada, incluindo modo silencioso, emoção e último turno."""
         session = self.active_sessions.get(session_id)
         if not session:
             return {"ok": False, "error": "Sessão inativa."}
@@ -220,6 +375,8 @@ class VoiceCallEngine:
             "session_id": session_id,
             "state": session.state.value,
             "is_muted": session.is_muted,
+            "silent_mode": session.silent_mode,
+            "last_interrupted_text": session.last_interrupted_text,
             "duration_sec": round(time.time() - session.created_at, 1),
             "last_emotion": session.last_emotion,
             "last_turn_eval": session.last_turn_eval,

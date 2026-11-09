@@ -65,6 +65,63 @@ function readSpeakerIdentificationEnabled() {
   try { return localStorage.getItem(SPEAKER_IDENTIFICATION_STORAGE_KEY) === '1' } catch { return false }
 }
 
+export const SEARCH_FILLERS = [
+  'Procurando na web...',
+  'Deixa eu conferir as fontes...',
+  'Dando uma olhada nos sites...',
+]
+
+export const THINKING_FILLERS = [
+  'Só um momento...',
+  'Hm, analisando aqui...',
+  'Deixa eu pensar bem nisso...',
+]
+
+let searchFillerIndex = 0
+let thinkingFillerIndex = 0
+
+export function pickSearchFiller(): string {
+  const filler = SEARCH_FILLERS[searchFillerIndex % SEARCH_FILLERS.length]
+  searchFillerIndex++
+  return filler
+}
+
+export function pickThinkingFiller(): string {
+  const filler = THINKING_FILLERS[thinkingFillerIndex % THINKING_FILLERS.length]
+  thinkingFillerIndex++
+  return filler
+}
+
+export function isSearchIntent(text: string): boolean {
+  if (!text) return false
+  return /\b(pesquis(e|ar?|ando)|procur(e|ar?|ando)|busqu?(e|ar?|ando)|google|not[ií]cias?|sites?|fontes?|internet|quem [eé]|onde fica|quanto custa|pre[cç]o|clima|tempo hoje)\b/i.test(text)
+}
+
+export const CANCEL_COMMAND_REGEX = /^(?:jarvis[,.]?\s*)?(?:cancela(?:r)?(?:\s+(?:a\s+pesquisa|isso|agora|tudo))?|para(?:r)?(?:\s+(?:de\s+(?:pesquisar|buscar)|tudo|agora))?|deixa\s+pra\s+l[aá]|aborta(?:r)?)[.!]?$/i
+
+export function isCancelCommand(text: string): boolean {
+  if (!text) return false
+  const clean = text.trim()
+  return CANCEL_COMMAND_REGEX.test(clean)
+}
+
+export function detectSilenceCommand(text: string): { isCommand: boolean; enableSilence: boolean } {
+  if (!text) return { isCommand: false, enableSilence: false }
+  if (/\b(pode\s+(narrar|falar)|desativ(e|ar)\s+(o\s+)?modo\s+silencioso|sa(i|ia)\s+do\s+modo\s+silencioso|desativ(e|ar)\s+sil[eê]ncio)\b/i.test(text)) {
+    return { isCommand: true, enableSilence: false }
+  }
+  if (/\b(n[aã]o\s+precisa\s+(narrar|falar(\s+nada)?(\s+enquanto\s+pesquisa)?)|pesquis(e|a)\s+em\s+sil[eê]ncio|pesquis(e|a)\s+sem\s+falar(\s+nada)?|modo\s+silencioso|ativ(e|ar)\s+(o\s+)?modo\s+silencioso|fiqu?e\s+em\s+sil[eê]ncio|sem\s+narrar)\b/i.test(text)) {
+    return { isCommand: true, enableSilence: true }
+  }
+  return { isCommand: false, enableSilence: false }
+}
+
+export function buildContextStitchingPrompt(interruptedText: string, userSpeech: string): string {
+  const cutOff = (interruptedText || '').trim()
+  const user = (userSpeech || '').trim()
+  return `[Contexto da Interrupção: Você estava dizendo: "${cutOff}". O usuário te interrompeu dizendo: "${user}". Responda de forma ágil e coesa, incorporando a observação ao que já estava sendo discutido sem repetir tudo do zero.]`
+}
+
 async function createStreamingAudio(response: Response): Promise<{ audio: HTMLAudioElement; url: string } | null> {
   if (!response.body || typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported('audio/mpeg')) return null
   const mediaSource = new MediaSource()
@@ -154,6 +211,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   const sendText = useCallback((message: string) => sendChatText(message, 'general', false, 'voice'), [sendChatText])
   const [speakEnabled, setSpeakEnabledState] = useState(readSpeakEnabled)
   const [speakerIdentificationEnabled, setSpeakerIdentificationEnabledState] = useState(readSpeakerIdentificationEnabled)
+  const [silentMode, setSilentModeState] = useState(false)
+  const silentModeRef = useRef(false)
   const [recording, setRecording] = useState(false)
   const [liveCallOpen, setLiveCallOpen] = useState(false)
   const [liveCallRecording, setLiveCallRecording] = useState(false)
@@ -382,6 +441,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   const sendTextStreamAndPlay = async (userText: string, displayText?: string, externalAbort?: AbortController) => {
     if (!userText || !liveCallActiveRef.current) return
 
+    spokenSentencesRef.current = []
+
     // Mostra apenas o texto limpo (sem o prompt de contexto interno)
     if (displayText !== undefined) setLiveUserTranscript(displayText)
     setLiveJarvisTranscript('')
@@ -400,7 +461,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       externalAbort.signal.addEventListener('abort', () => abortController.abort(), { once: true })
     }
 
-    const audioQueue: { text: string; audioPromise?: Promise<HTMLAudioElement | null> }[] = []
+    const audioQueue: { text: string; audioPromise?: Promise<HTMLAudioElement | null>; isFiller?: boolean }[] = []
     let isPlayingQueue = false
     const turnStartedAt = performance.now()
     let firstAudioReported = false
@@ -444,9 +505,13 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       isSpeakingRef.current = true
       spokenSentencesRef.current.push(item.text)
       setLiveOrbState('speaking')
-      setLiveCallStatus('⚡ Transmitindo resposta em tempo real…')
-      setLiveJarvisTranscript((prev) => (prev ? prev + ' ' + item.text : item.text))
-      updateLiveTurn(liveTurnId, { append: item.text })
+      if (item.isFiller) {
+        setLiveCallStatus(`⚡ ${item.text}`)
+      } else {
+        setLiveCallStatus('⚡ Transmitindo resposta em tempo real…')
+        setLiveJarvisTranscript((prev) => (prev ? prev + ' ' + item.text : item.text))
+        updateLiveTurn(liveTurnId, { append: item.text })
+      }
 
       try {
         // Race contra abort para não ficar preso aguardando TTS
@@ -505,9 +570,34 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       }
     }
 
+    const isSearch = isSearchIntent(displayText || userText)
+    let fillerTimer: number | null = null
+
+    if (!silentModeRef.current) {
+      if (isSearch) {
+        const filler = pickSearchFiller()
+        const fillerPromise = fetchAndCreateAudio(filler, abortController.signal)
+        audioQueue.push({ text: filler, audioPromise: fillerPromise, isFiller: true })
+        void playNextInQueue()
+      } else {
+        fillerTimer = window.setTimeout(() => {
+          if (!abortController.signal.aborted && phrasesEnqueued === 0 && liveCallActiveRef.current && !silentModeRef.current) {
+            const filler = pickThinkingFiller()
+            const fillerPromise = fetchAndCreateAudio(filler, abortController.signal)
+            audioQueue.push({ text: filler, audioPromise: fillerPromise, isFiller: true })
+            void playNextInQueue()
+          }
+        }, 450)
+      }
+    }
+
     const enqueuePhrase = (phrase: string) => {
       const trimmed = phrase.trim()
       if (!trimmed) return
+      if (fillerTimer !== null) {
+        window.clearTimeout(fillerTimer)
+        fillerTimer = null
+      }
       phrasesEnqueued += 1
       const audioPromise = fetchAndCreateAudio(trimmed, abortController.signal)
       audioQueue.push({ text: trimmed, audioPromise })
@@ -621,6 +711,10 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         setLiveCallStatus(err?.message || 'Falha durante a ligação.')
       }
     } finally {
+      if (fillerTimer !== null) {
+        window.clearTimeout(fillerTimer)
+        fillerTimer = null
+      }
       // Cada fala vira um turno novo (fala + resposta), preservando os anteriores no chat e na ligação.
       const turnReply = fullReply.trim()
       if (turnReply) {
@@ -654,6 +748,18 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       setLiveJarvisTranscript((prev) => (prev ? `${prev} ✂️ [interrompido]` : '[interrompido]'))
     }
 
+    // Notifica backend da interrupção (com o trecho preservado)
+    if (sessionIdRef.current) {
+      void fetch('/api/call/interrupt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionIdRef.current,
+          interrupted_text: interruptedText,
+        }),
+      }).catch(() => undefined)
+    }
+
     // Para o áudio imediatamente
     isSpeakingRef.current = false
     speechRequestRef.current += 1
@@ -684,7 +790,82 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     setLiveCallStatus('Interrompido por você. Ouvindo...')
   }, [])
 
-  const safeRestartLiveRecognition = (forceCalibrationPause = false) => {
+  const setSilentMode = useCallback((silent: boolean) => {
+    silentModeRef.current = silent
+    setSilentModeState(silent)
+    if (sessionIdRef.current) {
+      void fetch('/api/call/silent_mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionIdRef.current, silent }),
+      }).catch(() => undefined)
+    }
+  }, [])
+
+  const toggleSilentMode = useCallback(() => {
+    setSilentMode(!silentModeRef.current)
+  }, [setSilentMode])
+
+  async function handleVoiceCancellation() {
+    // 1. Abort ativo imediato de processamento, streaming e playbacks
+    speechAbortRef.current?.abort()
+    speechAbortRef.current = null
+    lastDispatchedSpeechRef.current?.abort.abort()
+    lastDispatchedSpeechRef.current = null
+    backendDispatchAbortRef.current?.abort()
+    backendDispatchAbortRef.current = null
+
+    // 2. Interrompe áudio instantaneamente
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause()
+        audioRef.current.currentTime = 0
+        audioRef.current.src = ''
+      } catch { /* ignore */ }
+      audioRef.current = null
+    }
+    if (audioUrlRef.current) {
+      try { URL.revokeObjectURL(audioUrlRef.current) } catch { /* ignore */ }
+      audioUrlRef.current = null
+    }
+    stopNativeSpeak()
+
+    // 3. Reseta estados de processamento
+    liveCallProcessingRef.current = false
+    isSpeakingRef.current = false
+    bargedInRef.current = false
+    spokenSentencesRef.current = []
+
+    // 4. Notifica backend /api/call/cancel
+    if (sessionIdRef.current) {
+      void fetch('/api/call/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionIdRef.current }),
+      }).catch(() => undefined)
+    }
+
+    // 5. Atualiza UI e emite áudio curto de confirmação
+    setLiveOrbState('speaking')
+    setLiveCallStatus('Cancelado por voz.')
+    const confirmationText = 'Cancelado. O que você gostaria de fazer agora?'
+    setLiveJarvisTranscript(confirmationText)
+
+    try {
+      isSpeakingRef.current = true
+      await speakText(confirmationText)
+    } finally {
+      isSpeakingRef.current = false
+      if (liveCallActiveRef.current) {
+        setLiveOrbState('listening')
+        setLiveCallRecording(true)
+        setLiveCallStatus('Ouvindo continuamente… fale normalmente.')
+        safeRestartLiveRecognition(true)
+      }
+    }
+  }
+
+  function safeRestartLiveRecognition(forceCalibrationPause = false) {
     if (!liveCallActiveRef.current) return
 
     // Se o Jarvis ainda está falando, não reinicia agora.
@@ -770,6 +951,14 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         return
       }
 
+      // ⚡ CANCELAMENTO ATIVO POR VOZ (Interim ou Final)
+      if (heardSpeech && isCancelCommand(heardSpeech)) {
+        if (liveCallProcessingRef.current || isSpeakingRef.current || (audioRef.current && !audioRef.current.paused) || lastDispatchedSpeechRef.current) {
+          void handleVoiceCancellation()
+          return
+        }
+      }
+
       const prevDispatch = lastDispatchedSpeechRef.current
       const CORRECTION_WINDOW_MS = 1400
 
@@ -849,6 +1038,39 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       function dispatchFinalSpeech(cleanText: string) {
         if (!cleanText || !liveCallActiveRef.current) return
 
+        if (isCancelCommand(cleanText)) {
+          void handleVoiceCancellation()
+          return
+        }
+
+        const silenceCheck = detectSilenceCommand(cleanText)
+        if (silenceCheck.isCommand) {
+          setSilentMode(silenceCheck.enableSilence)
+          const isPureSilence = /^(?:n[aã]o\s+precisa\s+(?:narrar|falar(?:\s+nada)?(?:\s+enquanto\s+pesquisa)?)|pesquis(?:e|a)\s+em\s+sil[eê]ncio|pesquis(?:e|a)\s+sem\s+falar(?:\s+nada)?|modo\s+silencioso|ativ(?:e|ar)\s+(?:o\s+)?modo\s+silencioso|fiqu?e\s+em\s+sil[eê]ncio|sem\s+narrar|pode\s+(?:narrar|falar)|desativ(?:e|ar)\s+(?:o\s+)?modo\s+silencioso|sa(?:i|ia)\s+do\s+modo\s+silencioso|desativ(?:e|ar)\s+sil[eê]ncio)[.!]?$/i.test(cleanText.replace(/[^\w\s]/g, '').trim())
+          if (isPureSilence) {
+            const confirmMsg = silenceCheck.enableSilence ? 'Modo silencioso ativado. Vou pesquisar em silêncio.' : 'Narração ativada.'
+            setLiveOrbState('speaking')
+            setLiveCallStatus(confirmMsg)
+            setLiveJarvisTranscript(confirmMsg)
+            void (async () => {
+              try {
+                isSpeakingRef.current = true
+                await speakText(confirmMsg)
+              } finally {
+                isSpeakingRef.current = false
+                liveCallProcessingRef.current = false
+                if (liveCallActiveRef.current) {
+                  setLiveOrbState('listening')
+                  setLiveCallRecording(true)
+                  setLiveCallStatus('Ouvindo continuamente… fale normalmente.')
+                  safeRestartLiveRecognition(true)
+                }
+              }
+            })()
+            return
+          }
+        }
+
         // Limpa janela de correção anterior se houver
         if (correctionWindowTimerRef.current !== null) {
           window.clearTimeout(correctionWindowTimerRef.current)
@@ -892,7 +1114,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
             if (lastInterruptionRef.current?.text) {
               const cutOff = lastInterruptionRef.current.text
               lastInterruptionRef.current = null
-              prompt = `[Contexto: você estava falando e foi interrompido exatamente após dizer: "${cutOff}". Responda de forma ágil ao que ele disse agora:] ${cleanText}`
+              prompt = buildContextStitchingPrompt(cutOff, cleanText)
             }
             // Passa o abort do dispatch especulativo para sendTextStreamAndPlay poder ser cancelado
             if (!dispatchAbort.signal.aborted) {
@@ -1019,12 +1241,26 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
           try {
             setLiveCallStatus('Transcrevendo…')
             if (isMobileStandalone()) {
-              const text = await transcribeMobileAudio(audio)
+              const text = (await transcribeMobileAudio(audio)).trim()
+              if (isCancelCommand(text)) {
+                void handleVoiceCancellation()
+                return
+              }
+              const silenceCheck = detectSilenceCommand(text)
+              if (silenceCheck.isCommand) {
+                setSilentMode(silenceCheck.enableSilence)
+              }
               liveCallSttFailureCountRef.current = 0
               setLiveUserTranscript(text)
               setLiveOrbState('thinking')
               setLiveCallStatus('Jarvis está processando…')
-              const reply = await sendTextAsTurn(text)
+              let promptText = text
+              if (lastInterruptionRef.current?.text) {
+                const cutOff = lastInterruptionRef.current.text
+                lastInterruptionRef.current = null
+                promptText = buildContextStitchingPrompt(cutOff, text)
+              }
+              const reply = await sendTextAsTurn(promptText)
               if (reply && liveCallActiveRef.current) {
                 isSpeakingRef.current = true
                 setLiveOrbState('speaking')
@@ -1050,12 +1286,27 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
             }
             liveCallSttFailureCountRef.current = 0
             recordDiagnostic('voice_turn_stt_completed', 'INFO', { turn_id: turnId, elapsed_ms: Math.round(performance.now() - turnStartedAt) })
-            if (divertToDictation(transcription.text.trim())) return
-            setLiveUserTranscript(transcription.text.trim())
+            const heardText = transcription.text.trim()
+            if (isCancelCommand(heardText)) {
+              void handleVoiceCancellation()
+              return
+            }
+            const silenceCheck = detectSilenceCommand(heardText)
+            if (silenceCheck.isCommand) {
+              setSilentMode(silenceCheck.enableSilence)
+            }
+            if (divertToDictation(heardText)) return
+            setLiveUserTranscript(heardText)
             setLiveOrbState('thinking')
             setLiveCallStatus('Jarvis está processando…')
             recordDiagnostic('voice_turn_llm_started', 'INFO', { turn_id: turnId })
-            const reply = await sendTextAsTurn(transcription.text.trim())
+            let promptText = heardText
+            if (lastInterruptionRef.current?.text) {
+              const cutOff = lastInterruptionRef.current.text
+              lastInterruptionRef.current = null
+              promptText = buildContextStitchingPrompt(cutOff, heardText)
+            }
+            const reply = await sendTextAsTurn(promptText)
             recordDiagnostic('voice_turn_llm_completed', 'INFO', { turn_id: turnId, elapsed_ms: Math.round(performance.now() - turnStartedAt), reply_received: Boolean(reply) })
             if (reply && liveCallActiveRef.current) {
               isSpeakingRef.current = true
@@ -1142,6 +1393,21 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   const dispatchBackendSpeech = (text: string) => {
     if (!text || !liveCallActiveRef.current) return
     if (divertToDictation(text)) return
+    if (isCancelCommand(text)) {
+      void handleVoiceCancellation()
+      return
+    }
+    const silenceCheck = detectSilenceCommand(text)
+    if (silenceCheck.isCommand) {
+      setSilentMode(silenceCheck.enableSilence)
+      const isPureSilence = /^(?:n[aã]o\s+precisa\s+(?:narrar|falar(?:\s+nada)?(?:\s+enquanto\s+pesquisa)?)|pesquis(?:e|a)\s+em\s+sil[eê]ncio|pesquis(?:e|a)\s+sem\s+falar(?:\s+nada)?|modo\s+silencioso|ativ(?:e|ar)\s+(?:o\s+)?modo\s+silencioso|fiqu?e\s+em\s+sil[eê]ncio|sem\s+narrar|pode\s+(?:narrar|falar)|desativ(?:e|ar)\s+(?:o\s+)?modo\s+silencioso|sa(?:i|ia)\s+do\s+modo\s+silencioso|desativ(?:e|ar)\s+sil[eê]ncio)[.!]?$/i.test(text.replace(/[^\w\s]/g, '').trim())
+      if (isPureSilence) {
+        const msg = silenceCheck.enableSilence ? 'Modo silencioso ativado. Vou pesquisar em silêncio.' : 'Narração ativada.'
+        setLiveCallStatus(msg)
+        void speakText(msg)
+        return
+      }
+    }
     const wasBargedIn = bargedInRef.current
     bargedInRef.current = false
     // Uma fala nova substitui qualquer resposta ainda em andamento.
@@ -1162,7 +1428,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         if (lastInterruptionRef.current?.text) {
           const cutOff = lastInterruptionRef.current.text
           lastInterruptionRef.current = null
-          prompt = `[Contexto: você estava falando e foi interrompido exatamente após dizer: "${cutOff}". Responda de forma ágil ao que ele disse agora:] ${text}`
+          prompt = buildContextStitchingPrompt(cutOff, text)
         }
         await sendTextStreamAndPlay(prompt, text, dispatchAbort)
       } catch (error) {
@@ -1366,7 +1632,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     try { localStorage.setItem(SPEAKER_IDENTIFICATION_STORAGE_KEY, enabled ? '1' : '0') } catch { /* ignore storage errors */ }
   }, [])
 
-  const speakText = async (text: string) => {
+  async function speakText(text: string) {
     if (!text || !speakEnabled) return
     const requestId = ++speechRequestRef.current
     speechAbortRef.current?.abort()
@@ -1456,6 +1722,14 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
           setAnswer('Transcrição pronta. Revise a mensagem e envie quando quiser.')
           return
         }
+        if (isCancelCommand(spoken)) {
+          void handleVoiceCancellation()
+          return
+        }
+        const silenceCheck = detectSilenceCommand(spoken)
+        if (silenceCheck.isCommand) {
+          setSilentMode(silenceCheck.enableSilence)
+        }
         if (nativeVoiceModeRef.current !== 'call' || !liveCallActiveRef.current) return
         if (liveCallProcessingRef.current || isSpeakingRef.current) return
         liveCallProcessingRef.current = true
@@ -1468,7 +1742,13 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         setLiveCallStatus('Jarvis está pensando…')
         void (async () => {
           try {
-            const reply = await sendTextAsTurn(spoken)
+            let promptText = spoken
+            if (lastInterruptionRef.current?.text) {
+              const cutOff = lastInterruptionRef.current.text
+              lastInterruptionRef.current = null
+              promptText = buildContextStitchingPrompt(cutOff, spoken)
+            }
+            const reply = await sendTextAsTurn(promptText)
             if (reply && liveCallActiveRef.current) {
               isSpeakingRef.current = true
               setLiveOrbState('speaking')
@@ -1548,6 +1828,10 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     liveTurns,
     liveOrbState,
     recording,
+    silentMode,
+    setSilentMode,
+    toggleSilentMode,
+    cancelCurrentAction: handleVoiceCancellation,
     speakerIdentificationEnabled,
     setSpeakerIdentificationEnabled,
     setLiveCallOpen,
