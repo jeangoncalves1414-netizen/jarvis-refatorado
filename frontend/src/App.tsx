@@ -24,6 +24,9 @@ import { playToggle, playSuccess, toggleSfx } from './utils/sfx'
 import { runCommandById, unescapeSlash, WINDOW_CAMERAS, WINDOW_CINEMA, WINDOW_LIFE_OS, WINDOW_LIVE_CALL, type CommandHandlers } from './commands/registry'
 import { extractWindowRequest, isManagedWindow } from './windows/registry'
 import { useWindows } from './windows/WindowManager'
+import { usePopups } from './popups/PopupProvider'
+import { PopupHost } from './popups/PopupHost'
+import { extractPopups } from './popups/registry'
 import { broadcastSyncEvent } from './utils/syncChannel'
 import { requestNotificationPermission } from './utils/notifications'
 import { autoSyncOnOpen } from './utils/jarvisCloud'
@@ -192,17 +195,23 @@ export default function App() {
   const windows = useWindows()
   // Interface pedida pelo agente no contexto da resposta: janela (open_window) e tela (open_screen).
   // Ids e parâmetros são validados de novo aqui; o agente nunca gera interface.
+  const popups = usePopups()
+  const showAgentPopup = (raw: unknown) => {
+    if (!popups.show(raw)) setNotice('O agente pediu um popup inválido.')
+  }
   const applyAgentUi = (context: unknown) => {
     const windowRequest = extractWindowRequest(context)
     if (windowRequest && !windows.open(windowRequest.windowId, windowRequest.params)) setNotice('O agente pediu uma janela que não existe ou com parâmetros inválidos.')
     const screen = extractScreenRequest(context)
     if (screen) setActive(screen)
+    // Popups (lote 6): o mesmo popup pode ter chegado pelo WebSocket; id repetido é descartado.
+    extractPopups(context).forEach(showAgentPopup)
   }
-  const pcChat = useChat({ onAgentContext: context => applyAgentUi(context), onWakeWord: phrase => handleWakeWord(phrase) })
+  const pcChat = useChat({ onAgentContext: context => applyAgentUi(context), onWakeWord: phrase => handleWakeWord(phrase), onPopup: showAgentPopup })
   const mobileChat = useDirectChat()
   const { answer, chatError, copySession, createSession, deleteSession, exportSession, loading, liveReasoning, liveSearch, messages, pendingScript, query, runPendingScript, selectSession, sendText, sendVisionQuestion, sessionId, sessions, setAnswer, setChatError, setPendingScript, setQuery, streamingReply } = IS_MOBILE ? mobileChat : pcChat
   const conversationRun = useConversationRun(sessionId, !IS_MOBILE, loading)
-  const { captureVision, closeLiveCall, liveCallOpen, liveCallRecording, liveCallStatus, liveAudioDiagnostics, liveUserTranscript, liveJarvisTranscript, liveTurns, liveOrbState, recording, setLiveCallOpen, setSpeakEnabled, setVisionResult, speakEnabled, speakText, toggleLiveCallCapture, toggleVoiceInput, triggerBargeIn, visionResult } = useMediaAssistant({ query, sendText, setAnswer, setQuery, sessionId, appendExchange: IS_MOBILE ? undefined : pcChat.appendExchange })
+  const { captureVision, closeLiveCall, liveCallOpen, liveCallRecording, liveCallStatus, liveAudioDiagnostics, liveUserTranscript, liveJarvisTranscript, liveTurns, liveOrbState, recording, setLiveCallOpen, setSpeakEnabled, setVisionResult, speakEnabled, speakText, toggleLiveCallCapture, toggleVoiceInput, triggerBargeIn, visionResult } = useMediaAssistant({ query, sendText, setAnswer, setQuery, sessionId, appendExchange: IS_MOBILE ? undefined : pcChat.appendExchange, onAgentContext: IS_MOBILE ? undefined : context => applyAgentUi(context) })
   const { availableEpisodes, availableSeasons, cinemaLauncherOpen, setCinemaLauncherOpen, videoUrl, setVideoUrl, cinemaQuery, setCinemaQuery, cinemaResults, cinemaMedia, cinemaStatus, setCinemaStatus, cinemaLibrary, refreshCinemaLibrary, searchCinema, probeCinema, saveCinemaUrl, openCinemaPayload, selectEpisode, selectLibraryItem, selectLibrarySource, selectNextEpisode, selectSeason, selectedEpisode, selectedLibraryItem, selectedLibraryId, selectedLibrarySources, selectedSeason, selectedSourceUrl } = useCinema()
 
   const setTtsProvider = async (tts_provider: 'fish' | 'gemini' | 'edge' | 'oxyy') => {
@@ -550,6 +559,18 @@ export default function App() {
       window.location.href = '/api/system/backup'
     },
     captureVision,
+    // Popup montado pelo backend a partir dos serviços, sem IA e sem Run (origem "command").
+    openPopup: (template, params) => {
+      const search = new URLSearchParams(params).toString()
+      fetch(`/api/popups/${encodeURIComponent(template)}${search ? `?${search}` : ''}`)
+        .then(async response => {
+          const data = await response.json().catch(() => ({}))
+          if (!response.ok || !data.ok) throw new Error(typeof data.error === 'string' ? data.error : '')
+          if (!popups.show(data.popup)) throw new Error('O popup recebido é inválido.')
+        })
+        .catch(error => setNotice(error instanceof Error && error.message && error.message !== 'Failed to fetch' ? error.message : 'Não foi possível abrir o popup. Verifique se o backend está ligado.'))
+    },
+    clearPopups: () => popups.clear(),
   }
 
   const setWakeWordEnabled = async (enabled: boolean) => {
@@ -1006,6 +1027,7 @@ export default function App() {
           />
         </Suspense>
       )}
+      {!IS_MOBILE && <PopupHost />}
       <Toast message={notice} onDismiss={dismissNotice} />
     </>
   )

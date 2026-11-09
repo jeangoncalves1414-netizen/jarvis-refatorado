@@ -15,8 +15,12 @@ Subscriber = Callable[[dict[str, Any]], None]
 _subscribers: list[Subscriber] = []
 _lock = threading.Lock()
 
-# Coletor de popups do turno (usado a partir da Fase 3).
+# Coletor de popups do turno (Fase 3): aberto por handle_request e pela retomada do loop.
+# None = fora de um turno de conversa (rotas de janela): nenhum popup é emitido.
 current_popups: ContextVar[list[dict[str, Any]] | None] = ContextVar("current_popups", default=None)
+# Conversa do turno (vai no envelope do evento) e quem quer o popup assim que ele nasce (SSE).
+current_popup_session: ContextVar[str | None] = ContextVar("current_popup_session", default=None)
+current_popup_listener: ContextVar[Callable[[dict[str, Any]], None] | None] = ContextVar("current_popup_listener", default=None)
 
 
 def subscribe(fn: Subscriber) -> Callable[[], None]:

@@ -26,6 +26,7 @@ from app.ui.panel.api.approvals import handle_approvals_get, handle_approvals_po
 from app.ui.panel.api.runs import handle_runs_get, handle_runs_post
 from app.ui.panel.api.controls import handle_controls_post
 from app.ui.panel.api.mission_control import handle_mission_control_get
+from app.ui.panel.api.popups import handle_popups_get
 from app.agent.action_gateway import request_origin, run_action
 from app.agent.run_tracking import background_run, in_background
 from app.core.runs import current_run
@@ -689,6 +690,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 handle_runs_get,
                 handle_mission_control_get,
                 handle_goals_get,
+                handle_popups_get,
             ):
                 result = handler_fn(parts, self)
                 if result:

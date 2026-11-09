@@ -18,6 +18,7 @@ from typing import Any
 from app.agent.action_executor import ActionExecutor
 from app.agent.tool_guardrails import ToolCallGuardrailController
 from app.agent.tools.base import ToolResult
+from app.core import ui_events
 from app.core.actions import ActionRecord
 from app.core.runs import REQUEST_ORIGINS, RunCancelled, current_run
 
@@ -88,6 +89,8 @@ def run_action(
     # Rotas diretas nascem de uma janela do painel, salvo quando a rota diz outra origem (C6).
     run = store.create_run(session_id=source, mode=run_mode, source=source, origin=origin)
     token = current_run.set((store, run.id))
+    # Rotas de janela não geram popup (lote 6): sem coletor de turno, o gancho não emite.
+    popups_token = ui_events.current_popups.set(None) if origin not in REQUEST_ORIGINS else None
     try:
         executor = ActionExecutor(
             frozenset({tool_name}), ToolCallGuardrailController(), call,
@@ -115,4 +118,6 @@ def run_action(
         try:
             store.finish_run(run.id, failed=not (outcome.succeeded or outcome.pending))
         finally:
+            if popups_token is not None:
+                ui_events.current_popups.reset(popups_token)
             current_run.reset(token)

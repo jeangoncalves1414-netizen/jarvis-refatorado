@@ -140,4 +140,11 @@ class ActionExecutor:
         self.last_action = self.store.transition(action_id, "succeeded" if succeeded else "failed", result_summary=summarize_result(message, args))
         # O1: o resultado real alimenta a saúde da integração na página Integrações.
         record_tool_result(name, result.ok, None if result.ok else summarize_result(result.message, args))
+        if succeeded:
+            # Popups do painel (lote 6): pedido explícito ou automático; nunca derruba a ação.
+            try:
+                from app.agent.popups import after_tool_success
+                after_tool_success(name, args, result)
+            except Exception:
+                pass
         return message

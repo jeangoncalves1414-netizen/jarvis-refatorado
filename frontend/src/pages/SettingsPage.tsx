@@ -2,6 +2,7 @@ import { useState, useEffect, type ReactNode } from 'react'
 import { Switch } from '../components/Switch'
 import { AutoApprovalsManager } from '../components/AutoApprovals'
 import { AgentLoopSettings } from '../components/AgentLoopSettings'
+import { PopupSettings } from '../components/PopupSettings'
 import { VoiceSettings } from '../components/VoiceSettings'
 import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download, User, Mic, Route, ShieldCheck, Cloud, Palette, HardDrive, Search, Star, ArrowUp, ArrowDown, Check, SlidersHorizontal, Bot } from 'lucide-react'
 import type { AiSettings, LlmSettings, OxyyCatalog, OxyySettings, Proactive, SttSettings, TtsSettings, Tray, WakeWord } from '../types'
@@ -624,9 +625,10 @@ export function SettingsPage({
       </>),
     },
     {
-      id: 'agent', label: 'Agente e popups', icon: <Bot size={16} />, keywords: 'agente loop etapas chamadas modelo limite verificação automática sequência continuar sozinho popups',
+      id: 'agent', label: 'Agente e popups', icon: <Bot size={16} />, keywords: 'agente loop etapas chamadas modelo limite verificação automática sequência continuar sozinho popups animados fechar sozinho máximo na tela',
       render: () => (<>
       {desktop && <AgentLoopSettings />}
+      {desktop && <PopupSettings />}
       {!desktop && <article className="settings-card"><p className="eyebrow">LOOP AGÊNTICO</p><h2>Disponível no PC</h2><p>O loop agêntico roda no backend do computador.</p></article>}
       </>),
     },

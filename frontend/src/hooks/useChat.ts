@@ -44,8 +44,9 @@ function getScriptRequest(summary: unknown): ScriptRequest | null {
   }
 }
 
-// onAgentContext recebe o contexto da resposta final (janela, tela e, nas próximas fases, popups) para o App aplicar.
-type UseChatOptions = { onAgentContext?: (context: unknown) => void; onWakeWord?: (phrase: string) => void }
+// onAgentContext recebe o contexto da resposta final (janela, tela e popups) para o App aplicar.
+// onPopup recebe o popup assim que ele nasce (evento WS ui_popup); o App descarta id repetido.
+type UseChatOptions = { onAgentContext?: (context: unknown) => void; onWakeWord?: (phrase: string) => void; onPopup?: (popup: unknown) => void }
 
 /** Contador do loop agêntico (evento WS agent_progress): etapa e chamadas ao modelo do pedido atual. */
 export type AgentProgress = { run_id?: string; step: number; max_steps: number; model_calls: number; max_model_calls: number; phase: string; summary?: string }
@@ -69,6 +70,8 @@ export function useChat(options: UseChatOptions = {}) {
   agentContextRef.current = options.onAgentContext
   const wakeWordRef = useRef(options.onWakeWord)
   wakeWordRef.current = options.onWakeWord
+  const popupRef = useRef(options.onPopup)
+  popupRef.current = options.onPopup
   const applyAgentContext = (context: unknown) => {
     if (context) agentContextRef.current?.(context)
   }
@@ -540,7 +543,7 @@ export function useChat(options: UseChatOptions = {}) {
         reconnectAttempts = 0
       }
       socket.onmessage = (event) => {
-        let data: { type?: string; text?: string; message?: string; summary?: string; payload?: SearchPayload; session_id?: string; phrase?: string; context?: { run_id?: string }; reply?: unknown; run_id?: unknown } = {}
+        let data: { type?: string; text?: string; message?: string; summary?: string; payload?: SearchPayload; session_id?: string; phrase?: string; context?: { run_id?: string }; reply?: unknown; run_id?: unknown; popup?: unknown } = {}
         try {
           data = JSON.parse(String(event.data))
         } catch {
@@ -549,6 +552,8 @@ export function useChat(options: UseChatOptions = {}) {
         const { type, text = '', message = '', summary = '' } = data
         // Evento do detector local: vale para o aparelho todo, não para uma conversa.
         if (type === 'wake_word') { wakeWordRef.current?.(typeof data.phrase === 'string' ? data.phrase : ''); return }
+        // Popup do agente: camada única do app, vale também para a ligação por voz e outras conversas.
+        if (type === 'ui_popup') { if (data.popup) popupRef.current?.(data.popup); return }
         if (data.session_id && data.session_id !== activeSessionRef.current) return
         lastActivityRef.current = Date.now()
         if (type === 'agent_progress') {

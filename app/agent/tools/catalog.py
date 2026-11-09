@@ -304,6 +304,11 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         effect="Muda o app para a tela indicada; nenhum dado é alterado.", reversibility="Reversível: volte para a tela anterior.",
         scope="Só as telas do app.",
     ),
+    "show_popup": ToolMetadata(
+        ("ui", "popup"), "observe", target_arguments=("template", "command"), default_target="popup do painel",
+        effect="Mostra um popup do painel; nenhum dado é alterado.", reversibility="Reversível: feche o popup.",
+        scope="Só a camada de popups do painel.",
+    ),
     # Cofre de memória (Markdown local, sincronizado com o celular).
     "vault_search": ToolMetadata(
         ("vault", "observe"), "observe", target_arguments=("query",), default_target="cofre de memória",

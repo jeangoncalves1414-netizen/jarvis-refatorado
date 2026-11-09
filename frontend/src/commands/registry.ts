@@ -1,5 +1,5 @@
 import {
-  AudioLines, Camera, CloudSun, Download, Droplets, Eye, Film, Flame, MessageSquare, Mic, MonitorCog, Search, Sparkles, Volume2, Wallet, Zap,
+  AudioLines, Camera, CloudSun, Download, Droplets, Eye, Film, Flame, MessageSquare, Mic, MonitorCog, Search, Sparkles, Volume2, Wallet, X, Zap,
   type LucideIcon,
 } from 'lucide-react'
 import { navigation } from '../navigation'
@@ -13,11 +13,13 @@ import type { ChatMode } from '../components/ChatComposer'
 export type CommandGroup = 'Navegação' | 'Ações Rápidas' | 'Life OS' | 'Mídia & Ferramentas' | 'Sistema'
 
 export type BackendOperation = 'add-water' | 'briefing' | 'backup' | 'vision'
-export type LocalOperation = 'new-chat' | 'dictation' | 'toggle-sfx' | 'prefill-weather' | 'stop-request'
+export type LocalOperation = 'new-chat' | 'dictation' | 'toggle-sfx' | 'prefill-weather' | 'stop-request' | 'clear-popups'
 
 export type CommandAction =
   | { kind: 'navigate'; screen: string }
   | { kind: 'open-window'; windowId: string }
+  // Popup montado pelo backend sem IA (GET /api/popups/<template>). `argParam` recebe o texto após a palavra.
+  | { kind: 'popup'; template: string; argParam?: string }
   | { kind: 'set-mode'; mode: ChatMode }
   | { kind: 'backend'; operation: BackendOperation }
   | { kind: 'local'; operation: LocalOperation }
@@ -53,6 +55,8 @@ export type CommandHandlers = {
   triggerBriefing: () => void
   triggerBackup: () => void
   captureVision: () => void
+  openPopup: (template: string, params: Record<string, string>) => void
+  clearPopups: () => void
 }
 
 export const WINDOW_LIFE_OS = 'life-os'
@@ -111,6 +115,7 @@ export const commands: CommandDef[] = [
   // Sistema
   { id: 'window-pc-controls', label: 'Controles do PC', title: 'Abrir Controles do PC', description: 'Brilho, bloqueio de tela, volume e mídia, sem precisar da IA', aliases: ['brilho', 'bloquear', 'bloqueio', 'volume', 'monitor'], slash: 'controles', group: 'Sistema', action: { kind: 'open-window', windowId: WINDOW_PC_CONTROLS }, worksOffline: true, icon: MonitorCog },
   { id: 'system-backup', label: 'Backup', title: 'Exportar Backup Completo (ZIP)', description: 'Baixar memórias, bancos de hábitos e configurações', aliases: ['exportar', 'zip'], slash: 'backup', group: 'Sistema', action: { kind: 'backend', operation: 'backup' }, worksOffline: true, icon: Download },
+  { id: 'system-clear-popups', label: 'Fechar popups', title: 'Fechar todos os popups', description: 'Fecha os popups do agente na tela e os que estão na fila', aliases: ['popups', 'limpar popups', 'fechar avisos'], group: 'Sistema', action: { kind: 'local', operation: 'clear-popups' }, worksOffline: true, icon: X },
   { id: 'system-sfx-toggle', label: 'Sons da interface', title: 'Alternar sons da interface', description: 'Feedback auditivo procedural da interface', aliases: ['sfx', 'mudo', 'silenciar'], slash: 'sons', group: 'Sistema', action: { kind: 'local', operation: 'toggle-sfx' }, worksOffline: true, icon: Volume2 },
 
   // Mídia e ferramentas
@@ -262,6 +267,9 @@ export function runCommand(command: CommandDef, handlers: CommandHandlers, args 
     case 'open-window':
       handlers.openWindow(action.windowId)
       return
+    case 'popup':
+      handlers.openPopup(action.template, action.argParam && args ? { [action.argParam]: args } : {})
+      return
     case 'set-mode':
       handlers.setMode(action.mode)
       if (args) handlers.prefill(args)
@@ -277,6 +285,7 @@ export function runCommand(command: CommandDef, handlers: CommandHandlers, args 
       else if (action.operation === 'new-chat') { handlers.newChat(); handlers.navigate('Chat') }
       else if (action.operation === 'dictation') { handlers.toggleDictation(); handlers.navigate('Chat') }
       else if (action.operation === 'toggle-sfx') handlers.toggleSfx()
+      else if (action.operation === 'clear-popups') handlers.clearPopups()
       else handlers.prefill(args ? `Qual o clima em ${args}?` : 'Qual o clima em ')
       return
   }

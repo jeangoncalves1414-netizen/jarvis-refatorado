@@ -351,9 +351,18 @@ class ReActLoopEngine:
         store, run_id = state.executor.store, state.executor.run_id
         run_token = current_run.set((store, run_id)) if run_id else None
         origin_token = current_origin.set(state.origin)
+        # A retomada abre o próprio coletor de popups (lote 6); eles chegam pelo barramento.
+        from app.core import ui_events
+        popup_tokens = [
+            (ui_events.current_popups, ui_events.current_popups.set([])),
+            (ui_events.current_popup_session, ui_events.current_popup_session.set(state.context.get("session_id"))),
+            (ui_events.current_popup_listener, ui_events.current_popup_listener.set(None)),
+        ]
         try:
             body()
         finally:
+            for var, token in reversed(popup_tokens):
+                var.reset(token)
             current_origin.reset(origin_token)
             if run_token is not None:
                 current_run.reset(run_token)

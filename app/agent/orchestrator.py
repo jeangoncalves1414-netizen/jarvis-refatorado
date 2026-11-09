@@ -827,12 +827,25 @@ ter pesquisado se não pesquisou.
         react_max_steps: int | None = None,
         origin: str | None = None,
         on_progress: Any = None,
+        on_popup: Any = None,
     ) -> AgentPlan:
+        from app.core import ui_events
+
         if history is None:
             history = get_session_history(session_id) if session_id else []
         # Toda ação deste turno registra a origem (voz ou chat) no Action Kernel;
         # sem origem explícita, uma chamada aninhada herda a do pedido que a contém.
         origin_token = current_origin.set(origin) if origin in REQUEST_ORIGINS else None
+        # Coletor de popups do turno (lote 6); uma chamada aninhada usa o do pedido que a contém.
+        popups = ui_events.current_popups.get()
+        popup_tokens = []
+        if popups is None:
+            popups = []
+            popup_tokens = [
+                (ui_events.current_popups, ui_events.current_popups.set(popups)),
+                (ui_events.current_popup_session, ui_events.current_popup_session.set(session_id)),
+                (ui_events.current_popup_listener, ui_events.current_popup_listener.set(on_popup)),
+            ]
         try:
             plan = self._dispatch_request(
                 text, session_id, mode, history, enem_context, enem_question_id,
@@ -840,8 +853,12 @@ ter pesquisado se não pesquisou.
                 on_progress,
             )
         finally:
+            for var, token in reversed(popup_tokens):
+                var.reset(token)
             if origin_token is not None:
                 current_origin.reset(origin_token)
+        if popup_tokens and popups:
+            plan.context = {**(plan.context or {}), "ui_popups": list(popups)}
         check_run_cancelled()
         if session_id and plan.intent != "error" and not is_technical_error_memory(plan.summary):
             assistant_message = {"role": "assistant", "content": plan.summary, "run_id": current_run.get()[1]}
@@ -1033,13 +1050,16 @@ ter pesquisado se não pesquisou.
         def on_progress(event: dict):
             q.put({"type": "progress", "event": event})
 
+        def on_popup(popup: dict):
+            q.put({"type": "popup", "popup": popup})
+
         def run_llm():
             try:
                 plan = self.handle_request(
                     text, mode=mode, session_id=session_id, history=history,
                     enem_context=enem_context, enem_question_id=enem_question_id,
                     on_chunk=on_chunk, on_reasoning=on_reasoning, profile_id=profile_id, origin=origin,
-                    on_progress=on_progress,
+                    on_progress=on_progress, on_popup=on_popup,
                 )
                 self.last_plan = plan
                 q.put({"type": "error" if plan.intent == "error" else "done", "plan": plan})
@@ -1074,3 +1094,5 @@ ter pesquisado se não pesquisou.
             elif msg["type"] == "progress":
                 event = {key: value for key, value in msg["event"].items() if key != "type"}
                 yield {"status": "progress", **event}
+            elif msg["type"] == "popup":
+                yield {"status": "popup", "popup": msg["popup"]}

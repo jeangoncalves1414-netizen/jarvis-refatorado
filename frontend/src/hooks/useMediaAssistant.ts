@@ -115,11 +115,15 @@ type MediaAssistantOptions = {
   setQuery: (query: string) => void
   sessionId?: string
   appendExchange?: (userText: string, assistantText: string) => Promise<void>
+  // Interface pedida pelo agente durante a ligação (popups, janela, tela): SSE "popup" e plan.context do "complete".
+  onAgentContext?: (context: unknown) => void
 }
 
-export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, setQuery, sessionId, appendExchange }: MediaAssistantOptions) {
+export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, setQuery, sessionId, appendExchange, onAgentContext }: MediaAssistantOptions) {
   const appendExchangeRef = useRef(appendExchange)
   appendExchangeRef.current = appendExchange
+  const agentContextRef = useRef(onAgentContext)
+  agentContextRef.current = onAgentContext
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
   const [liveTurns, setLiveTurns] = useState<{ id: string; user: string; jarvis: string; pending?: boolean }[]>([])
@@ -562,7 +566,10 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
               // Loop agêntico: o contador aparece na linha de status da ligação.
               const phases: Record<string, string> = { planning: 'planejando', acting: 'executando', verifying: 'verificando', waiting_approval: 'aguardando aprovação na Central', resumed: 'retomando' }
               if (!isSpeakingRef.current) setLiveCallStatus(`Etapa ${data.step} de ${data.max_steps} · ${phases[data.phase] || 'processando'}…`)
+            } else if (data.status === 'popup' && data.popup) {
+              agentContextRef.current?.({ ui_popups: [data.popup] })
             } else if (data.status === 'complete') {
+              if (data.plan?.context) agentContextRef.current?.(data.plan.context)
               // O loop agêntico não transmite pedaços: a resposta final vem inteira no plano.
               const summary = typeof data.plan?.summary === 'string' ? data.plan.summary.trim() : ''
               if (!fullReply.trim() && summary && ['agent_loop', 'react_loop'].includes(data.plan?.intent)) {

@@ -638,6 +638,53 @@ def set_agent_loop_settings(values: dict[str, Any]) -> dict[str, Any]:
     return get_agent_loop_settings()
 
 
+# Popups do painel (lote 6): o agente mostra hábitos, agenda, água e anotações em cartões animados.
+POPUP_DEFAULTS: dict[str, Any] = {"enabled": True, "auto": True, "ttl_seconds": 8, "max_visible": 3}
+_POPUP_LIMITS = {"ttl_seconds": (0, 120), "max_visible": (1, 5)}
+_POPUP_LABELS = {
+    "enabled": "Mostrar popups", "auto": "Popups automáticos",
+    "ttl_seconds": "O tempo para fechar sozinho", "max_visible": "O máximo de popups na tela",
+}
+
+
+def get_popup_settings() -> dict[str, Any]:
+    saved = _read().get("popups")
+    saved = saved if isinstance(saved, dict) else {}
+    result: dict[str, Any] = {}
+    for key in ("enabled", "auto"):
+        value = saved.get(key, POPUP_DEFAULTS[key])
+        result[key] = value if isinstance(value, bool) else POPUP_DEFAULTS[key]
+    for key, (low, high) in _POPUP_LIMITS.items():
+        value = saved.get(key, POPUP_DEFAULTS[key])
+        result[key] = value if type(value) is int and low <= value <= high else POPUP_DEFAULTS[key]
+    return result
+
+
+def set_popup_settings(values: dict[str, Any]) -> dict[str, Any]:
+    """Valida tudo antes de gravar; valor inválido não altera nada."""
+    if not isinstance(values, dict):
+        raise ValueError("Configuração dos popups inválida.")
+    unknown = set(values) - set(POPUP_DEFAULTS)
+    if unknown:
+        raise ValueError("Campo desconhecido na configuração dos popups: " + ", ".join(sorted(unknown)) + ".")
+    current = get_popup_settings()
+    for key in ("enabled", "auto"):
+        if key in values:
+            if not isinstance(values[key], bool):
+                raise ValueError(f"{_POPUP_LABELS[key]} deve ser ligado ou desligado (true/false).")
+            current[key] = values[key]
+    for key, (low, high) in _POPUP_LIMITS.items():
+        if key in values:
+            value = values[key]
+            if type(value) is not int or not low <= value <= high:
+                raise ValueError(f"{_POPUP_LABELS[key]} deve ser um número inteiro de {low} a {high}.")
+            current[key] = value
+    data = _read()
+    data["popups"] = current
+    _write(data)
+    return get_popup_settings()
+
+
 # ---------------------------------------------------------------------------
 # Capability routes
 # ---------------------------------------------------------------------------

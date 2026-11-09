@@ -1,0 +1,61 @@
+/* Popups animados do agente (lote 6). Escopo .ws-popup-*, só tokens --ws-*. */
+:root {
+  --ws-motion-fast: 160ms; --ws-motion-base: 280ms; --ws-motion-slow: 900ms;
+  --ws-motion-ease: cubic-bezier(.2, .8, .2, 1);
+}
+
+.ws-popup-layer { position: fixed; right: 16px; bottom: 16px; z-index: 70; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; width: 360px; max-width: calc(100vw - 32px); pointer-events: none; }
+.ws-popup { position: relative; width: 100%; pointer-events: auto; border: 1px solid var(--ws-accent-line); border-radius: var(--ws-radius); background: var(--ws-panel); color: var(--ws-text); box-shadow: 0 12px 32px #0008; overflow: hidden; outline: none; }
+.ws-popup:focus-visible { border-color: var(--ws-accent); }
+.ws-popup.tone-ok { border-color: color-mix(in srgb, var(--ws-ok) 45%, var(--ws-border)); }
+.ws-popup.tone-warn { border-color: color-mix(in srgb, var(--ws-warn) 45%, var(--ws-border)); }
+.ws-popup-head { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--ws-border); color: var(--ws-accent); }
+.ws-popup.tone-ok .ws-popup-head { color: var(--ws-ok); }
+.ws-popup.tone-warn .ws-popup-head { color: var(--ws-warn); }
+.ws-popup-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ws-text); font-size: 13px; font-weight: 550; }
+.ws-popup-spacer { flex: 1; }
+.ws-popup-button { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; color: var(--ws-muted); }
+.ws-popup-button:hover, .ws-popup-button[aria-pressed="true"] { background: var(--ws-hover); color: var(--ws-text); }
+.ws-popup-body { padding: 10px 12px 12px; font-size: 12px; line-height: 1.5; max-height: min(60vh, 420px); overflow-y: auto; }
+.ws-popup-loading { margin: 0; color: var(--ws-muted); }
+.ws-popup-queue { margin: 0; padding: 3px 10px; border: 1px solid var(--ws-border); border-radius: 999px; background: var(--ws-panel); color: var(--ws-muted); font-size: 11px; pointer-events: auto; }
+
+/* Barra do tempo restante */
+.ws-popup-ttl { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--ws-field); }
+.ws-popup-ttl span { display: block; height: 100%; background: var(--ws-accent); transform-origin: left center; animation-name: ws-popup-ttl; animation-timing-function: linear; animation-fill-mode: forwards; }
+@keyframes ws-popup-ttl { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+/* Lista em sequência */
+.ws-popup-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ws-popup-item { padding: 6px 8px; border-radius: 8px; transition: background-color 1.2s var(--ws-motion-ease); }
+.ws-popup-item.is-new { background: var(--ws-accent-soft); box-shadow: inset 2px 0 0 var(--ws-accent); transition: none; }
+
+/* Número, copo e texto */
+.ws-popup-gauge { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; }
+.ws-popup-gauge-glass { fill: var(--ws-field); stroke: var(--ws-accent-line); stroke-width: 2; }
+.ws-popup-wave { fill: var(--ws-info); }
+.ws-popup-wave.back { opacity: .45; animation: ws-popup-wave 3.2s linear infinite reverse; }
+.ws-popup-wave.front { opacity: .8; animation: ws-popup-wave 2.4s linear infinite; }
+.ws-popup-gauge.reached .ws-popup-wave { fill: var(--ws-ok); }
+@keyframes ws-popup-wave { from { transform: translateX(0); } to { transform: translateX(-60px); } }
+.ws-popup-gauge-target { stroke: var(--ws-muted); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.ws-popup-gauge-target-label { color: var(--ws-muted); font-size: 10px; }
+.ws-popup-gauge.reached .ws-popup-gauge-target-label { color: var(--ws-ok); font-weight: 600; }
+.ws-popup-typewriter { margin: 0; white-space: pre-wrap; word-break: break-word; }
+.ws-popup-interim { color: var(--ws-muted); font-style: italic; }
+.ws-popup-caret { display: inline-block; width: 1px; height: 1em; margin-left: 1px; vertical-align: text-bottom; background: var(--ws-accent); animation: ws-popup-caret 1s steps(1) infinite; }
+@keyframes ws-popup-caret { 50% { opacity: 0; } }
+.ws-popup-insert { border-radius: 8px; }
+.ws-popup-insert.active { background: var(--ws-accent-soft); }
+
+/* Modelo info */
+.ws-popup-info .ws-popup-item { padding: 3px 0; color: var(--ws-text); }
+
+@media (max-width: 640px) {
+  .ws-popup-layer { top: 8px; right: 8px; left: 8px; bottom: auto; width: auto; max-width: none; align-items: stretch; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-popup-wave, .ws-popup-caret { animation: none; }
+  .ws-popup-item, .ws-popup-item.is-new { transition: none; }
+}
