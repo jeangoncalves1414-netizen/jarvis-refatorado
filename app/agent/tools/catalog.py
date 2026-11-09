@@ -154,6 +154,12 @@ def _calendar_target_detail(operation: str, arguments: dict[str, Any]) -> str:
     return ""
 
 
+def _home_target_risk(operation: str, arguments: dict[str, Any]) -> ActionRisk:
+    from app.services.home_assistant import target_risk
+
+    return target_risk(operation, _text(arguments, "entity"))
+
+
 def _document_target_risk(_operation: str, arguments: dict[str, Any]) -> ActionRisk:
     """Caminho de saída livre pode sobrescrever qualquer arquivo: pede aprovação."""
     return "high" if _text(arguments, "output_path") else "low"
@@ -789,6 +795,34 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
             *_same_text("Reversível: acione o dispositivo de novo.", "on", "off", "toggle"),
         ),
         scope="Só o dispositivo indicado na rede local.",
+    ),
+    # Fase contexto 3: Home Assistant opcional; o risco sobe pelo domínio da entidade.
+    "home": ToolMetadata(
+        ("home", "device"), "high",
+        operation_arguments=("operation",), default_operation="list_entities",
+        operation_risks=_by_operation(
+            observe=("list_entities", "get_state"),
+            low=("turn_on", "turn_off", "toggle", "set", "run_scene"), high=("run_script",),
+        ),
+        target_risk=_home_target_risk,
+        target_arguments=("entity",), default_target="casa (Home Assistant)",
+        operation_effects=(
+            ("list_entities", "Apenas lista os aparelhos do Home Assistant; nada é alterado."),
+            ("get_state", "Apenas lê o estado do aparelho; nada é alterado."),
+            ("turn_on", "Liga o aparelho (fechadura: tranca; cortina: abre)."),
+            ("turn_off", "Desliga o aparelho (fechadura: destranca; cortina: fecha)."),
+            ("toggle", "Inverte o estado do aparelho."),
+            ("set", "Ajusta o brilho da luz ou a temperatura do climatizador."),
+            ("run_scene", "Ativa a cena: vários aparelhos mudam de uma vez."),
+            ("run_script", "Executa o script do Home Assistant, que pode acionar qualquer aparelho."),
+        ),
+        operation_reversibility=(
+            *_same_text("Nada a desfazer.", "list_entities", "get_state"),
+            *_same_text("Reversível: acione o aparelho de novo.", "turn_on", "turn_off", "toggle"),
+            ("set", "Reversível: ajuste de volta; o valor anterior não é guardado."),
+            *_same_text("Não garantida: depende do que a cena ou o script faz.", "run_scene", "run_script"),
+        ),
+        scope="Só a entidade indicada no Home Assistant configurado.",
     ),
     "workflow": ToolMetadata(
         ("workflow",), "high", requires_confirmation=True, target_arguments=("recipe_id",),

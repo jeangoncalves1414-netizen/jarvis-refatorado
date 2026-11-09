@@ -83,6 +83,7 @@ capability_health = CapabilityHealth()
 # Action Kernel alimenta "último sucesso" e "alcançável".
 TOOL_CAPABILITIES: dict[str, str] = {
     "spotify": "spotify", "whatsapp": "whatsapp", "telegram_bot": "telegram", "kasa_control": "kasa",
+    "home": "home_assistant",
     "mcp": "mcp", "calendar": "calendar", "image_generator": "image", "vision": "vision",
     "composio": "composio", "mobile_adb": "adb",
 }

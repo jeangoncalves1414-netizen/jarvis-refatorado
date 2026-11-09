@@ -137,6 +137,13 @@ export default function App() {
     return () => window.removeEventListener('jarvis:open-memory', openMemory)
   }, [])
 
+  // Fase contexto 3: botão "Abrir Configurações" na janela Casa.
+  useEffect(() => {
+    const openSettings = () => setActive('Configurações')
+    window.addEventListener('jarvis:open-settings', openSettings)
+    return () => window.removeEventListener('jarvis:open-settings', openSettings)
+  }, [])
+
   // Auto-sync on app open (for mobile and PC)
   useEffect(() => {
     if (isMobileStandalone()) {
@@ -681,232 +688,232 @@ export default function App() {
 
   const renderSection = () => {
     const page = (() => {
-    if (active === 'Dashboard') return <WorkspaceHome operational={operational} onNavigate={setActive} />
-    if (active === 'Integrações') return <IntegrationsPage operational={operational} onNavigate={setActive} />
-    if (active === 'Painel pessoal') {
+      if (active === 'Dashboard') return <WorkspaceHome operational={operational} onNavigate={setActive} />
+      if (active === 'Integrações') return <IntegrationsPage operational={operational} onNavigate={setActive} />
+      if (active === 'Painel pessoal') {
+        return (
+          <DashboardPage
+            dashboard={dashboard}
+            finance={finance}
+            ttsSettings={ttsSettings}
+            proactive={proactive}
+            tray={tray}
+            onOpenEvolute={openEvoluteWindow}
+          />
+        )
+      }
+      if (active === 'Central') return <MissionControlPage initialRunId={linkedRun} operational={operational} sessionId={sessionId} onOpenSession={id => { void selectSession(id); setActive('Chat') }} />
+      if (active === 'Automações') {
+        return (
+          <AutomationsPage
+            climate={climate}
+            bridge={bridge}
+            proactive={proactive}
+            reminderMessage={reminderMessage}
+            reminderTime={reminderTime}
+            onReminderMessageChange={setReminderMessage}
+            onReminderTimeChange={setReminderTime}
+            onAddReminder={addReminder}
+            onSetTemperature={setTemperature}
+            onTriggerBriefing={triggerBriefing}
+            onRegisterBridgeDemo={() => registerBridgeDemo().catch(() => setNotice('Falha ao registrar o dispositivo de teste.'))}
+            onBridgeCommand={(targetId, command) => sendBridgeCommand(targetId, command).catch(() => setNotice('Falha ao enviar o comando para a ponte.'))}
+            onRemoveDevice={removeBridgeDevice}
+          />
+        )
+      }
+      if (active === 'Chat') {
+        return (
+          <ChatPage
+            canStopRequest={conversationRun.canStop}
+            runStatus={conversationRun.message}
+            commandHandlers={commandHandlers}
+            wakeWord={wakeWord}
+            wakeHeard={wakeHeard}
+            onOpenRun={IS_MOBILE ? undefined : id => { setLinkedRun(id); setActive('Central') }}
+            sessions={sessions}
+            sessionId={sessionId}
+            messages={messages}
+            answer={answer}
+            loading={loading}
+            streamingReply={streamingReply}
+            liveSearch={liveSearch}
+            liveReasoning={liveReasoning}
+            agentProgress={IS_MOBILE ? null : pcChat.agentProgress}
+            chatError={chatError}
+            query={query}
+            chatMode={chatMode}
+            chatAttachment={chatAttachment}
+            recording={recording}
+            pendingScript={pendingScript}
+            onDeleteSession={id => void Promise.resolve(deleteSession(id, true)).catch(() => setNotice('Não foi possível excluir a conversa.'))}
+            onExportSession={() => handleExportSession().catch(() => undefined)}
+            onCopySession={() => handleCopySession().catch(() => undefined)}
+            onOpenLiveCall={() => setLiveCallOpen(true)}
+            onSpeakText={speakText}
+            onClearChatError={() => setChatError('')}
+            onQueryChange={setQuery}
+            onModeChange={setChatMode}
+            onAttachment={handleChatAttachment}
+            onClearAttachment={() => setChatAttachment(null)}
+            onSubmit={() => sendChatMessage()}
+            onVoice={toggleVoiceInput}
+            onScreen={captureVision}
+            onCinema={() => setCinemaLauncherOpen(true)}
+            onCinemaRequest={openCinemaPayload}
+            onSendText={sendText}
+            onRunPendingScript={runPendingScript}
+          />
+        )
+      }
+      if (active === 'Análises') {
+        return (
+          <AnalyticsPage
+            metrics={metrics}
+            visibleLogs={visibleLogs}
+            logLevel={logLevel}
+            logQuery={logQuery}
+            onLogLevelChange={setLogLevel}
+            onLogQueryChange={setLogQuery}
+            onRefresh={() => refreshAnalytics().catch(() => undefined)}
+          />
+        )
+      }
+      if (active === 'Estudos') {
+        return (
+          <StudyPage
+            tutorSessions={tutorSessions}
+            studyCategories={studyCategories}
+            trashedStudySessions={trashedStudySessions}
+            renameStudySession={renameStudySession}
+            deleteStudySession={deleteStudySession}
+            restoreStudySession={restoreStudySession}
+            purgeStudySession={purgeStudySession}
+            createStudyCategory={createStudyCategory}
+            assignStudyCategory={assignStudyCategory}
+            studySessionId={studySessionId}
+            selectStudySession={selectStudySession}
+            createStudySession={createStudySession}
+            studyProgress={studyProgress}
+            dueCards={dueCards}
+            studyCardIndex={studyCardIndex}
+            cardBackVisible={cardBackVisible}
+            setCardBackVisible={setCardBackVisible}
+            reviewCard={reviewCard}
+            enemQuestions={enemQuestions}
+            feynmanTopic={feynmanTopic}
+            feynmanExplanation={feynmanExplanation}
+            setFeynmanTopic={setFeynmanTopic}
+            setFeynmanExplanation={setFeynmanExplanation}
+            saveFeynman={saveFeynman}
+            feynmanAttempts={feynmanAttempts}
+            assessmentCorrect={assessmentCorrect}
+            assessmentTotal={assessmentTotal}
+            setAssessmentCorrect={setAssessmentCorrect}
+            setAssessmentTotal={setAssessmentTotal}
+            saveAssessment={saveAssessment}
+            assessments={assessments}
+            enemSubject={enemSubject}
+            enemYear={enemYear}
+            enemText={enemText}
+            enemImage={enemImage}
+            setEnemSubject={setEnemSubject}
+            setEnemYear={setEnemYear}
+            setEnemText={setEnemText}
+            setEnemImage={setEnemImage}
+            readEnemImage={readEnemImage}
+            saveEnemQuestion={saveEnemQuestion}
+            setStudyQuery={setStudyQuery}
+            setStudySessionId={setStudySessionId}
+            studyMessages={studyMessages}
+            studyQuery={studyQuery}
+            sendStudyMessage={sendStudyMessage}
+            studyEnemFromForm={studyEnemFromForm}
+            studyEnemFromBank={studyEnemFromBank}
+            whiteboard={whiteboard}
+            whiteboardNote={whiteboardNote}
+            setWhiteboardNote={setWhiteboardNote}
+            saveWhiteboard={addWhiteboardNote}
+            addWhiteboardText={addWhiteboardText}
+            addWhiteboardImage={addWhiteboardImage}
+            addWhiteboardImageData={addWhiteboardImageData}
+            updateWhiteboardElement={updateWhiteboardElement}
+            deleteWhiteboardElement={deleteWhiteboardElement}
+            duplicateWhiteboardElement={duplicateWhiteboardElement}
+            clearWhiteboard={clearWhiteboard}
+            setNotice={setNotice}
+          />
+        )
+      }
+      if (active === 'Calendário') return <CalendarSection onNotice={setNotice} />
+      if (active === 'Configurações') {
+        return (
+          <SettingsPage
+            ttsSettings={ttsSettings}
+            sttSettings={sttSettings}
+            oxyySettings={oxyySettings}
+            oxyyCatalog={oxyyCatalog}
+            llmSettings={llmSettings}
+            aiSettings={aiSettings}
+            wakeWord={wakeWord}
+            tray={tray}
+            proactive={proactive}
+            briefingTime={briefingTime}
+            briefingTopics={briefingTopics}
+            briefingInstructions={briefingInstructions}
+            notice={notice}
+            apiKeys={apiKeys}
+            onSaveApiKeys={saveApiKeys}
+            onSetTtsProvider={setTtsProvider}
+            onSetProvider={setProvider}
+            onSetSttProvider={setSttProvider}
+            onSaveOxyy={saveOxyy}
+            onRefreshOxyy={refreshOxyy}
+            onSetWakeWordEnabled={setWakeWordEnabled}
+            onSetBootEnabled={setBootEnabled}
+            speakEnabled={speakEnabled}
+            onSetSpeakEnabled={setSpeakEnabled}
+            onSaveBriefing={saveBriefing}
+            onBriefingTimeChange={setBriefingTime}
+            onToggleBriefingTopic={toggleBriefingTopic}
+            onBriefingInstructionsChange={setBriefingInstructions}
+            onNavigate={setActive}
+          />
+        )
+      }
+      if (active === 'Memórias') {
+        return (
+          <MemoriesPage
+            memories={memories}
+            memoryCollection={memoryCollection}
+            notice={notice}
+            identityProfiles={identityProfiles}
+            selectedProfileId={selectedProfileId}
+            profileMemories={profileMemories}
+            onRefresh={() => refreshMemories()}
+            onClearTechnical={clearTechnicalMemories}
+            onSelectCollection={collection => {
+              setMemoryCollection(collection)
+              if (collection === 'profile_memory') refreshProfileMemories()
+              else if (collection !== 'cited') refreshMemories(collection)
+            }}
+            onSelectProfile={profileId => { setSelectedProfileId(profileId); refreshProfileMemories(profileId).catch(() => undefined) }}
+            onRefreshProfile={() => refreshProfileMemories()}
+            onAddProfileMemory={addProfileMemory}
+            onDeleteProfileMemory={deleteProfileMemory}
+            onClearProfileMemory={clearProfileMemories}
+          />
+        )
+      }
+      if (active === 'Identidade') return <IdentityPage />
+      if (active === 'Evolução') return <EvoluteHubPage />
       return (
-        <DashboardPage
-          dashboard={dashboard}
-          finance={finance}
-          ttsSettings={ttsSettings}
-          proactive={proactive}
-          tray={tray}
-          onOpenEvolute={openEvoluteWindow}
-        />
+        <section className="migration-card">
+          <p className="eyebrow">MIGRAÇÃO GRADUAL</p>
+          <h2>{active}</h2>
+          <p>Esta área continua disponível no painel legado em /legacy.</p>
+        </section>
       )
-    }
-    if (active === 'Central') return <MissionControlPage initialRunId={linkedRun} operational={operational} sessionId={sessionId} onOpenSession={id => { void selectSession(id); setActive('Chat') }} />
-    if (active === 'Automações') {
-      return (
-        <AutomationsPage
-          climate={climate}
-          bridge={bridge}
-          proactive={proactive}
-          reminderMessage={reminderMessage}
-          reminderTime={reminderTime}
-          onReminderMessageChange={setReminderMessage}
-          onReminderTimeChange={setReminderTime}
-          onAddReminder={addReminder}
-          onSetTemperature={setTemperature}
-          onTriggerBriefing={triggerBriefing}
-          onRegisterBridgeDemo={() => registerBridgeDemo().catch(() => setNotice('Falha ao registrar o dispositivo de teste.'))}
-          onBridgeCommand={(targetId, command) => sendBridgeCommand(targetId, command).catch(() => setNotice('Falha ao enviar o comando para a ponte.'))}
-          onRemoveDevice={removeBridgeDevice}
-        />
-      )
-    }
-    if (active === 'Chat') {
-      return (
-        <ChatPage
-          canStopRequest={conversationRun.canStop}
-          runStatus={conversationRun.message}
-          commandHandlers={commandHandlers}
-          wakeWord={wakeWord}
-          wakeHeard={wakeHeard}
-          onOpenRun={IS_MOBILE ? undefined : id => { setLinkedRun(id); setActive('Central') }}
-          sessions={sessions}
-          sessionId={sessionId}
-          messages={messages}
-          answer={answer}
-          loading={loading}
-          streamingReply={streamingReply}
-          liveSearch={liveSearch}
-          liveReasoning={liveReasoning}
-          agentProgress={IS_MOBILE ? null : pcChat.agentProgress}
-          chatError={chatError}
-          query={query}
-          chatMode={chatMode}
-          chatAttachment={chatAttachment}
-          recording={recording}
-          pendingScript={pendingScript}
-          onDeleteSession={id => void Promise.resolve(deleteSession(id, true)).catch(() => setNotice('Não foi possível excluir a conversa.'))}
-          onExportSession={() => handleExportSession().catch(() => undefined)}
-          onCopySession={() => handleCopySession().catch(() => undefined)}
-          onOpenLiveCall={() => setLiveCallOpen(true)}
-          onSpeakText={speakText}
-          onClearChatError={() => setChatError('')}
-          onQueryChange={setQuery}
-          onModeChange={setChatMode}
-          onAttachment={handleChatAttachment}
-          onClearAttachment={() => setChatAttachment(null)}
-          onSubmit={() => sendChatMessage()}
-          onVoice={toggleVoiceInput}
-          onScreen={captureVision}
-          onCinema={() => setCinemaLauncherOpen(true)}
-          onCinemaRequest={openCinemaPayload}
-          onSendText={sendText}
-          onRunPendingScript={runPendingScript}
-        />
-      )
-    }
-    if (active === 'Análises') {
-      return (
-        <AnalyticsPage
-          metrics={metrics}
-          visibleLogs={visibleLogs}
-          logLevel={logLevel}
-          logQuery={logQuery}
-          onLogLevelChange={setLogLevel}
-          onLogQueryChange={setLogQuery}
-          onRefresh={() => refreshAnalytics().catch(() => undefined)}
-        />
-      )
-    }
-    if (active === 'Estudos') {
-      return (
-        <StudyPage
-          tutorSessions={tutorSessions}
-          studyCategories={studyCategories}
-          trashedStudySessions={trashedStudySessions}
-          renameStudySession={renameStudySession}
-          deleteStudySession={deleteStudySession}
-          restoreStudySession={restoreStudySession}
-          purgeStudySession={purgeStudySession}
-          createStudyCategory={createStudyCategory}
-          assignStudyCategory={assignStudyCategory}
-          studySessionId={studySessionId}
-          selectStudySession={selectStudySession}
-          createStudySession={createStudySession}
-          studyProgress={studyProgress}
-          dueCards={dueCards}
-          studyCardIndex={studyCardIndex}
-          cardBackVisible={cardBackVisible}
-          setCardBackVisible={setCardBackVisible}
-          reviewCard={reviewCard}
-          enemQuestions={enemQuestions}
-          feynmanTopic={feynmanTopic}
-          feynmanExplanation={feynmanExplanation}
-          setFeynmanTopic={setFeynmanTopic}
-          setFeynmanExplanation={setFeynmanExplanation}
-          saveFeynman={saveFeynman}
-          feynmanAttempts={feynmanAttempts}
-          assessmentCorrect={assessmentCorrect}
-          assessmentTotal={assessmentTotal}
-          setAssessmentCorrect={setAssessmentCorrect}
-          setAssessmentTotal={setAssessmentTotal}
-          saveAssessment={saveAssessment}
-          assessments={assessments}
-          enemSubject={enemSubject}
-          enemYear={enemYear}
-          enemText={enemText}
-          enemImage={enemImage}
-          setEnemSubject={setEnemSubject}
-          setEnemYear={setEnemYear}
-          setEnemText={setEnemText}
-          setEnemImage={setEnemImage}
-          readEnemImage={readEnemImage}
-          saveEnemQuestion={saveEnemQuestion}
-          setStudyQuery={setStudyQuery}
-          setStudySessionId={setStudySessionId}
-          studyMessages={studyMessages}
-          studyQuery={studyQuery}
-          sendStudyMessage={sendStudyMessage}
-          studyEnemFromForm={studyEnemFromForm}
-          studyEnemFromBank={studyEnemFromBank}
-          whiteboard={whiteboard}
-          whiteboardNote={whiteboardNote}
-          setWhiteboardNote={setWhiteboardNote}
-          saveWhiteboard={addWhiteboardNote}
-          addWhiteboardText={addWhiteboardText}
-          addWhiteboardImage={addWhiteboardImage}
-          addWhiteboardImageData={addWhiteboardImageData}
-          updateWhiteboardElement={updateWhiteboardElement}
-          deleteWhiteboardElement={deleteWhiteboardElement}
-          duplicateWhiteboardElement={duplicateWhiteboardElement}
-          clearWhiteboard={clearWhiteboard}
-          setNotice={setNotice}
-        />
-      )
-    }
-    if (active === 'Calendário') return <CalendarSection onNotice={setNotice} />
-    if (active === 'Configurações') {
-      return (
-        <SettingsPage
-          ttsSettings={ttsSettings}
-          sttSettings={sttSettings}
-          oxyySettings={oxyySettings}
-          oxyyCatalog={oxyyCatalog}
-          llmSettings={llmSettings}
-          aiSettings={aiSettings}
-          wakeWord={wakeWord}
-          tray={tray}
-          proactive={proactive}
-          briefingTime={briefingTime}
-          briefingTopics={briefingTopics}
-          briefingInstructions={briefingInstructions}
-          notice={notice}
-          apiKeys={apiKeys}
-          onSaveApiKeys={saveApiKeys}
-          onSetTtsProvider={setTtsProvider}
-          onSetProvider={setProvider}
-          onSetSttProvider={setSttProvider}
-          onSaveOxyy={saveOxyy}
-          onRefreshOxyy={refreshOxyy}
-          onSetWakeWordEnabled={setWakeWordEnabled}
-          onSetBootEnabled={setBootEnabled}
-          speakEnabled={speakEnabled}
-          onSetSpeakEnabled={setSpeakEnabled}
-          onSaveBriefing={saveBriefing}
-          onBriefingTimeChange={setBriefingTime}
-          onToggleBriefingTopic={toggleBriefingTopic}
-          onBriefingInstructionsChange={setBriefingInstructions}
-          onNavigate={setActive}
-        />
-      )
-    }
-    if (active === 'Memórias') {
-      return (
-        <MemoriesPage
-          memories={memories}
-          memoryCollection={memoryCollection}
-          notice={notice}
-          identityProfiles={identityProfiles}
-          selectedProfileId={selectedProfileId}
-          profileMemories={profileMemories}
-          onRefresh={() => refreshMemories()}
-          onClearTechnical={clearTechnicalMemories}
-          onSelectCollection={collection => {
-            setMemoryCollection(collection)
-            if (collection === 'profile_memory') refreshProfileMemories()
-            else if (collection !== 'cited') refreshMemories(collection)
-          }}
-          onSelectProfile={profileId => { setSelectedProfileId(profileId); refreshProfileMemories(profileId).catch(() => undefined) }}
-          onRefreshProfile={() => refreshProfileMemories()}
-          onAddProfileMemory={addProfileMemory}
-          onDeleteProfileMemory={deleteProfileMemory}
-          onClearProfileMemory={clearProfileMemories}
-        />
-      )
-    }
-    if (active === 'Identidade') return <IdentityPage />
-    if (active === 'Evolução') return <EvoluteHubPage />
-    return (
-      <section className="migration-card">
-        <p className="eyebrow">MIGRAÇÃO GRADUAL</p>
-        <h2>{active}</h2>
-        <p>Esta área continua disponível no painel legado em /legacy.</p>
-      </section>
-    )
     })()
 
     return (

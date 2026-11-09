@@ -163,6 +163,17 @@ def _integrations() -> list[dict[str, Any]]:
     else:
         items.append(_item("kasa", "Tomadas Kasa", "integracao", True, "Biblioteca instalada; os aparelhos são descobertos na rede local a cada uso.", target="Automações"))
 
+    # Home Assistant (fase contexto 3)
+    try:
+        from app.services import home_assistant as ha_module
+        if not ha_module.is_configured():
+            items.append(_item("home_assistant", "Home Assistant", "integracao", False, "Desligado: não configurado.", target="Casa"))
+        else:
+            host = ha_module._host(ha_module._config()["url"])
+            items.append(_item("home_assistant", "Home Assistant", "integracao", True, f"Conectado a {host}.", target="Casa"))
+    except Exception:
+        items.append(_item("home_assistant", "Home Assistant", "integracao", False, "Desligado: não configurado.", target="Casa"))
+
     # MCP: arquivo de servidores.
     if (reason := not_registered("mcp")):
         items.append(_item("mcp", "Servidores MCP", "integracao", False, reason))

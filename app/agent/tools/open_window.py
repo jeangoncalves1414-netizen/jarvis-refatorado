@@ -59,6 +59,7 @@ class WindowSpec:
 
 # Janelas que o agente pode pedir. Cada nova janela do frontend entra aqui e em windows/registry.ts.
 WINDOWS: dict[str, WindowSpec] = {
+    "home": WindowSpec("Casa", {}),
     # Só abre o painel; brilho, bloqueio e volume são acionados pelo usuário na própria janela.
     "pc-controls": WindowSpec("Controles do PC", {}),
     "finance": WindowSpec(

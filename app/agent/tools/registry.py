@@ -37,6 +37,7 @@ from .smart_drop_zone import SmartDropZoneTool
 from .wormhole import WormholeTool
 from .wallpaper_engine import WallpaperEngineTool
 from .clipboard_intelligence import ClipboardIntelligenceTool
+from .home_tool import HomeTool
 
 from .memory_vault_tool import (
     VaultSearchTool,
@@ -92,6 +93,7 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
         (r"\btela\b|\bpainel\b|\babre\b|\babrir\b|\babra\b", ("open_screen",)),
         (r"\bpopup|\bmostra\b|\bmostre\b|\bmostrar\b", ("show_popup",)),
         (r"\blugar|\bperto\b|\bendereco|\bmapa\b|\bonde fica\b", ("places_search",)),
+        (r"\bluz\b|\bluzes\b|\blampada|\bar condicionado|\btomada|\bcena\b|\bcortina|\bfechadura|\bcasa\b", ("home",)),
     )
 )
 
@@ -125,7 +127,7 @@ GENERAL_TOOL_NAMES = {
     "whatsapp", "spotify", "clipboard", "news_reader", "open_windows_app", "script_runner",
     "vision", "qr_reader", "realtime", "proactive_agent", "system_tray", "cinema", "calendar", "image_generator",
     "screen_peeler", "phantom_typer", "smart_drop_zone",
-    "desktop_search", "kasa_control", "document_generator", "telegram_bot", "mobile_adb",
+    "desktop_search", "kasa_control", "home", "document_generator", "telegram_bot", "mobile_adb",
     "wormhole", "wallpaper_engine", "clipboard_intelligence",
     "habit_tool", "task_tool", "finance_tool", "lifeos_tool", "open_window", "open_screen", "show_popup",
     "places_search",
@@ -211,6 +213,7 @@ class ToolRegistry:
         self._register(WormholeTool())
         self._register(WallpaperEngineTool())
         self._register(ClipboardIntelligenceTool())
+        self._register(HomeTool())
 
         # Fase 5 — Expansão de Ferramentas
         if FASE5_TOOLS_AVAILABLE:
@@ -294,7 +297,15 @@ class ToolRegistry:
                     dynamic_tools.update(tools)
             allowed = allowed.intersection(dynamic_tools)
 
-        return frozenset(name for name in allowed if name in self.tools)
+        allowed_set = set(name for name in allowed if name in self.tools)
+        if "home" in allowed_set:
+            try:
+                from app.services import home_assistant
+                if not home_assistant.is_configured():
+                    allowed_set.discard("home")
+            except Exception:
+                allowed_set.discard("home")
+        return frozenset(allowed_set)
 
     def get_tool_declarations(
         self,

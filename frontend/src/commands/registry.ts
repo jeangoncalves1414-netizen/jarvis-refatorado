@@ -1,9 +1,9 @@
 import {
-  AudioLines, CalendarClock, Camera, CloudSun, Download, Droplets, Eye, Film, Flame, ListChecks, ListTodo, MapPinned, MessageSquare, Mic, MonitorCog, NotebookPen, Search, Sparkles, Volume2, Wallet, X, Zap,
+  AudioLines, CalendarClock, Camera, CloudSun, Download, Droplets, Eye, Film, Flame, House, ListChecks, ListTodo, MapPinned, MessageSquare, Mic, MonitorCog, NotebookPen, Search, Sparkles, Volume2, Wallet, X, Zap,
   type LucideIcon,
 } from 'lucide-react'
 import { navigation } from '../navigation'
-import { WINDOW_FINANCE, WINDOW_PC_CONTROLS, WINDOW_PLACES } from '../windows/registry'
+import { WINDOW_FINANCE, WINDOW_HOME, WINDOW_PC_CONTROLS, WINDOW_PLACES } from '../windows/registry'
 import type { ChatMode } from '../components/ChatComposer'
 
 // Registro único de comandos. A paleta (Ctrl+K) e o menu "/" do compositor são montados a partir
@@ -110,6 +110,7 @@ export const commands: CommandDef[] = [
   { id: 'popup-tasks', label: 'Pendências', title: 'Mostrar tarefas pendentes', description: 'Popup com as tarefas pendentes, sem precisar da IA', aliases: ['pendencias', 'minhas tarefas', 'tarefas pendentes'], slash: 'pendencias', group: 'Life OS', action: { kind: 'popup', template: 'task_list' }, worksOffline: true, icon: ListTodo },
   // A busca usa o OpenStreetMap (internet), mas não usa IA; a janela só busca quando você confirma.
   { id: 'window-places', label: 'Lugares', title: 'Buscar lugares no mapa', description: 'Procurar estabelecimentos e endereços no OpenStreetMap, sem precisar da IA', aliases: ['mapa', 'endereco', 'lugar', 'onde fica'], slash: 'lugares', argHint: 'busca', group: 'Life OS', action: { kind: 'open-window', windowId: WINDOW_PLACES, argParam: 'query' }, worksOffline: true, icon: MapPinned },
+  { id: 'window-home', label: 'Casa', title: 'Abrir Casa', description: 'Ver e alternar luzes e aparelhos do Home Assistant, sem precisar da IA', aliases: ['home assistant', 'luzes'], slash: 'casa', group: 'Life OS', action: { kind: 'open-window', windowId: WINDOW_HOME }, worksOffline: true, icon: House },
   // Escrever à mão funciona sem IA; o ditado precisa de reconhecimento de fala (o popup avisa quando não há).
   { id: 'popup-live-notes', label: 'Nova anotação', title: 'Nova anotação ao vivo', description: 'Escreva ou dite uma anotação (texto, lista ou checklist) salva no cofre', aliases: ['anotacao', 'anotar', 'notas'], slash: 'nota', argHint: 'título', group: 'Life OS', action: { kind: 'popup', template: 'live_notes', argParam: 'title', params: { dictate: 'false' } }, worksOffline: true, icon: NotebookPen },
 

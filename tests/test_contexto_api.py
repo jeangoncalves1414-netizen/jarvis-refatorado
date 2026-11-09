@@ -74,3 +74,69 @@ def test_facts_routes_reject_bad_input(isolated_lote6_data):
     assert facts_post({"operation": "drop"})[0] == 400
     assert handle_contexto_post("/api/memories/facts", b"{nope", None)[0] == 400
     assert isolated_lote6_data.store.list() == []
+
+
+# ------------------------------------------------------------ fase 3: Home Assistant e Casa
+
+def ha_post(payload):
+    return handle_contexto_post("/api/settings/home-assistant", json.dumps(payload).encode("utf-8"), None)
+
+
+def home_action_post(payload):
+    return handle_contexto_post("/api/home/action", json.dumps(payload).encode("utf-8"), None)
+
+
+def test_ha_settings_and_test_routes(isolated_lote6_data, monkeypatch):
+    from app.services import home_assistant as ha
+
+    status, data = handle_contexto_get(["api", "settings", "home-assistant"], None)
+    assert status == 200 and data["ok"] is True and data["settings"]["configured"] is False
+
+    # POST com valores válidos
+    status, data = ha_post({"url": "http://192.168.1.200:8123", "token": "meu_token_secreto_longo"})
+    assert status == 200 and data["ok"] is True
+    assert data["settings"]["configured"] is True
+    assert data["settings"]["token_masked"] == "••••ongo"
+
+    # POST com endereço inválido
+    status, data = ha_post({"url": "endereco_sem_http"})
+    assert status == 400 and data["ok"] is False
+
+    # POST test rota
+    monkeypatch.setattr(ha, "ping", lambda: {"ok": True, "configured": True, "message": "Conectado"})
+    status, data = handle_contexto_post("/api/settings/home-assistant/test", b"{}", None)
+    assert status == 200 and data["ok"] is True
+
+
+def test_home_entities_and_action_routes(isolated_lote6_data, monkeypatch):
+    from app.services import home_assistant as ha
+    from app.storage import contexto_settings
+
+    # Sem configuração
+    status, data = handle_contexto_get(["api", "home", "entities"], None)
+    assert status == 200 and data["configured"] is False and data["entities"] == []
+
+    # Configura HA
+    contexto_settings.set_home_assistant({"url": "http://192.168.1.200:8123", "token": "tok_12345678"})
+
+    fake_entities = [
+        {"entity_id": "light.sala", "name": "Luz da Sala", "domain": "light", "state": "off", "area": "Sala"},
+        {"entity_id": "lock.porta", "name": "Fechadura", "domain": "lock", "state": "unlocked", "area": "Entrada"},
+    ]
+    monkeypatch.setattr(ha, "list_entities", lambda force=False: fake_entities)
+    monkeypatch.setattr(ha, "resolve", lambda name, domains=None: next(e for e in fake_entities if e["entity_id"] == name or e["name"] == name))
+    monkeypatch.setattr(ha, "resolve_cached", lambda name: next((e for e in fake_entities if e["entity_id"] == name or e["name"] == name), None))
+    monkeypatch.setattr(ha, "call_service", lambda domain, service, data: [])
+
+    # GET /api/home/entities via Kernel
+    status, data = handle_contexto_get(["api", "home", "entities"], None)
+    assert status == 200 and data["configured"] is True and len(data["entities"]) == 2
+
+    # POST /api/home/action para light (baixo risco -> executa direto se permitido)
+    status, data = home_action_post({"operation": "turn_on", "entity": "light.sala"})
+    assert status == 200 and data["ok"] is True
+
+    # POST /api/home/action para lock (crítico -> requer confirmação na Central)
+    status, data = home_action_post({"operation": "turn_on", "entity": "lock.porta"})
+    assert status == 200 and data["pending"] is True
+    assert data["pending_action_id"] is not None

@@ -77,3 +77,98 @@ def set_context_settings(values: dict[str, Any]) -> dict[str, Any]:
     data[SECTION] = current
     runtime_settings._write(data)
     return get_context_settings()
+
+
+# ── Home Assistant (fase contexto 3) ───────────────────────────────────────
+# Seção `home_assistant` (url, token) de runtime_settings.json, com fallback para
+# HOME_ASSISTANT_URL/HOME_ASSISTANT_TOKEN. Sincroniza como as chaves de API. O token nunca
+# sai por aqui de volta para a interface: só `token_masked`.
+HA_SECTION = "home_assistant"
+_MAX_TOKEN = 1000
+
+
+def normalize_ha_url(value: Any) -> str:
+    """`http(s)://host[:porta]`, sem credenciais nem caminho; barra final removida."""
+    from urllib.parse import urlsplit
+
+    text = str(value or "").strip().rstrip("/")
+    if not text:
+        return ""
+    try:
+        parts = urlsplit(text)
+        port = parts.port
+    except ValueError:
+        raise ValueError("Endereço do Home Assistant inválido.") from None
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ValueError("Use um endereço como http://homeassistant.local:8123.")
+    if "@" in parts.netloc:
+        raise ValueError("Não coloque usuário ou senha no endereço do Home Assistant; use o token.")
+    if parts.path or parts.query or parts.fragment:
+        raise ValueError("Informe só o endereço do Home Assistant, sem caminho (ex.: http://192.168.0.10:8123).")
+    if port is not None and not 0 < port < 65536:
+        raise ValueError("Porta do Home Assistant inválida.")
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+def get_home_assistant() -> dict[str, str]:
+    """URL e token vigentes (arquivo primeiro, depois ambiente). Uso interno: contém o token."""
+    import os
+
+    saved = runtime_settings._read().get(HA_SECTION)
+    saved = saved if isinstance(saved, dict) else {}
+    url = str(saved.get("url") or "").strip() or os.getenv("HOME_ASSISTANT_URL", "").strip()
+    token = str(saved.get("token") or "").strip() or os.getenv("HOME_ASSISTANT_TOKEN", "").strip()
+    try:
+        url = normalize_ha_url(url)
+    except ValueError:
+        url = ""
+    return {"url": url, "token": token}
+
+
+def mask_token(token: str) -> str:
+    return f"••••{token[-4:]}" if len(token) >= 8 else ("••••" if token else "")
+
+
+def home_assistant_public() -> dict[str, Any]:
+    current = get_home_assistant()
+    return {
+        "url": current["url"],
+        "configured": bool(current["url"] and current["token"]),
+        "token_masked": mask_token(current["token"]),
+    }
+
+
+def set_home_assistant(values: dict[str, Any]) -> dict[str, Any]:
+    """Grava url/token. Token vazio mantém o atual; ``clear: true`` apaga os dois."""
+    if not isinstance(values, dict):
+        raise ValueError("Configuração do Home Assistant inválida.")
+    unknown = set(values) - {"url", "token", "clear"}
+    if unknown:
+        raise ValueError("Campo desconhecido na configuração do Home Assistant: " + ", ".join(sorted(unknown)) + ".")
+    data = runtime_settings._read()
+    saved = data.get(HA_SECTION) if isinstance(data.get(HA_SECTION), dict) else {}
+    if values.get("clear") is True:
+        data[HA_SECTION] = {"url": "", "token": ""}
+        runtime_settings._write(data)
+        return home_assistant_public()
+    if "clear" in values and not isinstance(values["clear"], bool):
+        raise ValueError("'clear' deve ser true ou false.")
+    url = saved.get("url", "")
+    if "url" in values:
+        if not isinstance(values["url"], str):
+            raise ValueError("O endereço do Home Assistant deve ser texto.")
+        url = normalize_ha_url(values["url"])
+        if not url:
+            raise ValueError("Informe o endereço do Home Assistant.")
+    token = str(saved.get("token") or "")
+    if "token" in values:
+        if not isinstance(values["token"], str):
+            raise ValueError("O token do Home Assistant deve ser texto.")
+        clean = values["token"].strip()
+        if clean:
+            if len(clean) > _MAX_TOKEN or any(ch.isspace() for ch in clean):
+                raise ValueError("Token do Home Assistant inválido: cole o token de longa duração inteiro, sem espaços.")
+            token = clean
+    data[HA_SECTION] = {"url": url, "token": token}
+    runtime_settings._write(data)
+    return home_assistant_public()

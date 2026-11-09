@@ -4,6 +4,7 @@ import { AutoApprovalsManager } from '../components/AutoApprovals'
 import { AgentLoopSettings } from '../components/AgentLoopSettings'
 import { PopupSettings } from '../components/PopupSettings'
 import { ContextSettings } from '../components/ContextSettings'
+import { HomeAssistantSettings } from '../components/HomeAssistantSettings'
 import { VoiceSettings } from '../components/VoiceSettings'
 import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download, User, Mic, Route, ShieldCheck, Cloud, Palette, HardDrive, Search, Star, ArrowUp, ArrowDown, Check, SlidersHorizontal, Bot, Compass } from 'lucide-react'
 import type { AiSettings, LlmSettings, OxyyCatalog, OxyySettings, Proactive, SttSettings, TtsSettings, Tray, WakeWord } from '../types'
@@ -168,7 +169,7 @@ export function SettingsPage({
     {
       id: 'general', label: 'Geral e perfil', icon: <User size={16} />, keywords: 'perfil agente nome personalidade estilo frase ativação briefing rotina diária módulos automações métricas',
       render: () => (<>
-      <AgentProfileSettings />
+        <AgentProfileSettings />
         {desktop && (<>
           {/* 7. Briefing Proativo */}
           <article className="settings-card briefing-settings">
@@ -181,46 +182,46 @@ export function SettingsPage({
             <button className="outline-button" type="button" onClick={() => onSaveBriefing()}>Salvar briefing</button>
           </article>
         </>)}
-      {/* Ferramentas do Sistema & Módulos */}
-      {onNavigate && (
-        <article className="settings-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div>
-            <p className="eyebrow">FERRAMENTAS DO SISTEMA</p>
-            <h2>Módulos avançados</h2>
-            <p>Acesse as ferramentas de infraestrutura, controle de ambiente e telemetria.</p>
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className="outline-button"
-              onClick={() => onNavigate('Automações')}
-              style={{ flex: 1, minWidth: 140, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-            >
-              ⚡ Automações & Clima
-            </button>
-            <button
-              type="button"
-              className="outline-button"
-              onClick={() => onNavigate('Análises')}
-              style={{ flex: 1, minWidth: 140, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-            >
-              📊 Métricas & Logs
-            </button>
-          </div>
-        </article>
-      )}
+        {/* Ferramentas do Sistema & Módulos */}
+        {onNavigate && (
+          <article className="settings-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <p className="eyebrow">FERRAMENTAS DO SISTEMA</p>
+              <h2>Módulos avançados</h2>
+              <p>Acesse as ferramentas de infraestrutura, controle de ambiente e telemetria.</p>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="outline-button"
+                onClick={() => onNavigate('Automações')}
+                style={{ flex: 1, minWidth: 140, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              >
+                ⚡ Automações & Clima
+              </button>
+              <button
+                type="button"
+                className="outline-button"
+                onClick={() => onNavigate('Análises')}
+                style={{ flex: 1, minWidth: 140, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              >
+                📊 Métricas & Logs
+              </button>
+            </div>
+          </article>
+        )}
       </>),
     },
     {
       id: 'voice', label: 'Voz e microfone', icon: <Mic size={16} />, keywords: 'voz microfone sensibilidade silêncio ganho dispositivo medidor stt tts teste fala whisper fish gemini edge palavra de ativação windows leitura automática',
       render: () => (<>
         {desktop && <VoiceSettings ttsSettings={ttsSettings} sttSettings={sttSettings} oxyySettings={oxyySettings} onSetTtsProvider={onSetTtsProvider} onSetSttProvider={onSetSttProvider} onSaveOxyy={onSaveOxyy} />}
-      {/* 2. Leitura Automática Switch Card */}
-      <article className="settings-card">
-        <p className="eyebrow">RESPOSTAS FALADAS</p>
-        <h2>Leitura automática</h2>
-        <Switch label="Ler respostas em voz alta" description="Quando ativo, o Jarvis fala respostas e ações automáticas." checked={speakEnabled} onChange={onSetSpeakEnabled} glowColor="blue" />
-      </article>
+        {/* 2. Leitura Automática Switch Card */}
+        <article className="settings-card">
+          <p className="eyebrow">RESPOSTAS FALADAS</p>
+          <h2>Leitura automática</h2>
+          <Switch label="Ler respostas em voz alta" description="Quando ativo, o Jarvis fala respostas e ações automáticas." checked={speakEnabled} onChange={onSetSpeakEnabled} glowColor="blue" />
+        </article>
         {desktop && (<>
           {/* 6. Disponibilidade (Wake Word & Boot) */}
           <article className="settings-card">
@@ -658,56 +659,57 @@ export function SettingsPage({
             </div>
           </article>
         </>)}
-      {/* Mobile API & Model Configuration Manager */}
-      {isMobileStandalone() && <MobileApiConfig />}
+        {/* Mobile API & Model Configuration Manager */}
+        {isMobileStandalone() && <MobileApiConfig />}
       </>),
     },
     {
       id: 'agent', label: 'Agente e popups', icon: <Bot size={16} />, keywords: 'agente loop etapas chamadas modelo limite verificação automática extrair memórias toda mensagem tokens sequência continuar sozinho popups animados fechar sozinho máximo na tela',
       render: () => (<>
-      {desktop && <AgentLoopSettings />}
-      {desktop && <PopupSettings />}
-      {!desktop && <article className="settings-card"><p className="eyebrow">LOOP AGÊNTICO</p><h2>Disponível no PC</h2><p>O loop agêntico roda no backend do computador.</p></article>}
+        {desktop && <AgentLoopSettings />}
+        {desktop && <PopupSettings />}
+        {!desktop && <article className="settings-card"><p className="eyebrow">LOOP AGÊNTICO</p><h2>Disponível no PC</h2><p>O loop agêntico roda no backend do computador.</p></article>}
       </>),
     },
     {
       id: 'approvals', label: 'Aprovações automáticas', icon: <ShieldCheck size={16} />, keywords: 'aprovações automáticas modo liberado ferramentas regras permitir aprovar',
       render: () => (<>
-      <AutoApprovalsManager />
+        <AutoApprovalsManager />
       </>),
     },
     {
       id: 'context', label: 'Contexto e casa', icon: <Compass size={16} />, keywords: 'contexto situação janela música agenda água hábitos tarefas rotinas bateria cpu privacidade títulos home assistant casa',
       render: () => (<>
-      {desktop && <ContextSettings />}
-      {!desktop && <article className="settings-card"><p className="eyebrow">CONTEXTO</p><h2>Disponível no PC</h2><p>O contexto da situação é montado no backend do computador.</p></article>}
+        {desktop && <ContextSettings />}
+        {desktop && <HomeAssistantSettings />}
+        {!desktop && <article className="settings-card"><p className="eyebrow">CONTEXTO E CASA</p><h2>Disponível no PC</h2><p>O contexto da situação e a integração com Home Assistant funcionam no computador.</p></article>}
       </>),
     },
     {
       id: 'sync', label: 'Sincronização e conta', icon: <Cloud size={16} />, keywords: 'sincronização conta nuvem supabase login entrar sair evolução life os',
       render: () => (<>
-      <EvoluteSyncSettings />
+        <EvoluteSyncSettings />
       </>),
     },
     {
       id: 'appearance', label: 'Aparência e sons', icon: <Palette size={16} />, keywords: 'aparência sons sfx interface organizar seções favoritas ocultar ordem',
       render: () => (<>
-      {/* Sons Táticos Switch Card */}
-      <article className="settings-card">
-        <p className="eyebrow">FEEDBACK AUDITIVO TÁTICO</p>
-        <h2>Sons procedurais (SFX)</h2>
-        <Switch
-          label="Sons táticos da interface"
-          description="Cliques sutis, confirmações de comando e sons futuristas sem arquivos pesados."
-          checked={sfxActive}
-          onChange={(val) => {
-            setSfxEnabled(val)
-            setSfxActive(val)
-            if (val) playSuccess()
-          }}
-          glowColor="purple"
-        />
-      </article>
+        {/* Sons Táticos Switch Card */}
+        <article className="settings-card">
+          <p className="eyebrow">FEEDBACK AUDITIVO TÁTICO</p>
+          <h2>Sons procedurais (SFX)</h2>
+          <Switch
+            label="Sons táticos da interface"
+            description="Cliques sutis, confirmações de comando e sons futuristas sem arquivos pesados."
+            checked={sfxActive}
+            onChange={(val) => {
+              setSfxEnabled(val)
+              setSfxActive(val)
+              if (val) playSuccess()
+            }}
+            glowColor="purple"
+          />
+        </article>
         <article className="settings-card">
           <p className="eyebrow">ORGANIZAÇÃO</p>
           <h2>Seções das Configurações</h2>
@@ -722,25 +724,25 @@ export function SettingsPage({
     {
       id: 'system', label: 'Backup e sistema', icon: <HardDrive size={16} />, keywords: 'backup sistema dados exportar zip segurança',
       render: () => (<>
-      {/* Backup & Dados do Sistema Card */}
-      <article className="settings-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-        <div>
-          <p className="eyebrow">SEGURANÇA & DADOS</p>
-          <h2>Backup do Jarvis & Life OS</h2>
-          <p>Exporta em 1 clique um arquivo ZIP com todas as memórias, conversas, hábitos e preferências.</p>
-        </div>
-        <div style={{ marginTop: 16 }}>
-          <a
-            href="/api/system/backup"
-            download
-            className="outline-button"
-            onClick={() => playSuccess()}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 16px', textDecoration: 'none', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)', color: '#fbbf24', borderRadius: 10, fontWeight: 700 }}
-          >
-            <Download size={15} /> Exportar Backup Completo (ZIP)
-          </a>
-        </div>
-      </article>
+        {/* Backup & Dados do Sistema Card */}
+        <article className="settings-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div>
+            <p className="eyebrow">SEGURANÇA & DADOS</p>
+            <h2>Backup do Jarvis & Life OS</h2>
+            <p>Exporta em 1 clique um arquivo ZIP com todas as memórias, conversas, hábitos e preferências.</p>
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <a
+              href="/api/system/backup"
+              download
+              className="outline-button"
+              onClick={() => playSuccess()}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 16px', textDecoration: 'none', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)', color: '#fbbf24', borderRadius: 10, fontWeight: 700 }}
+            >
+              <Download size={15} /> Exportar Backup Completo (ZIP)
+            </a>
+          </div>
+        </article>
       </>),
     },
   ]
@@ -761,7 +763,7 @@ export function SettingsPage({
     const index = list.indexOf(id)
     const target = index + delta
     if (index < 0 || target < 0 || target >= list.length) return
-    ;[list[index], list[target]] = [list[target], list[index]]
+      ;[list[index], list[target]] = [list[target], list[index]]
     updateLayout({ ...layout, order: list })
   }
   const toggleIn = (key: 'hidden' | 'favorites', id: string) => {
@@ -1165,7 +1167,7 @@ function EvoluteSyncSettings() {
       const currentSettings = getEvoluteSettings()
       const urlToUse = customUrl.trim() || currentSettings.supabaseUrl || DEFAULT_SUPABASE_URL
       const keyToUse = customKey.trim() || currentSettings.supabasePublishableKey || DEFAULT_SUPABASE_KEY
-      
+
       const action = signup ? signUpEvoluteCloud : signInEvoluteCloud
       await action(email, password, {
         ...currentSettings,

@@ -1,10 +1,15 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
-import { MapPinned, MonitorCog, Wallet, type LucideIcon } from 'lucide-react'
+import { House, MapPinned, MonitorCog, Wallet, type LucideIcon } from 'lucide-react'
 import type { OperationalState } from '../hooks/useOperationalSnapshot'
 
 // Registro de janelas do app. O agente (ferramenta open_window) e os comandos só escolhem ids
 // daqui e preenchem parâmetros validados; nunca geram interface. O espelho no backend, com as
 // mesmas regras de validação, está em app/agent/tools/open_window.py.
+
+export const WINDOW_HOME = 'home'
+
+// A janela Casa não recebe parâmetros: o agente só pede que ela abra.
+export type HomeWindowParams = Record<string, never>
 
 export const WINDOW_FINANCE = 'finance'
 
@@ -27,7 +32,7 @@ export const WINDOW_PLACES = 'places'
 // Busca de lugares com mapa: query/near só preenchem o campo e disparam a busca ao abrir.
 export type PlacesWindowParams = { query?: string; near?: string }
 
-export type WindowParamsMap = { [WINDOW_FINANCE]: FinanceWindowParams; [WINDOW_PC_CONTROLS]: PcControlsWindowParams; [WINDOW_PLACES]: PlacesWindowParams }
+export type WindowParamsMap = { [WINDOW_HOME]: HomeWindowParams;[WINDOW_FINANCE]: FinanceWindowParams;[WINDOW_PC_CONTROLS]: PcControlsWindowParams;[WINDOW_PLACES]: PlacesWindowParams }
 export type WindowId = keyof WindowParamsMap
 
 export type WindowComponentProps<P> = { params: P; operational: OperationalState }
@@ -103,7 +108,18 @@ const placesDef: WindowDef<PlacesWindowParams> = {
   component: lazy(() => import('./PlacesWindow').then(module => ({ default: module.PlacesWindow }))),
 }
 
+const homeDef: WindowDef<HomeWindowParams> = {
+  id: WINDOW_HOME,
+  title: 'Casa',
+  icon: House,
+  width: 640,
+  height: 600,
+  parseParams: parseWith({}) as WindowDef<HomeWindowParams>['parseParams'],
+  component: lazy(() => import('./HomeWindow').then(module => ({ default: module.HomeWindow }))),
+}
+
 export const windowRegistry: { [K in WindowId]: WindowDef<WindowParamsMap[K]> } = {
+  [WINDOW_HOME]: homeDef,
   [WINDOW_FINANCE]: financeDef,
   [WINDOW_PC_CONTROLS]: pcControlsDef,
   [WINDOW_PLACES]: placesDef,
