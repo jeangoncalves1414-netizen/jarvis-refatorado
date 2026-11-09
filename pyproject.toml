@@ -31,10 +31,18 @@ dependencies = [
     "keyboard>=0.13.5",
     "onnxruntime>=1.26,<2",
     "kaldi-native-fbank>=1.22,<2",
+    "websockets>=12.0",
+    "numpy>=1.26",
+    "requests>=2.31",
+    "vosk>=0.3.45",
+    "pystray>=0.19",
+    "pywin32>=306; sys_platform == 'win32'",
+    "duckduckgo_search>=6.0",
 ]
 
 [project.optional-dependencies]
 local-stt = ["faster-whisper>=1.0"]
+oxyy = ["openai>=1.0"]
 
 [project.scripts]
 jarvis-rebuild = "app.main:main"
@@ -43,10 +51,10 @@ jarvis-rebuild = "app.main:main"
 testpaths = ["tests"]
 addopts = "-m 'not integration and not live and not network and not hardware and not mobile_release'"
 markers = [
-    "unit: teste local, determinÃ­stico e sem efeitos externos",
-    "integration: integra mÃºltiplos componentes; execuÃ§Ã£o explÃ­cita",
-    "live: requer o Jarvis jÃ¡ iniciado e dados locais reais",
+    "unit: teste local, determinístico e sem efeitos externos",
+    "integration: integra múltiplos componentes; execução explícita",
+    "live: requer o Jarvis já iniciado e dados locais reais",
     "network: acessa rede externa",
-    "hardware: acessa clipboard, mÃ­dia, microfone, registro ou hardware",
-    "mobile_release: confere os assets Android; rodar com -m mobile_release sÃ³ ao gerar o APK, depois de npm run build:mobile",
+    "hardware: acessa clipboard, mídia, microfone, registro ou hardware",
+    "mobile_release: confere os assets Android; rodar com -m mobile_release só ao gerar o APK, depois de npm run build:mobile",
 ]

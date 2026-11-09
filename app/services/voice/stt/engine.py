@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from .filter import filter_stt_hallucinations
 from ..audio_convert import AudioConversionError, prepare_audio_for_stt
 from app.core.diagnostics import record as diagnostic_record
+from app.core.secrets_mask import mask_key, scrub_key
 
 
 @dataclass
@@ -238,7 +239,7 @@ class STTEngine:
                     else:
                         return str(text).strip()
                 except Exception as exc:
-                    print(f"[STT Engine] Oxyy chave falhou ({exc}); tentando a próxima...")
+                    print(f"[STT Engine] Oxyy chave {mask_key(key)} falhou ({scrub_key(exc, key)}); tentando a próxima...")
             return None
         except Exception as exc:
             print(f"[STT Engine] Oxyy Whisper indisponível ({exc}), tentando fallback...")
@@ -310,7 +311,7 @@ class STTEngine:
                     if text:
                         return text
             except Exception as e:
-                print(f"[STT Engine] Groq Whisper ({key[:8]}...) falhou: {e}; tentando próxima chave...")
+                print(f"[STT Engine] Groq Whisper ({mask_key(key)}) falhou: {scrub_key(e, key)}; tentando próxima chave...")
                 continue
 
         print("[STT Engine] Todas as chaves Groq Whisper falharam, tentando fallback...")

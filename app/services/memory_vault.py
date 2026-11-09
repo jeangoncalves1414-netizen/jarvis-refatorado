@@ -152,6 +152,10 @@ class MemoryVaultEngine:
             clean_title = f"note-{int(time.time())}"
         
         target_dir = VAULT_DIR / folder
+        try:
+            target_dir.resolve().relative_to(Path(VAULT_DIR).resolve())
+        except ValueError:
+            raise ValueError("A pasta da nota precisa ficar dentro do cofre.") from None
         target_dir.mkdir(parents=True, exist_ok=True)
         
         filepath = target_dir / f"{clean_title}.md"

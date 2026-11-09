@@ -2968,7 +2968,7 @@ Confirma que posso criar o **Jarvis Evolução** no plano gratuito, região São
 > ```
 >
 > ```text
-> {"keys":[{"api_key":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZnFyZ3B0bnB2aXBseHBsY2JvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4OTkwNDYsImV4cCI6MjEwNTQ3NTA0Nn0.p1d4YkqquAupBBJogQFVUYvzVwA4qrjGzDxymr02aVs","name":"anon","type":"legacy","disabled":false,"description":"Legacy anon API key","id":"anon"},{"api_key":"sb_publishable__dLqOSYJpM5WfGArFbVyYw_OFdak85E","name":"default","type":"publishable","disabled":false,"id":"fb13f952-e462-4433-836f-fb19435679fc"}]}
+> {"keys":[{"api_key":"<SUPABASE_ANON_KEY>","name":"anon","type":"legacy","disabled":false,"description":"Legacy anon API key","id":"anon"},{"api_key":"<SUPABASE_PUBLISHABLE_KEY>","name":"default","type":"publishable","disabled":false,"id":"fb13f952-e462-4433-836f-fb19435679fc"}]}
 > ```
 >
 > MCP tool call

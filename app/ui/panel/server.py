@@ -76,6 +76,39 @@ def _calendar_conversation_prefix() -> str:
     except Exception:
         return ""
 
+
+MAX_WATER_ADD_ML = 5000
+
+
+def _water_amount(value: Any) -> int | None:
+    """ml de água do pedido: ausente vale 250; fora de 1 a 5000, booleano ou não numérico volta ``None`` (MG17)."""
+    if value is None:
+        return 250
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        amount = float(value)
+    except ValueError:
+        return None
+    if not 1 <= amount <= MAX_WATER_ADD_ML:  # NaN também falha aqui
+        return None
+    return int(round(amount))
+
+
+def _friendly_error(exc: BaseException, action: str) -> str:
+    """Mensagem em português para a tela (MG14); o texto técnico vai só para o diagnóstico e o console.
+
+    ``action`` completa "Não foi possível ...", por exemplo "registrar a água".
+    """
+    try:
+        from app.core.diagnostics import record as diagnostic_record
+        detail = f"{type(exc).__name__}: {exc}"
+        print(f"[Painel] Falha ao {action}: {detail}")
+        diagnostic_record("panel", "route_error", "ERROR", action=action, error=detail[:300])
+    except Exception:
+        pass
+    return f"Não foi possível {action}. Os detalhes técnicos ficaram no diagnóstico."
+
 # ──────────────────────────────────────────────────────────── HTTP handler ──
 
 class PanelHandler(BaseHTTPRequestHandler):
@@ -829,9 +862,26 @@ class PanelHandler(BaseHTTPRequestHandler):
         if path == "/api/evolute/water/add":
             try:
                 payload = json.loads(body.decode("utf-8")) if body else {}
-                amount_ml = int(payload.get("amount_ml") or 250)
-                from app.services.lifeos import LifeOSService
-                res = LifeOSService.add_water(amount_ml)
+                if not isinstance(payload, dict):
+                    raise ValueError("payload")
+                amount_ml = _water_amount(payload.get("amount_ml"))
+                if amount_ml is None:
+                    self._send_json(400, {"ok": False, "error": f"Quantidade de água inválida: informe de 1 a {MAX_WATER_ADD_ML} ml."})
+                    return
+                # MG17: o registro passa pelo Action Kernel (aparece na Central). O Run nasce de uma janela
+                # do painel; o popup de água continua com a origem "command" do /agua.
+                outcome = run_action(
+                    "lifeos_tool", {"action": "add_water", "amount": amount_ml},
+                    source="api:water", user_text=f"Registrar {amount_ml} ml de água", origin="window",
+                )
+                action = outcome.action.public_dict() if outcome.action else None
+                if outcome.pending:
+                    self._send_json(202, {"ok": False, "pending": True, "error": "O registro de água aguarda aprovação na Central.", "action": action})
+                    return
+                res = outcome.result.data.get("data") if outcome.succeeded and outcome.result else None
+                if not isinstance(res, dict):
+                    self._send_json(500, {"ok": False, "error": "Não foi possível registrar a água.", "action": action})
+                    return
                 # Popup de água para o /agua (lote 6): montado com os totais do serviço; falha não afeta o registro.
                 try:
                     from app.agent.popups import build_popup
@@ -841,9 +891,12 @@ class PanelHandler(BaseHTTPRequestHandler):
                     )
                 except Exception:
                     pass
+                res["action"] = action
                 self._send_json(200, res)
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+                self._send_json(400, {"ok": False, "error": "Pedido de água inválido."})
             except Exception as exc:
-                self._send_json(500, {"ok": False, "error": str(exc)})
+                self._send_json(500, {"ok": False, "error": _friendly_error(exc, "registrar a água")})
             return
 
         if path == "/api/evolute/habit/toggle":
@@ -855,7 +908,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 res = LifeOSService.toggle_habit(habit_ref, completed=completed)
                 self._send_json(200, res)
             except Exception as exc:
-                self._send_json(500, {"ok": False, "error": str(exc)})
+                self._send_json(500, {"ok": False, "error": _friendly_error(exc, "atualizar o hábito")})
             return
 
         if path == "/api/evolute/habit/priority":
@@ -866,7 +919,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 res = LifeOSService.toggle_habit_priority(habit_ref)
                 self._send_json(200, res)
             except Exception as exc:
-                self._send_json(500, {"ok": False, "error": str(exc)})
+                self._send_json(500, {"ok": False, "error": _friendly_error(exc, "atualizar a prioridade do hábito")})
             return
 
         if path == "/api/voice/tts/stream":
@@ -1136,40 +1189,22 @@ class PanelHandler(BaseHTTPRequestHandler):
                 ok = CalendarService().add_event(event)
                 self._send_json(200 if ok else 500, {"ok": ok, "event": event.to_dict()})
             except ValueError as exc:
-                self._send_json(400, {"error": f"Dados inválidos: {exc}"})
+                self._send_json(400, {"error": "Dados inválidos. Confira o título, as datas e os minutos do lembrete."})
             except (TypeError, json.JSONDecodeError):
                 self._send_json(400, {"error": "JSON ou payload inválido."})
             except Exception as exc:
-                self._send_json(500, {"error": str(exc)})
+                self._send_json(500, {"error": _friendly_error(exc, "salvar o lembrete")})
             return
 
-        # /api/vault POST → Memory Vault (daily log, profile fact, save note)
+        # /api/vault POST → Memory Vault (MG10: pasta validada e Action Kernel com origem window)
         if path.startswith("/api/vault"):
             try:
-                from app.services.memory_vault import memory_vault
-                payload = json.loads(body.decode("utf-8") or "{}")
-                sub = path.removeprefix("/api/vault").lstrip("/")
-                if sub == "daily/log":
-                    entry = payload.get("entry", "").strip()
-                    category = payload.get("category", "Atividade")
-                    ok = memory_vault.append_daily_log(entry, category)
-                    self._send_json(200, {"ok": ok})
-                elif sub == "profile/fact":
-                    fact = payload.get("fact", "").strip()
-                    ok = memory_vault.update_user_profile_fact(fact)
-                    self._send_json(200, {"ok": ok})
-                elif sub == "notes":
-                    title = payload.get("title", "nota")
-                    content = payload.get("content", "")
-                    folder = payload.get("folder", "04-Projects")
-                    path_saved = memory_vault.save_note(title, content, folder)
-                    self._send_json(200, {"ok": True, "path": path_saved})
-                else:
-                    self._send_json(400, {"ok": False, "error": f"Sub-rota '{sub}' não reconhecida."})
+                from app.ui.panel.api.vault_write import handle_vault_post
+                status, data = handle_vault_post(path, body)
+                self._send_json(status, data)
             except Exception as exc:
-                self._send_json(500, {"ok": False, "error": str(exc)})
+                self._send_json(500, {"ok": False, "error": _friendly_error(exc, "gravar no cofre")})
             return
-
         # /api/swarm → Swarm Manager routing
         if path == "/api/swarm":
             try:
@@ -1471,7 +1506,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 return
             except Exception as exc:
                 try:
-                    line = f"data: {json.dumps({'status': 'error', 'error': str(exc)}, ensure_ascii=False)}\n\n"
+                    line = f"data: {json.dumps({'status': 'error', 'error': _friendly_error(exc, 'responder agora')}, ensure_ascii=False)}\n\n"
                     self.wfile.write(line.encode("utf-8"))
                     self.wfile.flush()
                 except Exception:
@@ -1510,7 +1545,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                     "context": getattr(plan, "context", {}) or {},
                 })
             except Exception as exc:
-                self._send_json(500, {"error": str(exc)})
+                self._send_json(500, {"error": _friendly_error(exc, "responder agora")})
             return
 
         if path == "/api/script/authorize":

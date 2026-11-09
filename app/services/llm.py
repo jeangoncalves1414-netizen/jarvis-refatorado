@@ -8,6 +8,7 @@ from typing import Any
 
 from app.core.capability_health import track_model_call
 from app.core.runs import RunCancelled
+from app.core.secrets_mask import mask_key
 from app.storage.runtime_settings import get_llm_provider, resolve_ai_routes
 from app.services.stm_filters import stm_filter
 
@@ -63,7 +64,7 @@ class KeyRotator:
         if not key:
             return
         self.cooldowns[key] = time.time() + duration_seconds
-        print(f"[KeyRotator] Chave {key[:8]}... colocada em cooldown por {int(duration_seconds)}s devido a Rate Limit (429).")
+        print(f"[KeyRotator] Chave {mask_key(key)} colocada em cooldown por {int(duration_seconds)}s devido a Rate Limit (429).")
 
     def rotate_next(self, provider: str, settings: Any) -> str:
         cleaned = self._cleaned_keys(provider, settings)
@@ -385,7 +386,7 @@ class LLMService:
                 _key_rotator.mark_cooldown(api_key, duration_seconds=60.0)
                 next_key = _key_rotator.rotate_next("groq", self.settings)
                 if next_key and next_key != api_key:
-                    print(f"[Groq Stream] 429 detectado. Rotação IMEDIATA para chave ({next_key[:8]}...).")
+                    print(f"[Groq Stream] 429 detectado. Rotação IMEDIATA para chave ({mask_key(next_key)}).")
                     return self._generate_groq_stream(contents, on_chunk, tools, system_instruction, next_key, on_reasoning)
             print(f"[LLMStream Groq] Fallback devido a erro: {e}")
             return self._generate_groq(contents, tools, system_instruction, api_key)
@@ -625,7 +626,7 @@ class LLMService:
                 _key_rotator.mark_cooldown(api_key, duration_seconds=60.0)
                 next_key = _key_rotator.rotate_next("groq", self.settings)
                 if next_key and next_key != api_key:
-                    print(f"[Groq Generate] 429 detectado. Rotação IMEDIATA para chave ({next_key[:8]}...).")
+                    print(f"[Groq Generate] 429 detectado. Rotação IMEDIATA para chave ({mask_key(next_key)}).")
                     return self._generate_groq(contents, tools, system_instruction, next_key)
             # Se erro de validação de tools, retry sem tools
             if "tool" in str(e).lower() or "validation" in str(e).lower():
@@ -895,7 +896,7 @@ class LLMService:
                 _key_rotator.mark_cooldown(api_key, duration_seconds=60.0)
                 next_key = _key_rotator.rotate_next("gemini", self.settings)
                 if next_key and next_key != api_key:
-                    print(f"[Gemini Stream] 429 detectado. Rotação IMEDIATA para chave Gemini ({next_key[:8]}...).")
+                    print(f"[Gemini Stream] 429 detectado. Rotação IMEDIATA para chave Gemini ({mask_key(next_key)}).")
                     return self._chat_gemini_stream(
                         system_instruction=system_instruction,
                         messages=messages,
@@ -1342,7 +1343,7 @@ class LLMService:
                 # Tenta a próxima chave do pool Groq livre que ainda não foi tentada nesta chamada
                 next_key = _key_rotator.rotate_next("groq", self.settings)
                 if next_key and next_key not in tried_keys:
-                    print(f"[Groq] Rate limit (429)! Alternando IMEDIATAMENTE para próxima chave ({next_key[:8]}...)...")
+                    print(f"[Groq] Rate limit (429)! Alternando IMEDIATAMENTE para próxima chave ({mask_key(next_key)})...")
                     try:
                         return self._chat_groq_stream(
                             system_instruction=system_instruction,
