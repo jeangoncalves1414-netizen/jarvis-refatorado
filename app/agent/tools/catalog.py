@@ -470,6 +470,26 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         effect="Envia a descrição ao serviço de imagens e devolve o link da imagem gerada; pode consumir créditos.",
         reversibility="Nada a desfazer neste computador; o uso de créditos não volta.", scope="Só esta geração.",
     ),
+    "media_tool": ToolMetadata(
+        ("media", "system"), "critical",
+        operation_arguments=("action",), default_operation="list_videos",
+        operation_risks=_by_operation(
+            observe=("list_videos",),
+            low=("play_motivational", "reveal_in_folder"),
+        ),
+        target_arguments=("query", "path"), default_target="mídia e vídeos locais",
+        operation_effects=(
+            ("list_videos", "Lista os vídeos disponíveis na pasta de vídeos locais."),
+            ("play_motivational", "Seleciona e inicia a reprodução do vídeo motivacional no painel."),
+            ("reveal_in_folder", "Abre o Windows Explorer e seleciona o arquivo."),
+        ),
+        operation_reversibility=(
+            ("list_videos", "Nada a desfazer."),
+            ("play_motivational", "Reversível: feche o player."),
+            ("reveal_in_folder", "Reversível: feche a janela do Windows Explorer."),
+        ),
+        scope="Arquivos de mídia locais em data/videos e visualização no painel.",
+    ),
     "jarvis_mode": ToolMetadata(
         ("ui", "mode"), "critical", reversible=True,
         operation_arguments=("command",), default_operation="",

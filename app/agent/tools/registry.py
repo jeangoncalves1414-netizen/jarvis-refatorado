@@ -21,6 +21,7 @@ from .vision_tool import VisionTool
 from .qr_reader_tool import QRReaderTool
 from .realtime_tool import RealTimeTool
 from .cinema_tool import CinemaTool
+from .media_tool import MediaTool
 from .calendar_tool import CalendarTool
 try:
     from .system_tray_tool import SystemTrayTool
@@ -106,6 +107,7 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
         # Pedido com horário ou repetição vira rotina gravada.
         (r"\brotina|\btodo dia|\btodos os dias|\btoda (segunda|terca|quarta|quinta|sexta)|\btodo (sabado|domingo)|\bdias uteis|\ba cada \d+ ?min|\bas \d{1,2} ?h\b|\bas \d{1,2}:\d{2}", ("routine",)),
         (r"\bpersona|\bpersonalidade|\btom de voz|\bdesafio matinal|\bmude seu nome|\btroque seu nome", ("persona_tool",)),
+        (r"\bvideo|\bvideos|\bmotivac|\bmidia\b|\bplayer\b", ("media_tool",)),
     )
 )
 
@@ -240,6 +242,7 @@ class ToolRegistry:
         self._register(QRReaderTool())
         self._register(RealTimeTool())
         self._register(CinemaTool())
+        self._register(MediaTool(base_folder=base_folder))
         self._register(CalendarTool())
         self._register(ProactiveAgentTool())
         if TRAY_TOOL_AVAILABLE:

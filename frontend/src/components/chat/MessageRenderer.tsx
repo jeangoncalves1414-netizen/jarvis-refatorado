@@ -9,6 +9,7 @@ import { QuestionTool, type QuestionOption } from '../tools/QuestionTool'
 import { SubagentTool } from '../tools/SubagentTool'
 import { TodoTool, type TodoItem } from '../tools/TodoTool'
 import { ToolStatus } from '../tools/ToolStatus'
+import { MediaCard, type MediaViewPayload } from './MediaCard'
 import type { ScriptRequest } from '../../types'
 import type { ChatMode } from '../ChatComposer'
 
@@ -47,6 +48,7 @@ export function MessageRenderer({
   let questionPayload: { question: string; options: QuestionOption[]; multiSelect?: boolean } | null = null
   let toolStatusPayload: { toolName: string; status?: 'pending' | 'completed' | 'error'; detail?: string; icon?: string } | null = null
   let cinemaPayload: { title?: string; detect_url?: string; discovery_results?: Array<{ title?: string; url?: string; source?: string; snippet?: string }>; catalog_results?: Array<{ id?: string; title?: string; year?: string | number; description?: string }> } | null = null
+  let mediaPayload: MediaViewPayload | null = null
 
   const thinkMatch = content.match(/<think>([\s\S]*?)<\/think>/i)
   if (thinkMatch) {
@@ -77,6 +79,7 @@ export function MessageRenderer({
   questionPayload = parseMarker('__QUESTION__')
   toolStatusPayload = parseMarker('__TOOL_STATUS__')
   cinemaPayload = parseMarker('__CINEMA_PLAY__')
+  mediaPayload = parseMarker<MediaViewPayload>('__MEDIA_VIEW__')
 
   const handledCinemaRef = useRef('')
   const cinemaSignature = cinemaPayload ? JSON.stringify(cinemaPayload) : ''
@@ -109,9 +112,13 @@ export function MessageRenderer({
       {!isThinkingSentinel && text ? (
         <MessageContent
           text={text}
-          streaming={isStreaming && !searchPayload && !planPayload && !subagentPayload && !todoPayload && !questionPayload && !toolStatusPayload}
+          streaming={isStreaming && !searchPayload && !planPayload && !subagentPayload && !todoPayload && !questionPayload && !toolStatusPayload && !mediaPayload}
         />
       ) : null}
+
+      {mediaPayload && (
+        <MediaCard media={mediaPayload} />
+      )}
 
       {toolStatusPayload && (
         <ToolStatus
@@ -169,7 +176,7 @@ export function MessageRenderer({
           onApprove={() => onRunPendingScript?.()}
         />
       )}
-      {isStreaming && !isThinkingSentinel && !text && !visibleReasoning && !subagentPayload && !todoPayload && !questionPayload && !toolStatusPayload && (
+      {isStreaming && !isThinkingSentinel && !text && !visibleReasoning && !subagentPayload && !todoPayload && !questionPayload && !toolStatusPayload && !mediaPayload && (
         <ProcessingState label="Gerando resposta…" showLine={false} />
       )}
     </div>

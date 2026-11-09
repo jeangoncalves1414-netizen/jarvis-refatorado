@@ -39,6 +39,7 @@ from app.agent.run_tracking import background_run, in_background
 from app.core.runs import current_run
 from app.ui.panel.api.goals import handle_goals_get, handle_goals_post
 from app.ui.panel.api.mcp import handle_mcp_get, handle_mcp_post, handle_mcp_delete
+from app.ui.panel.api.media import handle_media_stream, handle_media_post
 from app.storage.vector.semantic_memory import is_technical_error_memory
 from app.core.control_plane import ControlPlanePolicy, RequestPrincipal
 from app.core.execution_receipts import receipts
@@ -715,6 +716,11 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_file(capture_file)
                 else:
                     self._send_404()
+                return
+
+            # /api/media/stream -> serve streaming media with byte-range support
+            if len(parts) >= 3 and parts[1] == "media" and parts[2] == "stream":
+                handle_media_stream(self)
                 return
 
 
@@ -2042,6 +2048,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             handle_goals_post,
             handle_notifications_post,
             handle_mcp_post,
+            handle_media_post,
         ):
             result = handler_fn(path, body, self)
             if result:

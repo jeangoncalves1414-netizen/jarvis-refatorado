@@ -48,7 +48,18 @@ class ImageGeneratorTool(BaseTool):
                     item = result.data[0]
                     url = getattr(item, "url", None) or (item.get("url") if isinstance(item, dict) else None)
                     if url:
-                        return ToolResult(ok=True, message="Imagem gerada com sucesso.", data={"url": url, "model": getattr(settings, "oxyy_image_model", "dall-e-3")})
+                        import json as _json
+                        media_payload = {
+                            "type": "image",
+                            "url": url,
+                            "title": prompt[:60] if prompt else "Imagem gerada",
+                        }
+                        marker = f"__MEDIA_VIEW__{_json.dumps(media_payload, ensure_ascii=False)}"
+                        return ToolResult(
+                            ok=True,
+                            message=f"Imagem gerada com sucesso.\n{marker}",
+                            data={"url": url, "model": getattr(settings, "oxyy_image_model", "dall-e-3"), "media": media_payload},
+                        )
                     last_error = RuntimeError("Oxyy não retornou uma URL de imagem.")
                 except Exception as exc:
                     last_error = exc
