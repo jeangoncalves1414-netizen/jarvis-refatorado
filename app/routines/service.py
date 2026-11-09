@@ -19,6 +19,7 @@ from app.core import ui_events
 from app.routines import triggers as trig
 from app.routines.models import RoutineError, normalize_text, time_trigger, validate_routine
 from app.routines.runner import RoutineBusy, RoutineRunner
+from app.routines.watcher import EventWatcher
 from app.storage import routine_store as routine_store_module
 
 SWEEP_SECONDS = 60
@@ -35,6 +36,7 @@ class RoutineService:
         self.runner = runner or RoutineRunner()
         self._registry = registry
         self.scheduler: Any = None
+        self.watcher = EventWatcher(runner=self.runner)
         self._lock = threading.RLock()
 
     # ── dependências ──────────────────────────────────────────────────────────
@@ -157,6 +159,10 @@ class RoutineService:
             self.sync_jobs()
         except Exception:
             pass
+        try:
+            self.watcher.reload()
+        except Exception:
+            pass
         ui_events.publish({"type": "routine_changed", "routine_id": routine_id})
 
     # ── gatilhos de voz e comando ─────────────────────────────────────────────
@@ -195,8 +201,16 @@ class RoutineService:
             self.scheduler = scheduler
             self.sync_jobs()
             scheduler.start(paused=paused)
+            try:
+                self.watcher.start()
+            except Exception:
+                pass
 
     def stop(self) -> None:
+        try:
+            self.watcher.stop()
+        except Exception:
+            pass
         with self._lock:
             scheduler, self.scheduler = self.scheduler, None
         if scheduler is not None:

@@ -1,4 +1,4 @@
-﻿import { FormEvent, useEffect, useRef, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import type { ChatMessage, ChatSession, ScriptRequest, TurnMeta } from '../types'
 import type { SearchPayload } from '../components/tools/SearchTool'
 

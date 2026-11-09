@@ -875,3 +875,116 @@ def set_ai_routes(routes: dict[str, Any]) -> dict[str, Any]:
     data["routes"] = current
     _write(data)
     return get_ai_settings()
+
+
+# Monitor de eventos e alertas de recursos (Fase 3)
+EVENT_SETTINGS_DEFAULTS: dict[str, Any] = {
+    "enabled": True,
+    "interval_seconds": 15,
+    "cpu": {"enabled": False, "threshold": 90, "for_seconds": 120},
+    "ram": {"enabled": False, "threshold": 90, "for_seconds": 120},
+    "disk": {"enabled": False, "threshold": 95, "for_seconds": 120},
+    "disk_path": "C:\\",
+    "cooldown_minutes": 30,
+}
+
+
+def get_event_settings() -> dict[str, Any]:
+    saved = _read().get("events")
+    saved = saved if isinstance(saved, dict) else {}
+    enabled = saved.get("enabled", EVENT_SETTINGS_DEFAULTS["enabled"])
+    interval = saved.get("interval_seconds", EVENT_SETTINGS_DEFAULTS["interval_seconds"])
+    cooldown = saved.get("cooldown_minutes", EVENT_SETTINGS_DEFAULTS["cooldown_minutes"])
+    disk_path = saved.get("disk_path", EVENT_SETTINGS_DEFAULTS["disk_path"])
+
+    result: dict[str, Any] = {
+        "enabled": enabled if isinstance(enabled, bool) else True,
+        "interval_seconds": interval if type(interval) is int and 10 <= interval <= 120 else 15,
+        "cooldown_minutes": cooldown if type(cooldown) is int and 1 <= cooldown <= 1440 else 30,
+        "disk_path": str(disk_path or "C:\\"),
+    }
+
+    for res in ("cpu", "ram", "disk"):
+        default_res = EVENT_SETTINGS_DEFAULTS[res]
+        val = saved.get(res)
+        val = val if isinstance(val, dict) else {}
+        r_enabled = val.get("enabled", default_res["enabled"])
+        r_thresh = val.get("threshold", default_res["threshold"])
+        r_for_sec = val.get("for_seconds", default_res["for_seconds"])
+        result[res] = {
+            "enabled": r_enabled if isinstance(r_enabled, bool) else default_res["enabled"],
+            "threshold": r_thresh if type(r_thresh) is int and 50 <= r_thresh <= 99 else default_res["threshold"],
+            "for_seconds": r_for_sec if type(r_for_sec) is int and 0 <= r_for_sec <= 3600 else default_res["for_seconds"],
+        }
+    return result
+
+
+def set_event_settings(values: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(values, dict):
+        raise ValueError("Configurações de eventos inválidas.")
+    unknown = set(values) - set(EVENT_SETTINGS_DEFAULTS)
+    if unknown:
+        raise ValueError("Campo desconhecido na configuração de eventos: " + ", ".join(sorted(unknown)) + ".")
+
+    current = get_event_settings()
+    if "enabled" in values:
+        if not isinstance(values["enabled"], bool):
+            raise ValueError("O monitor de eventos deve ser ligado ou desligado (true/false).")
+        current["enabled"] = values["enabled"]
+
+    if "interval_seconds" in values:
+        val = values["interval_seconds"]
+        if type(val) is not int or not 10 <= val <= 120:
+            raise ValueError("O intervalo de verificação deve ser um número inteiro de 10 a 120 segundos.")
+        current["interval_seconds"] = val
+
+    if "cooldown_minutes" in values:
+        val = values["cooldown_minutes"]
+        if type(val) is not int or not 1 <= val <= 1440:
+            raise ValueError("O intervalo entre alertas deve ser um número inteiro de 1 a 1440 minutos.")
+        current["cooldown_minutes"] = val
+
+    if "disk_path" in values:
+        path = values["disk_path"]
+        if not isinstance(path, str) or not path.strip():
+            raise ValueError("O caminho do disco deve ser um texto válido.")
+        current["disk_path"] = path.strip()
+
+    for res in ("cpu", "ram", "disk"):
+        if res in values:
+            val = values[res]
+            if not isinstance(val, dict):
+                raise ValueError(f"A configuração de {res.upper()} deve ser um objeto.")
+            res_unknown = set(val) - {"enabled", "threshold", "for_seconds"}
+            if res_unknown:
+                raise ValueError(f"Campo desconhecido em {res.upper()}: " + ", ".join(sorted(res_unknown)) + ".")
+            target_res = dict(current[res])
+            if "enabled" in val:
+                if not isinstance(val["enabled"], bool):
+                    raise ValueError(f"O alerta de {res.upper()} deve ser ligado ou desligado (true/false).")
+                target_res["enabled"] = val["enabled"]
+            if "threshold" in val:
+                t = val["threshold"]
+                if type(t) is not int or not 50 <= t <= 99:
+                    raise ValueError(f"O limiar de {res.upper()} deve ser um número inteiro de 50 a 99 %.")
+                target_res["threshold"] = t
+            if "for_seconds" in val:
+                s = val["for_seconds"]
+                if type(s) is not int or not 0 <= s <= 3600:
+                    raise ValueError(f"A duração de {res.upper()} deve ser um número inteiro de 0 a 3600 segundos.")
+                target_res["for_seconds"] = s
+            current[res] = target_res
+
+    data = _read()
+    data["events"] = current
+    _write(data)
+
+    try:
+        from app.routines.service import routine_service
+        if hasattr(routine_service, "watcher") and routine_service.watcher is not None:
+            routine_service.watcher.reload()
+    except Exception:
+        pass
+
+    return get_event_settings()
+

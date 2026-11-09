@@ -126,6 +126,23 @@ def describe_trigger(trigger: dict[str, Any]) -> str:
         return f"Voz: {trigger['phrase']}"
     if kind == "command":
         return f"/{trigger['slash']}"
+    if kind == "event":
+        ev = trigger.get("event")
+        params = trigger.get("params") or {}
+        if ev == "calendar_before":
+            return f"Compromisso em {params.get('minutes', 15)} min"
+        if ev == "app_started":
+            return f"Programa abriu: {params.get('app_name', '')}"
+        if ev == "app_closed":
+            return f"Programa fechou: {params.get('app_name', '')}"
+        if ev == "resource":
+            metric = str(params.get("metric") or "cpu").upper()
+            return f"Recurso: {metric} > {params.get('threshold', 90)}%"
+        if ev == "idle":
+            return f"Ausente por {params.get('minutes', 15)} min"
+        if ev == "returned":
+            return "Voltou ao PC"
+        return f"Evento: {ev}"
     return str(kind or "")
 
 

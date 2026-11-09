@@ -27,7 +27,8 @@ INTERVAL_RANGE = (5, 1440)
 # Sem recursão (routine) e sem espera como etapa (use delay_before).
 BLOCKED_STEP_TOOLS = frozenset({"routine", "wait"})
 TIME_TRIGGERS = frozenset({"at", "daily", "weekdays", "weekly", "interval"})
-TRIGGER_TYPES = TIME_TRIGGERS | {"voice", "command"}
+TRIGGER_TYPES = TIME_TRIGGERS | {"voice", "command", "event"}
+EVENT_KINDS = frozenset({"calendar_before", "app_started", "app_closed", "resource", "idle", "returned"})
 ON_FAILURE = ("stop", "continue", "retry")
 WEEK_DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
@@ -266,12 +267,53 @@ def validate_trigger(raw: Any, index: int) -> dict[str, Any]:
         if not 3 <= len(phrase) <= 80:
             raise RoutineError(f"{label}: a frase de voz deve ter entre 3 e 80 letras.")
         return {"type": "voice", "phrase": phrase}
-    slash = str(raw.get("slash") or "").strip().lstrip("/").lower()
-    if not _SLASH.match(slash):
-        raise RoutineError(f"{label}: o comando deve ter de 2 a 30 letras minúsculas, números ou hífen (ex.: foco-manha).")
-    if slash in RESERVED_SLASHES:
-        raise RoutineError(f"{label}: o comando /{slash} já existe no app; escolha outro nome.")
-    return {"type": "command", "slash": slash}
+    if kind == "command":
+        slash = str(raw.get("slash") or "").strip().lstrip("/").lower()
+        if not _SLASH.match(slash):
+            raise RoutineError(f"{label}: o comando deve ter de 2 a 30 letras minúsculas, números ou hífen (ex.: foco-manha).")
+        if slash in RESERVED_SLASHES:
+            raise RoutineError(f"{label}: o comando /{slash} já existe no app; escolha outro nome.")
+        return {"type": "command", "slash": slash}
+
+    if kind == "event":
+        ev = str(raw.get("event") or "").strip().lower()
+        if ev not in EVENT_KINDS:
+            raise RoutineError(f"{label}: tipo de evento desconhecido '{ev}'.")
+        mode = str(raw.get("mode") or "alert").strip().lower()
+        if mode not in ("alert", "run"):
+            raise RoutineError(f"{label}: modo de evento deve ser alert ou run.")
+        cooldown = _int(raw.get("cooldown_minutes") or 30, f"{label}: intervalo entre avisos (min)", 1, 1440)
+        window = None
+        if raw.get("window"):
+            w = raw["window"]
+            if not isinstance(w, dict) or not w.get("start") or not w.get("end"):
+                raise RoutineError(f"{label}: janela de horário deve ter início e fim.")
+            window = {"start": _time(w["start"], f"{label}: janela início"), "end": _time(w["end"], f"{label}: janela fim")}
+        raw_params = raw.get("params") or {}
+        if not isinstance(raw_params, dict):
+            raise RoutineError(f"{label}: parâmetros do evento devem ser um objeto.")
+        params: dict[str, Any] = {}
+        if ev == "calendar_before":
+            params["minutes"] = _int(raw_params.get("minutes") or 15, f"{label}: minutos antes", 1, 1440)
+        elif ev in ("app_started", "app_closed"):
+            app_name = str(raw_params.get("app_name") or "").strip()
+            if not app_name:
+                raise RoutineError(f"{label}: informe o nome do programa (app_name).")
+            params["app_name"] = app_name
+        elif ev == "resource":
+            metric = str(raw_params.get("metric") or "cpu").strip().lower()
+            if metric not in ("cpu", "ram", "disk"):
+                raise RoutineError(f"{label}: métrica deve ser cpu, ram ou disk.")
+            params["metric"] = metric
+            params["threshold"] = _int(raw_params.get("threshold") or 90, f"{label}: limiar (%)", 50, 99)
+            params["for_seconds"] = _int(raw_params.get("for_seconds") or 120, f"{label}: duração (s)", 0, 3600)
+        elif ev in ("idle", "returned"):
+            params["minutes"] = _int(raw_params.get("minutes") or 15, f"{label}: minutos ocioso", 1, 720)
+
+        result_ev: dict[str, Any] = {"type": "event", "event": ev, "params": params, "mode": mode, "cooldown_minutes": cooldown}
+        if window:
+            result_ev["window"] = window
+        return result_ev
 
 
 def validate_triggers(raw: Any) -> list[dict[str, Any]]:
@@ -282,7 +324,7 @@ def validate_triggers(raw: Any) -> list[dict[str, Any]]:
     if len(raw) > MAX_TRIGGERS:
         raise RoutineError(f"Uma rotina tem no máximo {MAX_TRIGGERS} gatilhos.")
     triggers = [validate_trigger(item, index) for index, item in enumerate(raw)]
-    groups = {"horário": TIME_TRIGGERS, "frase de voz": {"voice"}, "comando": {"command"}}
+    groups = {"horário": TIME_TRIGGERS, "frase de voz": {"voice"}, "comando": {"command"}, "evento": {"event"}}
     for name, kinds in groups.items():
         if sum(1 for item in triggers if item["type"] in kinds) > 1:
             raise RoutineError(f"Uma rotina tem no máximo 1 gatilho de {name}.")
@@ -341,12 +383,19 @@ def validate_routine(payload: Any, registry: Any = None) -> dict[str, Any]:
     enabled = payload.get("enabled", True)
     if not isinstance(enabled, bool):
         raise RoutineError("'Ativa' deve ser verdadeiro ou falso.")
+    triggers = validate_triggers(payload.get("triggers"))
+    if any(item["type"] == "event" for item in triggers):
+        for step in steps:
+            tool = str(step.get("tool") or "").lower()
+            op = str(step.get("operation") or "").lower()
+            if (tool == "open_windows_app" and op == "close") or re.search(r"\b(close|kill|terminate|end_task)\b", op):
+                raise RoutineError("Gatilho automático não pode encerrar programas.")
     catch_up = payload.get("catch_up_minutes")
     return {
         "name": name,
         "enabled": enabled,
         "steps": steps,
-        "triggers": validate_triggers(payload.get("triggers")),
+        "triggers": triggers,
         "quiet": validate_quiet(payload.get("quiet", payload.get("quiet_hours"))),
         "catch_up_minutes": CATCH_UP_DEFAULT if catch_up in (None, "") else _int(catch_up, "Tolerância (min)", *CATCH_UP_RANGE),
     }

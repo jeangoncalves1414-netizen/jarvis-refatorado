@@ -85,7 +85,12 @@ class RoutineStore:
     def create(self, fields: dict[str, Any]) -> dict[str, Any]:
         now = time.time()
         routine_id = f"rt_{uuid.uuid4().hex[:12]}"
-        columns = {"id": routine_id, "name": fields["name"], **self._columns(fields), "created_at": now, "updated_at": now}
+        cols = self._columns(fields)
+        cols.setdefault("enabled", 1)
+        cols.setdefault("steps_json", "[]")
+        cols.setdefault("triggers_json", "[]")
+        cols.setdefault("catch_up_minutes", 15)
+        columns = {"id": routine_id, "name": fields["name"], **cols, "created_at": now, "updated_at": now}
         with self._lock, closing(self._connect()) as db, db:
             db.execute(f"INSERT INTO routines({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})", tuple(columns.values()))
         return self.get(routine_id)

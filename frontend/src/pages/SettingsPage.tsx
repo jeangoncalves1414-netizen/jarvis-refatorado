@@ -2,6 +2,7 @@ import { useState, useEffect, type ReactNode } from 'react'
 import { Switch } from '../components/Switch'
 import { AutoApprovalsManager } from '../components/AutoApprovals'
 import { AgentLoopSettings } from '../components/AgentLoopSettings'
+import { EventAlertsSettings } from '../components/EventAlertsSettings'
 import { PopupSettings } from '../components/PopupSettings'
 import { ContextSettings } from '../components/ContextSettings'
 import { HomeAssistantSettings } from '../components/HomeAssistantSettings'
@@ -664,9 +665,10 @@ export function SettingsPage({
       </>),
     },
     {
-      id: 'agent', label: 'Agente e popups', icon: <Bot size={16} />, keywords: 'agente loop etapas chamadas modelo limite verificação automática extrair memórias toda mensagem tokens sequência continuar sozinho popups animados fechar sozinho máximo na tela',
+      id: 'agent', label: 'Agente e popups', icon: <Bot size={16} />, keywords: 'agente loop etapas chamadas modelo limite verificação automática extrair memórias toda mensagem tokens sequência continuar sozinho popups animados fechar sozinho máximo na tela eventos alertas cpu ram disco hardware',
       render: () => (<>
         {desktop && <AgentLoopSettings />}
+        {desktop && <EventAlertsSettings />}
         {desktop && <PopupSettings />}
         {!desktop && <article className="settings-card"><p className="eyebrow">LOOP AGÊNTICO</p><h2>Disponível no PC</h2><p>O loop agêntico roda no backend do computador.</p></article>}
       </>),

@@ -28,13 +28,13 @@ type RoutineTrigger =
   | { type: 'voice'; phrase: string }
   | { type: 'command'; slash: string }
   | {
-      type: 'event'
-      event: string
-      params?: Record<string, unknown>
-      mode?: 'alert' | 'run'
-      cooldown_minutes?: number
-      window?: { start: string; end: string }
-    }
+    type: 'event'
+    event: string
+    params?: Record<string, unknown>
+    mode?: 'alert' | 'run'
+    cooldown_minutes?: number
+    window?: { start: string; end: string }
+  }
 
 type RoutineStep = {
   id: string

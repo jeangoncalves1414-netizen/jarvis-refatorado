@@ -105,160 +105,160 @@ function useMobileViewport() {
   return mobile
 }
 
-export function WindowHost({ operational, openRun }: { operational: OperationalState; openRun?: (id: string) => void }) {
-  const { windows, focusedId, close, focus, update } = useWindows()
-  const mobile = useMobileViewport()
+  export function WindowHost({ operational, openRun }: { operational: OperationalState; openRun?: (id: string) => void }) {
+    const { windows, focusedId, close, focus, update } = useWindows()
+    const mobile = useMobileViewport()
 
-  // Esc fecha a janela focada. Ignora o evento se um diálogo interno já o tratou ou se o foco está
-  // em outra parte da interface (paleta, menu lateral).
-  useEffect(() => {
-    if (!focusedId) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
-      const active = document.activeElement
-      const frame = document.querySelector(`[data-window-id="${focusedId}"]`)
-      if (active && active !== document.body && !frame?.contains(active)) return
-      close(focusedId)
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [focusedId, close])
+    // Esc fecha a janela focada. Ignora o evento se um diálogo interno já o tratou ou se o foco está
+    // em outra parte da interface (paleta, menu lateral).
+    useEffect(() => {
+      if (!focusedId) return
+      const onKeyDown = (event: KeyboardEvent) => {
+        if (event.key !== 'Escape' || event.defaultPrevented) return
+        const active = document.activeElement
+        const frame = document.querySelector(`[data-window-id="${focusedId}"]`)
+        if (active && active !== document.body && !frame?.contains(active)) return
+        close(focusedId)
+      }
+      document.addEventListener('keydown', onKeyDown)
+      return () => document.removeEventListener('keydown', onKeyDown)
+    }, [focusedId, close])
 
-  if (!windows.length) return null
-  return (
-    <div className="ws-window-layer">
-      {windows.map(state => {
-        const def = getWindowDef(state.id)
-        if (!def) return null
-        return (
-          <WindowFrame
-            key={state.id}
-            state={state}
-            def={def}
-            focused={state.id === focusedId}
-            mobile={mobile}
-            operational={operational}
-            openRun={openRun}
-            onFocus={() => focus(state.id)}
-            onClose={() => close(state.id)}
-            onChange={patch => update(state.id, patch)}
-          />
-        )
-      })}
-    </div>
-  )
-}
-
-type FrameProps = {
-  state: WindowState
-  def: WindowDef<unknown>
-  focused: boolean
-  mobile: boolean
-  operational: OperationalState
-  openRun?: (id: string) => void
-  onFocus: () => void
-  onClose: () => void
-  onChange: (patch: Partial<Pick<WindowState, 'x' | 'y' | 'w' | 'h' | 'maximized'>>) => void
-}
-
-function WindowFrame({ state, def, focused, mobile, operational, openRun, onFocus, onClose, onChange }: FrameProps) {
-  const frame = useRef<HTMLDivElement>(null)
-  const Content = def.component
-  const Icon = def.icon
-  const titleId = `ws-window-title-${state.id}`
-
-  useEffect(() => { frame.current?.focus({ preventScroll: true }) }, [])
-  useEffect(() => { if (focused && !frame.current?.contains(document.activeElement)) frame.current?.focus({ preventScroll: true }) }, [focused])
-
-  const freeLayout = !mobile && !state.maximized
-
-  const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!freeLayout || event.button !== 0 || (event.target as HTMLElement).closest('button')) return
-    event.preventDefault()
-    const target = event.currentTarget
-    target.setPointerCapture(event.pointerId)
-    const startX = event.clientX
-    const startY = event.clientY
-    const originX = state.x
-    const originY = state.y
-    const move = (moveEvent: PointerEvent) => onChange({
-      x: clamp(originX + moveEvent.clientX - startX, 120 - state.w, window.innerWidth - 120),
-      y: clamp(originY + moveEvent.clientY - startY, 0, window.innerHeight - 44),
-    })
-    const stop = () => {
-      target.removeEventListener('pointermove', move)
-      target.removeEventListener('pointerup', stop)
-      target.removeEventListener('pointercancel', stop)
-    }
-    target.addEventListener('pointermove', move)
-    target.addEventListener('pointerup', stop)
-    target.addEventListener('pointercancel', stop)
+    if (!windows.length) return null
+    return (
+      <div className="ws-window-layer">
+        {windows.map(state => {
+          const def = getWindowDef(state.id)
+          if (!def) return null
+          return (
+            <WindowFrame
+              key={state.id}
+              state={state}
+              def={def}
+              focused={state.id === focusedId}
+              mobile={mobile}
+              operational={operational}
+              openRun={openRun}
+              onFocus={() => focus(state.id)}
+              onClose={() => close(state.id)}
+              onChange={patch => update(state.id, patch)}
+            />
+          )
+        })}
+      </div>
+    )
   }
 
-  const startResize = (edge: 'e' | 's' | 'se') => (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!freeLayout || event.button !== 0) return
-    event.preventDefault()
-    event.stopPropagation()
-    const target = event.currentTarget
-    target.setPointerCapture(event.pointerId)
-    const startX = event.clientX
-    const startY = event.clientY
-    const originW = state.w
-    const originH = state.h
-    const move = (moveEvent: PointerEvent) => onChange({
-      ...(edge !== 's' ? { w: clamp(originW + moveEvent.clientX - startX, MIN_WIDTH, Math.max(MIN_WIDTH, window.innerWidth - state.x)) } : {}),
-      ...(edge !== 'e' ? { h: clamp(originH + moveEvent.clientY - startY, MIN_HEIGHT, Math.max(MIN_HEIGHT, window.innerHeight - state.y)) } : {}),
-    })
-    const stop = () => {
-      target.removeEventListener('pointermove', move)
-      target.removeEventListener('pointerup', stop)
-      target.removeEventListener('pointercancel', stop)
-    }
-    target.addEventListener('pointermove', move)
-    target.addEventListener('pointerup', stop)
-    target.addEventListener('pointercancel', stop)
+  type FrameProps = {
+    state: WindowState
+    def: WindowDef<unknown>
+    focused: boolean
+    mobile: boolean
+    operational: OperationalState
+    openRun?: (id: string) => void
+    onFocus: () => void
+    onClose: () => void
+    onChange: (patch: Partial<Pick<WindowState, 'x' | 'y' | 'w' | 'h' | 'maximized'>>) => void
   }
 
-  const className = ['ws-window', focused ? 'focused' : '', mobile ? 'mobile' : '', state.maximized && !mobile ? 'maximized' : ''].filter(Boolean).join(' ')
-  const style = freeLayout ? { left: state.x, top: state.y, width: state.w, height: state.h, zIndex: state.z } : { zIndex: state.z }
+    function WindowFrame({ state, def, focused, mobile, operational, openRun, onFocus, onClose, onChange }: FrameProps) {
+      const frame = useRef<HTMLDivElement>(null)
+      const Content = def.component
+      const Icon = def.icon
+      const titleId = `ws-window-title-${state.id}`
 
-  return (
-    <div
-      ref={frame}
-      className={className}
-      style={style}
-      role="dialog"
-      aria-modal="false"
-      aria-labelledby={titleId}
-      data-window-id={state.id}
-      tabIndex={-1}
-      onPointerDownCapture={onFocus}
-    >
-      <div className="ws-window-titlebar" onPointerDown={startDrag} onDoubleClick={event => { if (!mobile && !(event.target as HTMLElement).closest('button')) onChange({ maximized: !state.maximized }) }}>
-        <Icon size={15} aria-hidden="true" />
-        <strong id={titleId}>{def.title}</strong>
-        <span className="ws-window-spacer" />
-        {!mobile && (
-          <button type="button" className="ws-window-button" aria-label={state.maximized ? 'Restaurar janela' : 'Maximizar janela'} title={state.maximized ? 'Restaurar' : 'Maximizar'} onClick={() => onChange({ maximized: !state.maximized })}>
-            {state.maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-          </button>
-        )}
-        <button type="button" className="ws-window-button" aria-label="Fechar janela" title="Fechar (Esc)" onClick={onClose}><X size={15} /></button>
-      </div>
-      <div className="ws-window-body">
-        <ErrorBoundary fallbackTitle="Não foi possível abrir esta janela.">
-          <Suspense fallback={<p className="ws-window-loading">Carregando…</p>}>
-            <Content key={state.nonce} params={state.params} operational={operational} openRun={openRun} />
-          </Suspense>
-        </ErrorBoundary>
-      </div>
-      {freeLayout && (
-        <>
-          <div className="ws-window-resize ws-window-resize-e" onPointerDown={startResize('e')} />
-          <div className="ws-window-resize ws-window-resize-s" onPointerDown={startResize('s')} />
-          <div className="ws-window-resize ws-window-resize-se" onPointerDown={startResize('se')} />
-        </>
-      )}
-    </div>
-  )
-}
+      useEffect(() => { frame.current?.focus({ preventScroll: true }) }, [])
+      useEffect(() => { if (focused && !frame.current?.contains(document.activeElement)) frame.current?.focus({ preventScroll: true }) }, [focused])
+
+      const freeLayout = !mobile && !state.maximized
+
+      const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+        if (!freeLayout || event.button !== 0 || (event.target as HTMLElement).closest('button')) return
+        event.preventDefault()
+        const target = event.currentTarget
+        target.setPointerCapture(event.pointerId)
+        const startX = event.clientX
+        const startY = event.clientY
+        const originX = state.x
+        const originY = state.y
+        const move = (moveEvent: PointerEvent) => onChange({
+          x: clamp(originX + moveEvent.clientX - startX, 120 - state.w, window.innerWidth - 120),
+          y: clamp(originY + moveEvent.clientY - startY, 0, window.innerHeight - 44),
+        })
+        const stop = () => {
+          target.removeEventListener('pointermove', move)
+          target.removeEventListener('pointerup', stop)
+          target.removeEventListener('pointercancel', stop)
+        }
+        target.addEventListener('pointermove', move)
+        target.addEventListener('pointerup', stop)
+        target.addEventListener('pointercancel', stop)
+      }
+
+      const startResize = (edge: 'e' | 's' | 'se') => (event: ReactPointerEvent<HTMLDivElement>) => {
+        if (!freeLayout || event.button !== 0) return
+        event.preventDefault()
+        event.stopPropagation()
+        const target = event.currentTarget
+        target.setPointerCapture(event.pointerId)
+        const startX = event.clientX
+        const startY = event.clientY
+        const originW = state.w
+        const originH = state.h
+        const move = (moveEvent: PointerEvent) => onChange({
+          ...(edge !== 's' ? { w: clamp(originW + moveEvent.clientX - startX, MIN_WIDTH, Math.max(MIN_WIDTH, window.innerWidth - state.x)) } : {}),
+          ...(edge !== 'e' ? { h: clamp(originH + moveEvent.clientY - startY, MIN_HEIGHT, Math.max(MIN_HEIGHT, window.innerHeight - state.y)) } : {}),
+        })
+        const stop = () => {
+          target.removeEventListener('pointermove', move)
+          target.removeEventListener('pointerup', stop)
+          target.removeEventListener('pointercancel', stop)
+        }
+        target.addEventListener('pointermove', move)
+        target.addEventListener('pointerup', stop)
+        target.addEventListener('pointercancel', stop)
+      }
+
+      const className = ['ws-window', focused ? 'focused' : '', mobile ? 'mobile' : '', state.maximized && !mobile ? 'maximized' : ''].filter(Boolean).join(' ')
+      const style = freeLayout ? { left: state.x, top: state.y, width: state.w, height: state.h, zIndex: state.z } : { zIndex: state.z }
+
+      return (
+        <div
+          ref={frame}
+          className={className}
+          style={style}
+          role="dialog"
+          aria-modal="false"
+          aria-labelledby={titleId}
+          data-window-id={state.id}
+          tabIndex={-1}
+          onPointerDownCapture={onFocus}
+        >
+          <div className="ws-window-titlebar" onPointerDown={startDrag} onDoubleClick={event => { if (!mobile && !(event.target as HTMLElement).closest('button')) onChange({ maximized: !state.maximized }) }}>
+            <Icon size={15} aria-hidden="true" />
+            <strong id={titleId}>{def.title}</strong>
+            <span className="ws-window-spacer" />
+            {!mobile && (
+              <button type="button" className="ws-window-button" aria-label={state.maximized ? 'Restaurar janela' : 'Maximizar janela'} title={state.maximized ? 'Restaurar' : 'Maximizar'} onClick={() => onChange({ maximized: !state.maximized })}>
+                {state.maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
+            )}
+            <button type="button" className="ws-window-button" aria-label="Fechar janela" title="Fechar (Esc)" onClick={onClose}><X size={15} /></button>
+          </div>
+          <div className="ws-window-body">
+            <ErrorBoundary fallbackTitle="Não foi possível abrir esta janela.">
+              <Suspense fallback={<p className="ws-window-loading">Carregando…</p>}>
+                <Content key={state.nonce} params={state.params} operational={operational} openRun={openRun} />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+          {freeLayout && (
+            <>
+              <div className="ws-window-resize ws-window-resize-e" onPointerDown={startResize('e')} />
+              <div className="ws-window-resize ws-window-resize-s" onPointerDown={startResize('s')} />
+              <div className="ws-window-resize ws-window-resize-se" onPointerDown={startResize('se')} />
+            </>
+          )}
+        </div>
+      )
+    }

@@ -75,3 +75,34 @@ Commit: `686209d` (`feat(rotinas): fase 1 - wait real e verificacao de efeito`),
 - Frontend: `npm run build` gerado com sucesso em 2m 9s (`RoutinesWindow-D5BAhNHy.js` 23.46 kB).
 - Frontend: `broken-text.cjs` verificado sem quebras de acentuação.
 
+## Fase 3 - Gatilhos de eventos e alertas
+
+Commit: `feat(rotinas): fase 3 - gatilhos de eventos e alertas`, branch `feat/rotinas`, sem push.
+
+### Mudanças por arquivo
+
+- `app/routines/watcher.py` (novo): observador periódico leve de eventos em segundo plano (`EventWatcher`), executado a cada 10 segundos sem overhead de LLM:
+  - Alertas globais configuráveis de uso de recursos do sistema: CPU (`probe_cpu`), memória RAM (`probe_ram`), disco (`probe_disk`) com limiar e duração contínua (`for_seconds`) para evitar falsos positivos de picos rápidos, e mecanismo de desarme (`threshold - 5`).
+  - Alerta de eventos de calendário próximos com aviso prévio configurável (`calendar_before`).
+  - Observação de processos/aplicativos iniciados e encerrados (`app_started`, `app_closed`), executando rotinas correspondentes em modo `run` ou emitindo alerta em modo `alert`.
+  - Detecção de ociosidade e retorno (`idle`, `returned`) via tempo sem atividade do usuário.
+  - Cooldown configurável entre disparos do mesmo alerta para não sobrecarregar a usuária.
+  - Sondas injetáveis para testes sem dependências de hardware real ou tempo de espera prolongado.
+- `app/storage/runtime_settings.py`: persistência de configurações de alertas e eventos (`get_event_settings`, `set_event_settings`, `EVENT_SETTINGS_DEFAULTS`).
+- `app/ui/panel/api/settings.py`: rotas GET e POST `/api/settings/events` para leitura e alteração das preferências de alertas de sistema e calendário.
+- `app/routines/models.py`: ampliação da validação de gatilhos para aceitar o tipo `event` com campos de evento (`calendar_before`, `app_started`, `app_closed`, `resource`, `idle`, `returned`), validação estrita de tipos numéricos e janelas ativas (`window`).
+- `app/routines/triggers.py`: formatação descritiva e amigável em português de gatilhos de evento para a interface e ferramentas (`describe_trigger`).
+- `app/routines/service.py`: integração do ciclo de vida do `EventWatcher` (`start`, `stop`, `reload`) junto ao agendador de rotinas, garantindo monitoramento coordenado.
+- `app/storage/routine_store.py`: garantia de defaults sãos (`catch_up_minutes`, `enabled`, `steps_json`, `triggers_json`) em `create` para evitar violações de constraint em instanciação manual.
+- `frontend/src/components/EventAlertsSettings.tsx` (novo): painel de configurações de Alertas de Sistema e Eventos dentro de Configurações, com controles para CPU, RAM, Disco, Calendário, Janela de Horário e Cooldown, estilizado com tokens `--ws-*`.
+- `frontend/src/pages/SettingsPage.tsx`: incorporação do componente `EventAlertsSettings` na seção de preferências do Jarvis.
+- `tests/test_routine_triggers.py` (novo): 10 testes automatizados cobrindo detecção de CPU alta, histerese/desarme, alerta de calendário próximo, ciclo de vida do watcher, persistência de configurações e validações de modelo.
+
+### Testes rodados
+
+- Pytest (bateria completa de rotinas, triggers e kernel): 105 passed em 27.18s (`test_routine_triggers.py`, `test_routines_store.py`, `test_routines_runner.py`, `test_routines_scheduler.py`, `test_routine_tool.py`, `test_routines_api.py`, `test_open_window.py`, `test_wait_and_effects.py`).
+- Frontend: `tsc --noEmit` limpo (0 erros).
+- Frontend: `npm run build` gerado com sucesso em 1m 4s (`dist/assets/RoutinesWindow-DRVqRwK9.js` 23.46 kB, `SettingsPage-CEHL4MeV.js` 74.54 kB).
+- Frontend: `broken-text.cjs` verificado sem quebras de acentuação (exit code 0).
+
+
