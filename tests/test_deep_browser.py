@@ -233,3 +233,4 @@ def test_browser_agent_tool_click_and_type_element():
     res_type = tool.execute({"action": "type_element", "element_id": 2, "text": "Jarvis User"}, context=context)
     assert res_type.ok is True
     mock_service.type_interactive_element.assert_called_once_with(2, text="Jarvis User")
+

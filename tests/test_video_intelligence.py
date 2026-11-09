@@ -182,3 +182,4 @@ def test_video_analyst_tool_execution():
     # Teste ação desconhecida
     res_err = tool.execute({"action": "unknown_action"})
     assert res_err.ok is False
+

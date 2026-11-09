@@ -325,3 +325,4 @@ def get_video_intelligence_service(settings: Any = None) -> VideoIntelligenceSer
     if _VIDEO_SERVICE is None or settings is not None:
         _VIDEO_SERVICE = VideoIntelligenceService(settings=settings)
     return _VIDEO_SERVICE
+
