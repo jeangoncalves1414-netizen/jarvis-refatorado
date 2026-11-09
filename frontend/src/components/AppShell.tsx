@@ -11,6 +11,7 @@ type AppShellProps = {
   sessions: ChatSession[]; sessionId: string; onSelectSession: (id: string) => void; onNewChat: () => void
   onOpenCommands: () => void; operational: OperationalState; controls: ReactNode
   hero?: ReactNode; children: ReactNode; quickActions: ReactNode
+  openRun?: (id: string) => void
 }
 
 const build = __PANEL_BUILD__
@@ -19,7 +20,7 @@ const commitLabel = build.commit && `${build.commit}${build.dirty ? '*' : ''}`
 const panelVersion = [`v${build.version}`, commitLabel, import.meta.env.DEV ? 'dev' : builtAt.toLocaleDateString('pt-BR')].filter(Boolean).join(' · ')
 const panelVersionTitle = `Versão do painel ${build.version}${build.commit ? `, commit ${build.commit}${build.dirty ? ' com alterações não commitadas' : ''}` : ''}, ${import.meta.env.DEV ? 'servidor de desenvolvimento iniciado' : 'gerada'} em ${builtAt.toLocaleString('pt-BR')}`
 
-export function AppShell({ active, sidebarCollapsed, onToggleSidebar, onNavigate, sessions, sessionId, onSelectSession, onNewChat, onOpenCommands, operational, controls, hero, children, quickActions }: AppShellProps) {
+export function AppShell({ active, sidebarCollapsed, onToggleSidebar, onNavigate, sessions, sessionId, onSelectSession, onNewChat, onOpenCommands, operational, controls, hero, children, quickActions, openRun }: AppShellProps) {
   const [search, setSearch] = useState('')
   const [controlsOpen, setControlsOpen] = useState(true)
   const navDialog = useRef<HTMLDialogElement>(null)
@@ -51,6 +52,6 @@ export function AppShell({ active, sidebarCollapsed, onToggleSidebar, onNavigate
     </main>
     {controlsOpen && <aside className="ws-control-rail"><div className="ws-control-heading"><strong>Controle do agente</strong><button className="ws-icon-button" aria-label="Recolher controles" onClick={() => setControlsOpen(false)}><X size={16} /></button></div>{controls}<details className="ws-extra-tools"><summary>Mais ferramentas</summary>{quickActions}</details></aside>}
     <dialog ref={controlDialog} className="ws-drawer ws-control-drawer" aria-label="Controle do agente" onClick={event => { if (event.target === event.currentTarget) controlDialog.current?.close() }}><div className="ws-drawer-inner"><div className="ws-control-heading"><strong>Controle do agente</strong><button className="ws-icon-button" aria-label="Fechar controles" onClick={() => controlDialog.current?.close()}><X size={18} /></button></div>{controls}<details className="ws-extra-tools"><summary>Mais ferramentas</summary>{quickActions}</details></div></dialog>
-    <WindowHost operational={operational} />
+    <WindowHost operational={operational} openRun={openRun} />
   </div>
 }

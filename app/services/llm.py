@@ -1090,7 +1090,8 @@ class LLMService:
             selected_tools = []
             for tool in tools:
                 t_name = tool.get("name", "")
-                if t_name in core_groq_names or t_name in last_user_content or t_name.replace("_", " ") in last_user_content:
+                # routine só chega aqui quando o registro já casou horário/repetição no pedido.
+                if t_name in core_groq_names or t_name == "routine" or t_name in last_user_content or t_name.replace("_", " ") in last_user_content:
                     selected_tools.append(tool)
 
             if not selected_tools:

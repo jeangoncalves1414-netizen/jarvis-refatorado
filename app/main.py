@@ -147,6 +147,15 @@ def main() -> None:
     _free_port(port)
     panel.start()
     print(f"Painel disponível em {url} (rede: http://{host}:{port})")
+    # Rotinas: agendador ligado só no app real (o PanelServer.start dos testes não liga).
+    try:
+        import atexit
+        from app.routines.service import routine_service
+        routine_service.registry = orchestrator.registry
+        routine_service.start()
+        atexit.register(routine_service.stop)
+    except Exception as exc:
+        print(f"[Jarvis] AVISO: agendador de rotinas não iniciou: {exc}")
 
     from app.services.proactive import ProactiveDaemon, ProactiveService
     proactive_daemon: ProactiveDaemon | None = None

@@ -21,7 +21,8 @@ import { useCinema } from './hooks/useCinema'
 import { useMediaAssistant } from './hooks/useMediaAssistant'
 import { useStudy } from './hooks/useStudy'
 import { playToggle, playSuccess, toggleSfx } from './utils/sfx'
-import { runCommandById, unescapeSlash, WINDOW_CAMERAS, WINDOW_CINEMA, WINDOW_LIFE_OS, WINDOW_LIVE_CALL, type CommandHandlers } from './commands/registry'
+import { Repeat } from 'lucide-react'
+import { runCommandById, setDynamicCommands, unescapeSlash, WINDOW_CAMERAS, WINDOW_CINEMA, WINDOW_LIFE_OS, WINDOW_LIVE_CALL, type CommandHandlers } from './commands/registry'
 import { extractWindowRequest, isManagedWindow } from './windows/registry'
 import { useWindows } from './windows/WindowManager'
 import { usePopups } from './popups/PopupProvider'
@@ -603,6 +604,20 @@ export default function App() {
         .catch(error => setNotice(error instanceof Error && error.message && error.message !== 'Failed to fetch' ? error.message : 'Não foi possível abrir o popup. Verifique se o backend está ligado.'))
     },
     clearPopups: () => popups.clear(),
+    runRoutine: (routineId: string) => {
+      panelRequest(`/api/routines/${encodeURIComponent(routineId)}/run`, { method: 'POST' })
+        .then((res: unknown) => {
+          const runId = (res as { ok?: boolean; run_id?: string })?.run_id
+          setNotice('Rotina iniciada.')
+          if (!IS_MOBILE && runId) {
+            setLinkedRun(runId)
+            setActive('Central')
+          }
+        })
+        .catch((error: unknown) => {
+          setNotice(`Não foi possível iniciar a rotina: ${error instanceof Error ? error.message : 'erro desconhecido.'}`)
+        })
+    },
   }
 
   const setWakeWordEnabled = async (enabled: boolean) => {
@@ -622,6 +637,41 @@ export default function App() {
     if (liveCallOpen || recording) return
     runCommandById('action-live-call', commandHandlers, { origin: 'voz' })
   }
+
+  // Sincroniza comandos de barra (/) das rotinas a partir de GET /api/routines
+  useEffect(() => {
+    let cancelled = false
+    const syncRoutineCommands = () => {
+      panelRequest('/api/routines')
+        .then((data: unknown) => {
+          if (cancelled) return
+          const payload = data as { ok?: boolean; commands?: { routine_id: string; name: string; slash: string }[] }
+          if (!payload?.ok || !Array.isArray(payload.commands)) return
+          const dynamicList = payload.commands.map(cmd => ({
+            id: `routine-${cmd.routine_id}-${cmd.slash}`,
+            label: cmd.name,
+            title: `Executar rotina ${cmd.name}`,
+            description: `Rotina /${cmd.slash}`,
+            aliases: [],
+            slash: cmd.slash,
+            group: 'Ações Rápidas' as const,
+            action: { kind: 'routine' as const, routineId: cmd.routine_id },
+            worksOffline: true,
+            icon: Repeat,
+          }))
+          setDynamicCommands(dynamicList)
+        })
+        .catch(() => { /* backend indisponível ou inicializando */ })
+    }
+
+    syncRoutineCommands()
+    const onRoutineEvent = () => syncRoutineCommands()
+    window.addEventListener('jarvis:routine-event', onRoutineEvent)
+    return () => {
+      cancelled = true
+      window.removeEventListener('jarvis:routine-event', onRoutineEvent)
+    }
+  }, [])
 
   const setBootEnabled = async (enabled: boolean) => {
     const response = await fetch('/api/tray', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: enabled ? 'enable_boot' : 'disable_boot' }) })
@@ -974,6 +1024,7 @@ export default function App() {
         }}
         hero={hero}
         quickActions={quickActions}
+        openRun={IS_MOBILE ? undefined : id => { setLinkedRun(id); setActive('Central') }}
       >
         <ErrorBoundary fallbackTitle="Erro ao carregar esta seção.">
           {renderSection()}

@@ -581,6 +581,11 @@ export function useChat(options: UseChatOptions = {}) {
         if (type === 'wake_word') { wakeWordRef.current?.(typeof data.phrase === 'string' ? data.phrase : ''); return }
         // Popup do agente: camada única do app, vale também para a ligação por voz e outras conversas.
         if (type === 'ui_popup') { if (data.popup) popupRef.current?.(data.popup); return }
+        // Eventos do motor de rotinas (rotinas, execuções, alertas): chegam ao app todo.
+        if (type && (type.startsWith('routine_') || type === 'routine_changed' || type === 'routine_run' || type === 'routine_progress' || type === 'routine_alert')) {
+          window.dispatchEvent(new CustomEvent('jarvis:routine-event', { detail: data }))
+          if (type !== 'routine_progress') return
+        }
         if (data.session_id && data.session_id !== activeSessionRef.current) return
         lastActivityRef.current = Date.now()
         if (type === 'agent_progress') {

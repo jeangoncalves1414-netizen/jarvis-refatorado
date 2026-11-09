@@ -25,6 +25,15 @@ def isolated_auto_approvals(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolated_routines(tmp_path, monkeypatch):
+    """Rotinas e histórico de teste nunca gravam data/routines.sqlite3 do projeto."""
+    from app.storage.routine_store import RoutineStore
+    store = RoutineStore(tmp_path / "routines.sqlite3")
+    monkeypatch.setattr("app.storage.routine_store.routine_store", store)
+    return store
+
+
+@pytest.fixture(autouse=True)
 def effect_checks_off(monkeypatch):
     """Verificação de efeito (processos e janelas reais) fica desligada; os testes dela ligam com sondas falsas."""
     monkeypatch.setattr("app.agent.effect_checks.enabled", False)

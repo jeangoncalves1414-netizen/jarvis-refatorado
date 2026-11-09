@@ -735,6 +735,30 @@ ter pesquisado se não pesquisou.
             )
 
 
+    def _run_routine_phrase(self, text: str, mode: str) -> AgentPlan | None:
+        """Pedido igual à frase de voz de uma rotina: executa a rotina (Run próprio, origem routine)."""
+        if mode not in {"general", "chat"} or not text or len(text) > 120:
+            return None
+        try:
+            from app.routines.runner import RoutineBusy
+            from app.routines.service import routine_service
+            routine = routine_service.match_phrase(text)
+        except Exception:
+            return None
+        if routine is None:
+            return None
+        try:
+            run_id = routine_service.run_now(routine["id"], trigger_kind="voice")
+        except RoutineBusy as exc:
+            return AgentPlan(intent="routine", summary=str(exc), actions=["routine"])
+        except Exception:
+            return AgentPlan(intent="error", summary=f'Não consegui iniciar a rotina "{routine["name"]}". Veja a janela Rotinas.', actions=["routine"])
+        record_run_step(f'Frase de voz iniciou a rotina "{routine["name"]}".')
+        return AgentPlan(
+            intent="routine", summary=f'Rotina "{routine["name"]}" iniciada. Acompanhe na Central.',
+            actions=["routine"], context={"routine_id": routine["id"], "routine_run_id": run_id},
+        )
+
     def _run_local_shortcut(self, text: str, mode: str, session_id: str | None) -> AgentPlan | None:
         if mode not in {"general", "chat", "files"}:
             return None
@@ -976,6 +1000,11 @@ ter pesquisado se não pesquisou.
 
         check_run_cancelled()
         normalized = (text or "").strip().lower()
+        # Frase de voz de uma rotina (chat ou voz): roda a rotina por regra, sem chamar o modelo.
+        plan = self._run_routine_phrase(text, mode)
+        if plan is not None:
+            self.last_plan = plan
+            return plan
         plan = self._run_local_shortcut(text, mode, session_id)
         if plan is not None:
             self.last_plan = plan

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search, CornerDownLeft } from 'lucide-react'
-import { commands, describeCommand, runCommand, searchCommands, type CommandDef, type CommandHandlers } from '../commands/registry'
+import { describeCommand, getAllCommands, runCommand, searchCommands, type CommandDef, type CommandHandlers } from '../commands/registry'
 import { playClick, playSuccess, playOpen, isSfxEnabled } from '../utils/sfx'
 
 type CommandPaletteProps = {
@@ -21,7 +21,7 @@ export function CommandPalette({ isOpen, onClose, handlers, recording = false }:
   const describe = (command: CommandDef) => describeCommand(command, { recording, sfxEnabled })
 
   const filteredItems = useMemo(
-    () => searchCommands(commands, query, command => describeCommand(command, { recording, sfxEnabled })),
+    () => searchCommands(getAllCommands(), query, command => describeCommand(command, { recording, sfxEnabled })),
     [query, recording, sfxEnabled],
   )
 

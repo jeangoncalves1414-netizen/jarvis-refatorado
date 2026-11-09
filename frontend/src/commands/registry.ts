@@ -1,9 +1,9 @@
 import {
-  AudioLines, CalendarClock, Camera, CloudSun, Download, Droplets, Eye, Film, Flame, House, ListChecks, ListTodo, MapPinned, MessageSquare, Mic, MonitorCog, NotebookPen, Search, Sparkles, Volume2, Wallet, X, Zap,
+  AudioLines, CalendarClock, Camera, CloudSun, Download, Droplets, Eye, Film, Flame, House, ListChecks, ListTodo, MapPinned, MessageSquare, Mic, MonitorCog, NotebookPen, Repeat, Search, Sparkles, Volume2, Wallet, X, Zap,
   type LucideIcon,
 } from 'lucide-react'
 import { navigation } from '../navigation'
-import { WINDOW_FINANCE, WINDOW_HOME, WINDOW_PC_CONTROLS, WINDOW_PLACES } from '../windows/registry'
+import { WINDOW_FINANCE, WINDOW_HOME, WINDOW_PC_CONTROLS, WINDOW_PLACES, WINDOW_ROUTINES } from '../windows/registry'
 import type { ChatMode } from '../components/ChatComposer'
 
 // Registro único de comandos. A paleta (Ctrl+K) e o menu "/" do compositor são montados a partir
@@ -25,6 +25,7 @@ export type CommandAction =
   | { kind: 'set-mode'; mode: ChatMode }
   | { kind: 'backend'; operation: BackendOperation }
   | { kind: 'local'; operation: LocalOperation }
+  | { kind: 'routine'; routineId: string }
 
 export type CommandDef = {
   id: string
@@ -59,6 +60,7 @@ export type CommandHandlers = {
   captureVision: () => void
   openPopup: (template: string, params: Record<string, string>) => void
   clearPopups: () => void
+  runRoutine?: (routineId: string) => void
 }
 
 export const WINDOW_LIFE_OS = 'life-os'
@@ -70,7 +72,7 @@ const NAV_SLASH: Record<string, { slash: string; aliases: string[] }> = {
   Dashboard: { slash: 'inicio', aliases: ['home', 'dashboard'] },
   Chat: { slash: 'conversas', aliases: ['chat', 'conversa'] },
   Central: { slash: 'execucoes', aliases: ['central', 'acoes', 'runs'] },
-  'Automações': { slash: 'automacoes', aliases: ['rotinas', 'lembretes'] },
+  'Automações': { slash: 'automacoes', aliases: ['lembretes'] },
   'Memórias': { slash: 'conhecimento', aliases: ['memorias', 'memoria'] },
   'Integrações': { slash: 'integracoes', aliases: [] },
   Estudos: { slash: 'estudos', aliases: ['estudo', 'flashcards'] },
@@ -97,6 +99,7 @@ const navigationCommands: CommandDef[] = navigation.map(item => ({
 
 export const commands: CommandDef[] = [
   { id: 'action-stop-request', label: 'Parar pedido', title: 'Parar pedido desta conversa', description: 'Solicitar o cancelamento da execução atual no PC', aliases: ['cancelar', 'parar', 'interromper'], slash: 'parar', group: 'Ações Rápidas', action: { kind: 'local', operation: 'stop-request' }, worksOffline: true, icon: Zap },
+  { id: 'window-routines', label: 'Rotinas', title: 'Abrir Rotinas', description: 'Gerenciar rotinas, agendamentos e automações do PC, sem precisar da IA', aliases: ['rotina', 'automacoes', 'agendamentos'], slash: 'rotinas', group: 'Ações Rápidas', action: { kind: 'open-window', windowId: WINDOW_ROUTINES }, worksOffline: true, icon: Repeat },
   ...navigationCommands,
 
   // Life OS
@@ -135,6 +138,27 @@ export const commands: CommandDef[] = [
   { id: 'tool-cameras', label: 'Câmeras', title: 'Abrir Painel de Câmeras', description: 'Monitoramento de vídeo e streams', aliases: ['camera', 'cameras', 'video'], slash: 'cameras', group: 'Mídia & Ferramentas', action: { kind: 'open-window', windowId: WINDOW_CAMERAS }, worksOffline: true, icon: Camera },
 ]
 
+let dynamicCommands: CommandDef[] = []
+
+export function setDynamicCommands(list: CommandDef[]) {
+  dynamicCommands = list
+}
+
+export function getAllCommands(): CommandDef[] {
+  const result = [...commands]
+  const seenIds = new Set(result.map(c => c.id))
+  const seenSlashes = new Set(result.filter(c => c.slash).map(c => normalizeText(c.slash!)))
+
+  for (const cmd of dynamicCommands) {
+    if (seenIds.has(cmd.id)) continue
+    if (cmd.slash && seenSlashes.has(normalizeText(cmd.slash))) continue
+    seenIds.add(cmd.id)
+    if (cmd.slash) seenSlashes.add(normalizeText(cmd.slash))
+    result.push(cmd)
+  }
+  return result
+}
+
 // Busca da paleta: título, descrição, grupo, rótulo e apelidos, sem diferenciar acentos.
 export function searchCommands(list: CommandDef[], query: string, titleOf: (command: CommandDef) => { title: string; description: string }) {
   const q = normalizeText(query)
@@ -150,7 +174,7 @@ export function normalizeText(text: string) {
 }
 
 export function getCommand(id: string) {
-  return commands.find(command => command.id === id)
+  return getAllCommands().find(command => command.id === id)
 }
 
 // ── Contrato de comando (AQ3, base) ────────────────────────────────────────────
@@ -205,7 +229,7 @@ export function runCommandById(id: string, handlers: CommandHandlers, options: {
 }
 
 export function getSlashCommands() {
-  return commands.filter(command => command.slash)
+  return getAllCommands().filter(command => command.slash)
 }
 
 // Filtro do menu "/": prefixo da palavra primeiro, depois rótulo, apelidos e descrição.
@@ -291,6 +315,9 @@ export function runCommand(command: CommandDef, handlers: CommandHandlers, args 
       else if (action.operation === 'briefing') handlers.triggerBriefing()
       else if (action.operation === 'backup') handlers.triggerBackup()
       else handlers.captureVision()
+      return
+    case 'routine':
+      handlers.runRoutine?.(action.routineId)
       return
     case 'local':
       if (action.operation === 'stop-request') { handlers.stopRequest(); handlers.navigate('Chat') }

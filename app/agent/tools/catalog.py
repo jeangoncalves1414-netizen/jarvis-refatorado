@@ -294,6 +294,38 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         reversibility="Nada a desfazer; use 'Parar pedido' para interromper a espera.",
         scope="Só este pedido; as próximas etapas esperam o fim da pausa.",
     ),
+    # Rotinas gravadas. Criar ou executar é low: cada etapa passa pelo Kernel com o próprio risco
+    # na hora de rodar (etapa alta ou crítica pede aprovação, salvo regra ou Modo liberado).
+    "routine": ToolMetadata(
+        ("routine", "automation"), "critical", reversible=True,
+        operation_arguments=("action",), default_operation="list",
+        operation_risks=_by_operation(
+            observe=("list", "next_runs"),
+            low=("create", "update", "enable", "disable", "run_now"),
+            high=("delete",),
+        ),
+        target_arguments=("name", "routine_id"), default_target="suas rotinas",
+        operation_effects=(
+            ("list", "Apenas lê as rotinas e a próxima execução; nada é alterado."),
+            ("next_runs", "Apenas lê as próximas execuções agendadas; nada é alterado."),
+            ("create", "Grava uma rotina nova com etapas e gatilhos; cada etapa passa pela aprovação do próprio risco ao rodar."),
+            ("update", "Altera nome, etapas, gatilhos, silêncio ou tolerância de uma rotina existente."),
+            ("enable", "Ativa a rotina: os gatilhos de horário voltam a disparar."),
+            ("disable", "Desativa a rotina: os gatilhos de horário param de disparar."),
+            ("run_now", "Executa a rotina agora; cada etapa passa pela aprovação do próprio risco."),
+            ("delete", "Apaga a rotina e o histórico de execuções dela."),
+        ),
+        operation_reversibility=(
+            *_same_text("Nada a desfazer.", "list", "next_runs"),
+            ("create", "Reversível: apague ou desative a rotina."),
+            ("update", "Reversível: edite a rotina de volta; a versão anterior não é guardada."),
+            ("enable", "Reversível: desative a rotina."),
+            ("disable", "Reversível: ative a rotina."),
+            ("run_now", "Não garantida: depende das etapas; elas não são desfeitas automaticamente."),
+            ("delete", "Não reversível: a rotina e o histórico somem; recrie manualmente se precisar."),
+        ),
+        scope="Só a rotina indicada, neste computador (rotinas não sincronizam).",
+    ),
     "calendar": ToolMetadata(
         ("calendar", "productivity"), "critical", reversible=True,
         operation_arguments=("action",), default_operation="list",

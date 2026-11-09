@@ -105,7 +105,7 @@ function useMobileViewport() {
   return mobile
 }
 
-export function WindowHost({ operational }: { operational: OperationalState }) {
+export function WindowHost({ operational, openRun }: { operational: OperationalState; openRun?: (id: string) => void }) {
   const { windows, focusedId, close, focus, update } = useWindows()
   const mobile = useMobileViewport()
 
@@ -138,6 +138,7 @@ export function WindowHost({ operational }: { operational: OperationalState }) {
             focused={state.id === focusedId}
             mobile={mobile}
             operational={operational}
+            openRun={openRun}
             onFocus={() => focus(state.id)}
             onClose={() => close(state.id)}
             onChange={patch => update(state.id, patch)}
@@ -154,12 +155,13 @@ type FrameProps = {
   focused: boolean
   mobile: boolean
   operational: OperationalState
+  openRun?: (id: string) => void
   onFocus: () => void
   onClose: () => void
   onChange: (patch: Partial<Pick<WindowState, 'x' | 'y' | 'w' | 'h' | 'maximized'>>) => void
 }
 
-function WindowFrame({ state, def, focused, mobile, operational, onFocus, onClose, onChange }: FrameProps) {
+function WindowFrame({ state, def, focused, mobile, operational, openRun, onFocus, onClose, onChange }: FrameProps) {
   const frame = useRef<HTMLDivElement>(null)
   const Content = def.component
   const Icon = def.icon
@@ -246,7 +248,7 @@ function WindowFrame({ state, def, focused, mobile, operational, onFocus, onClos
       <div className="ws-window-body">
         <ErrorBoundary fallbackTitle="Não foi possível abrir esta janela.">
           <Suspense fallback={<p className="ws-window-loading">Carregando…</p>}>
-            <Content key={state.nonce} params={state.params} operational={operational} />
+            <Content key={state.nonce} params={state.params} operational={operational} openRun={openRun} />
           </Suspense>
         </ErrorBoundary>
       </div>

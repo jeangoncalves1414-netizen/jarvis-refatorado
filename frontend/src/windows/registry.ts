@@ -1,5 +1,5 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
-import { House, MapPinned, MonitorCog, Wallet, type LucideIcon } from 'lucide-react'
+import { House, MapPinned, MonitorCog, Repeat, Wallet, type LucideIcon } from 'lucide-react'
 import type { OperationalState } from '../hooks/useOperationalSnapshot'
 
 // Registro de janelas do app. O agente (ferramenta open_window) e os comandos só escolhem ids
@@ -32,10 +32,21 @@ export const WINDOW_PLACES = 'places'
 // Busca de lugares com mapa: query/near só preenchem o campo e disparam a busca ao abrir.
 export type PlacesWindowParams = { query?: string; near?: string }
 
-export type WindowParamsMap = { [WINDOW_HOME]: HomeWindowParams;[WINDOW_FINANCE]: FinanceWindowParams;[WINDOW_PC_CONTROLS]: PcControlsWindowParams;[WINDOW_PLACES]: PlacesWindowParams }
+export const WINDOW_ROUTINES = 'routines'
+
+// Lista e editor de rotinas; routine_id só seleciona uma rotina ao abrir.
+export type RoutinesWindowParams = { routine_id?: string }
+
+export type WindowParamsMap = {
+  [WINDOW_HOME]: HomeWindowParams
+  [WINDOW_FINANCE]: FinanceWindowParams
+  [WINDOW_PC_CONTROLS]: PcControlsWindowParams
+  [WINDOW_PLACES]: PlacesWindowParams
+  [WINDOW_ROUTINES]: RoutinesWindowParams
+}
 export type WindowId = keyof WindowParamsMap
 
-export type WindowComponentProps<P> = { params: P; operational: OperationalState }
+export type WindowComponentProps<P> = { params: P; operational: OperationalState; openRun?: (id: string) => void }
 
 export type WindowDef<P = unknown> = {
   id: string
@@ -118,11 +129,23 @@ const homeDef: WindowDef<HomeWindowParams> = {
   component: lazy(() => import('./HomeWindow').then(module => ({ default: module.HomeWindow }))),
 }
 
+const routinesDef: WindowDef<RoutinesWindowParams> = {
+  id: WINDOW_ROUTINES,
+  title: 'Rotinas',
+  icon: Repeat,
+  width: 860,
+  height: 660,
+  parseParams: parseWith({ routine_id: text(60) }) as WindowDef<RoutinesWindowParams>['parseParams'],
+  component: lazy(() => import('./RoutinesWindow').then(module => ({ default: module.RoutinesWindow }))),
+}
+}
+
 export const windowRegistry: { [K in WindowId]: WindowDef<WindowParamsMap[K]> } = {
   [WINDOW_HOME]: homeDef,
   [WINDOW_FINANCE]: financeDef,
   [WINDOW_PC_CONTROLS]: pcControlsDef,
   [WINDOW_PLACES]: placesDef,
+  [WINDOW_ROUTINES]: routinesDef,
 }
 
 export function getWindowDef(id: string): WindowDef<unknown> | undefined {

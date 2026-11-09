@@ -75,6 +75,7 @@ from .lifeos_tool import LifeOSTool
 from .open_window import OpenWindowTool
 from .open_screen import OpenScreenTool
 from .show_popup import ShowPopupTool
+from .routine_tool import RoutineTool
 from .places_search import PlacesSearchTool
 from .planning_workspace import PlanningWorkspaceTool
 from .catalog import metadata_for
@@ -96,6 +97,8 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
         (r"\bpopup|\bmostra\b|\bmostre\b|\bmostrar\b", ("show_popup",)),
         (r"\blugar|\bperto\b|\bendereco|\bmapa\b|\bonde fica\b", ("places_search",)),
         (r"\bluz\b|\bluzes\b|\blampada|\bar condicionado|\btomada|\bcena\b|\bcortina|\bfechadura|\bcasa\b", ("home",)),
+        # Pedido com horário ou repetição vira rotina gravada.
+        (r"\brotina|\btodo dia|\btodos os dias|\btoda (segunda|terca|quarta|quinta|sexta)|\btodo (sabado|domingo)|\bdias uteis|\ba cada \d+ ?min|\bas \d{1,2} ?h\b|\bas \d{1,2}:\d{2}", ("routine",)),
     )
 )
 
@@ -121,6 +124,7 @@ LOOP_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
         (r"\bplano\b|\bplanejament|\bplanejar", ("planning_workspace",)),
         (r"\bscript\b|\bcodigo\b|\bexecut", ("script_runner",)),
         (r"\btela\b|\bvejo\b|\bscreenshot|\bprint\b", ("vision",)),
+        (r"\brotina|\btodo dia|\btodos os dias|\btoda (segunda|terca|quarta|quinta|sexta)|\btodo (sabado|domingo)|\bdias uteis|\ba cada \d+ ?min|\bas \d{1,2} ?h\b|\bas \d{1,2}:\d{2}", ("routine",)),
     )
 )
 
@@ -133,7 +137,7 @@ GENERAL_TOOL_NAMES = {
     "wormhole", "wallpaper_engine", "clipboard_intelligence",
     "habit_tool", "task_tool", "finance_tool", "lifeos_tool", "open_window", "open_screen", "show_popup",
     "places_search",
-    "planning_workspace",
+    "planning_workspace", "routine",
     "vault_search", "vault_daily_log", "vault_save_note", "vault_update_profile",
 }
 
@@ -208,6 +212,7 @@ class ToolRegistry:
         self._register(OpenWindowTool())
         self._register(OpenScreenTool())
         self._register(ShowPopupTool())
+        self._register(RoutineTool())
         self._register(PlacesSearchTool())
         self._register(PlanningWorkspaceTool())
         self._register(ScreenPeelerTool())

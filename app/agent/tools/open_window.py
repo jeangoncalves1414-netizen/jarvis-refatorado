@@ -75,6 +75,8 @@ WINDOWS: dict[str, WindowSpec] = {
     ),
     # Busca de lugares com mapa: query/near só preenchem o campo e disparam a busca na janela.
     "places": WindowSpec("Lugares", {"query": _text(120), "near": _text(80)}),
+    # Lista e editor de rotinas; routine_id só seleciona uma rotina ao abrir.
+    "routines": WindowSpec("Rotinas", {"routine_id": _text(60)}),
 }
 
 
@@ -128,7 +130,7 @@ class OpenWindowTool(BaseTool):
                         "type (expense|income), category, amount, description e date (AAAA-MM-DD) apenas "
                         "pré-preenchem o formulário. Nada é gravado até o usuário salvar. "
                         "Janela places (busca de lugares com mapa): query (até 120 caracteres) e near (até 80) "
-                        "preenchem a busca."
+                        "preenchem a busca. Janela routines (Rotinas): routine_id opcional seleciona a rotina."
                     ),
                 },
             },

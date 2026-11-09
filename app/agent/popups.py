@@ -427,7 +427,24 @@ def _auto_places(_args: dict[str, Any], result: Any) -> list[tuple[str, dict[str
     return [("places", params, {"added_ids": [f"p{index}" for index in range(count)]})]
 
 
+def _auto_routine(title: str) -> AutoPopup:
+    """Resumo da rotina criada/atualizada (template info): nome, gatilho, até 3 etapas e próxima execução."""
+    def make(_args: dict[str, Any], result: Any) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+        from app.routines.models import describe_steps
+
+        routine = _result_data(result).get("routine")
+        if not isinstance(routine, dict) or not routine.get("name"):
+            return []
+        lines = [str(routine["name"])[:120], (", ".join(routine.get("trigger_labels") or []) or "Só manual")[:120]]
+        lines.extend(describe_steps(routine, limit=3)[:3])
+        lines.append(f"Próxima: {routine.get('next_run_label') or 'sem horário'}"[:120])
+        return [("info", {"title": title, "lines": lines[:6], "tone": "ok"}, {})]
+    return make
+
+
 AUTO_POPUPS: dict[tuple[str, str], AutoPopup] = {
+    ("routine", "create"): _auto_routine("Rotina criada"),
+    ("routine", "update"): _auto_routine("Rotina atualizada"),
     ("task_tool", "create"): _auto_tasks("added_ids"),
     ("task_tool", "create_many"): _auto_tasks("added_ids"),
     ("task_tool", "toggle"): _auto_tasks("toggled_ids"),
