@@ -8,6 +8,7 @@ from .system_control import SystemControlTool
 from .jarvis_mode import JarvisModeTool
 from .web_search import WebSearchTool
 from .browser_agent import BrowserAgentTool
+from .browser_tool import BrowserTool
 from .timer import TimerTool
 from .wait import WaitTool
 from .whatsapp import WhatsAppTool
@@ -128,12 +129,13 @@ LOOP_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
         (r"\bplano\b|\bplanejament|\bplanejar", ("planning_workspace",)),
         (r"\bscript\b|\bcodigo\b|\bexecut", ("script_runner",)),
         (r"\btela\b|\bvejo\b|\bscreenshot|\bprint\b", ("vision",)),
+        (r"\bnaveg|\bplaywright|\bclic|\bformulario|\bextrair.*pagina|\bpreench", ("browser",)),
         (r"\brotina|\btodo dia|\btodos os dias|\btoda (segunda|terca|quarta|quinta|sexta)|\btodo (sabado|domingo)|\bdias uteis|\ba cada \d+ ?min|\bas \d{1,2} ?h\b|\bas \d{1,2}:\d{2}", ("routine",)),
     )
 )
 
 GENERAL_TOOL_NAMES = {
-    "file_manager", "system_control", "jarvis_mode", "web_search", "browser_agent", "timer", "wait",
+    "file_manager", "system_control", "jarvis_mode", "web_search", "browser", "browser_agent", "timer", "wait",
     "whatsapp", "spotify", "clipboard", "news_reader", "open_windows_app", "script_runner",
     "vision", "qr_reader", "realtime", "proactive_agent", "system_tray", "cinema", "calendar", "image_generator",
     "screen_peeler", "phantom_typer", "smart_drop_zone",
@@ -174,6 +176,9 @@ class ToolRegistry:
         self._register(SystemControlTool())
         self._register(JarvisModeTool())
         self._register(WebSearchTool())
+        browser_tool = BrowserTool()
+        self._register(browser_tool)
+        self.tools["browser_tool"] = browser_tool
         self._register(BrowserAgentTool())
         self._register(TimerTool())
         self._register(WaitTool())

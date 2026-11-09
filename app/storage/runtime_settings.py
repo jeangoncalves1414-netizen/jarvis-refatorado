@@ -703,6 +703,41 @@ def get_places_settings() -> dict[str, Any]:
     return {"email": email.strip() if valid else ""}
 
 
+# Navegação Web Ativa (Playwright): modo headless vs visível e timeout defensivo.
+BROWSER_SETTINGS_DEFAULTS: dict[str, Any] = {
+    "headless": True,
+    "timeout_seconds": 15,
+}
+
+def get_browser_settings() -> dict[str, Any]:
+    saved = _read().get("browser")
+    saved = saved if isinstance(saved, dict) else {}
+    headless = saved.get("headless", BROWSER_SETTINGS_DEFAULTS["headless"])
+    timeout_sec = saved.get("timeout_seconds", BROWSER_SETTINGS_DEFAULTS["timeout_seconds"])
+    return {
+        "headless": bool(headless) if isinstance(headless, bool) else True,
+        "timeout_seconds": timeout_sec if isinstance(timeout_sec, int) and 1 <= timeout_sec <= 60 else 15,
+    }
+
+def set_browser_settings(values: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(values, dict):
+        raise ValueError("Configuração do navegador inválida.")
+    current = get_browser_settings()
+    if "headless" in values:
+        if not isinstance(values["headless"], bool):
+            raise ValueError("O modo headless deve ser verdadeiro ou falso (true/false).")
+        current["headless"] = values["headless"]
+    if "timeout_seconds" in values:
+        val = values["timeout_seconds"]
+        if not isinstance(val, int) or not (1 <= val <= 60):
+            raise ValueError("O tempo limite deve ser um número inteiro de 1 a 60 segundos.")
+        current["timeout_seconds"] = val
+    data = _read()
+    data["browser"] = current
+    _write(data)
+    return get_browser_settings()
+
+
 # ---------------------------------------------------------------------------
 # Capability routes
 # ---------------------------------------------------------------------------

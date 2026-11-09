@@ -2,13 +2,14 @@ import { useState, useEffect, type ReactNode } from 'react'
 import { Switch } from '../components/Switch'
 import { AutoApprovalsManager } from '../components/AutoApprovals'
 import { AgentLoopSettings } from '../components/AgentLoopSettings'
+import { BrowserSettings } from '../components/BrowserSettings'
 import { EventAlertsSettings } from '../components/EventAlertsSettings'
 import { PopupSettings } from '../components/PopupSettings'
 import { ContextSettings } from '../components/ContextSettings'
 import { HomeAssistantSettings } from '../components/HomeAssistantSettings'
 import { VoiceSettings } from '../components/VoiceSettings'
 import { PersonaBriefingSettings } from '../components/PersonaBriefingSettings'
-import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download, User, Mic, Route, ShieldCheck, Cloud, Palette, HardDrive, Search, Star, ArrowUp, ArrowDown, Check, SlidersHorizontal, Bot, Compass, Sparkles } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download, User, Mic, Route, ShieldCheck, Cloud, Palette, HardDrive, Search, Star, ArrowUp, ArrowDown, Check, SlidersHorizontal, Bot, Compass, Sparkles, Globe } from 'lucide-react'
 import type { AiSettings, LlmSettings, OxyyCatalog, OxyySettings, Proactive, SttSettings, TtsSettings, Tray, WakeWord } from '../types'
 import { isMobileStandalone, getMobileProvider, getMobileApiKeys, setMobileProvider, setMobileApiKeys, getMobileOxyyModels, setMobileOxyyModels, DEFAULT_MOBILE_KEYS, DEFAULT_OXXY_MODELS, type DirectChatProvider, countKeys, nativeDirectPost } from '../hooks/useDirectChat'
 import { isSfxEnabled, setSfxEnabled, playSuccess } from '../utils/sfx'
@@ -678,6 +679,13 @@ export function SettingsPage({
         {desktop && <EventAlertsSettings />}
         {desktop && <PopupSettings />}
         {!desktop && <article className="settings-card"><p className="eyebrow">LOOP AGÊNTICO</p><h2>Disponível no PC</h2><p>O loop agêntico roda no backend do computador.</p></article>}
+      </>),
+    },
+    {
+      id: 'browser', label: 'Navegação Web Ativa', icon: <Globe size={16} />, keywords: 'navegação web ativa browser playwright headless visível automação dom extração formulários cliques',
+      render: () => (<>
+        {desktop && <BrowserSettings />}
+        {!desktop && <article className="settings-card"><p className="eyebrow">NAVEGAÇÃO WEB ATIVA</p><h2>Disponível no PC</h2><p>A automação de navegador via Playwright roda no backend do computador.</p></article>}
       </>),
     },
     {

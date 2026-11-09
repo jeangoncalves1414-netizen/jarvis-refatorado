@@ -28,6 +28,8 @@ from app.storage.runtime_settings import (
     set_popup_settings,
     get_event_settings,
     set_event_settings,
+    get_browser_settings,
+    set_browser_settings,
     set_tts_provider,
     sync_api_keys_to_env,
     sync_settings_to_obj,
@@ -134,6 +136,8 @@ def handle_settings_get(parts: list[str], handler: Any) -> tuple[int, dict[str, 
         return 200, {"ok": True, "settings": get_popup_settings()}
     if len(parts) == 3 and parts[1] == "settings" and parts[2] == "events":
         return 200, {"ok": True, "settings": get_event_settings()}
+    if len(parts) == 3 and parts[1] == "settings" and parts[2] == "browser":
+        return 200, {"ok": True, "settings": get_browser_settings()}
     if len(parts) >= 3 and parts[1] == "settings" and parts[2] == "stt":
         default = getattr(handler.settings, "stt_provider", "groq")
         return 200, get_stt_settings(default)
@@ -344,6 +348,17 @@ def handle_settings_post(path: str, body: bytes, handler: Any) -> tuple[int, dic
         try:
             values = payload.get("settings", payload) if isinstance(payload, dict) else payload
             return 200, {"ok": True, "settings": set_event_settings(values)}
+        except ValueError as exc:
+            return 400, {"ok": False, "error": str(exc)}
+
+    if path in {"/api/settings/browser", "/api/settings/browser/"}:
+        try:
+            payload = json.loads(body.decode("utf-8") or "{}")
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return 400, {"ok": False, "error": "JSON inválido."}
+        try:
+            values = payload.get("settings", payload) if isinstance(payload, dict) else payload
+            return 200, {"ok": True, "settings": set_browser_settings(values)}
         except ValueError as exc:
             return 400, {"ok": False, "error": str(exc)}
 
