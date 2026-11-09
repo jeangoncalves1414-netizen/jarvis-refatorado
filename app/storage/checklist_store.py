@@ -419,4 +419,3 @@ class ChecklistStore:
 
 
 checklist_store = ChecklistStore()
-

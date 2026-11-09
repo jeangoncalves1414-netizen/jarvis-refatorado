@@ -188,3 +188,4 @@ def test_habit_tool_modular_and_auto_check(isolated_lifestyle_db: Path, monkeypa
     assert res_auto["ok"] is True
     assert len(res_auto["checked_habits"]) == 1
     assert res_auto["checked_habits"][0]["id"] == habit["id"]
+

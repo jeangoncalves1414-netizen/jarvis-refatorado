@@ -89,3 +89,4 @@ O pacote LifeOS 2.0 introduz duas grandes capacidades nativas no Jarvis:
 2. **Frontend Build & TypeScript**:
    - `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json`: 0 erros.
    - `npm run build`: compilado com sucesso com Vite em 1m 7s; chunk `LifeOSWindow-viUWH3dd.js` gerado corretamente.
+
