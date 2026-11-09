@@ -31,6 +31,7 @@ const assert = require('node:assert/strict')
         else { run.status = 'cancel_requested'; data = { ok: true, run } }
       } else if (url.pathname === '/api/runs/run-1') data = { ok: true, run }
       else if (url.pathname === '/api/mission-control') data = { ok: true, components: [], summary: {}, goals: [], pending_actions: [], recent_actions: [] }
+      else if (url.pathname === '/api/approvals') data = { ok: true, mode: { enabled: false, persist: false }, rules: [], durations: {} }
       else if (url.pathname === '/api/planning') data = { ok: true, workspace: { content: '', is_open: false }, preferences: {} }
       await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) })
     })

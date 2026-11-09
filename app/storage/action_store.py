@@ -198,7 +198,13 @@ class ActionStore:
             return run
         counts = dict(db.execute("SELECT status, COUNT(*) FROM actions WHERE json_extract(payload, '$.run_id') = ? GROUP BY status", (run_id,)))
         active = any(status not in TERMINAL_STATUSES for status in counts)
-        if run.turn_done and not active:
+        if run.turn_done and run.resume_pending and not run.cancel_requested:
+            # O loop agêntico continua depois da aprovação: o pedido nunca encerra antes disso.
+            if counts.get("awaiting_confirmation") and not counts.get("running") and not counts.get("authorized"):
+                status, summary = "awaiting_confirmation", "Aguardando sua aprovação; depois o agente continua sozinho."
+            else:
+                status, summary = "running", "Pedido em andamento; o agente continua as próximas etapas."
+        elif run.turn_done and not active:
             if run.cancel_requested:
                 status, summary = "cancelled", "Pedido encerrado após cancelamento. Etapas já executadas não foram desfeitas."
             elif run.turn_failed or any(counts.get(s) for s in ("failed", "expired", "interrupted")):
@@ -287,7 +293,7 @@ class ActionStore:
                     db.execute("DELETE FROM runs WHERE id = ?", (old_id,))
         return run
 
-    def finish_run(self, run_id: str, *, failed: bool = False) -> RunRecord:
+    def finish_run(self, run_id: str, *, failed: bool = False, reply: str | None = None) -> RunRecord:
         with self._lock, closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             run = self._read_run(db, run_id)
@@ -295,8 +301,51 @@ class ActionStore:
                 raise KeyError("Pedido não encontrado.")
             if not run.turn_done:
                 run.turn_done, run.turn_failed = True, failed
+                if reply is not None:
+                    run.reply = str(reply)[:4000]
                 self._save_run(db, run, "response_finished", "Processamento da resposta encerrado." if not failed else "Processamento da resposta falhou.")
             return self._refresh_run(db, run_id)
+
+    def set_resume_pending(self, run_id: str, pending: bool) -> RunRecord:
+        """Marca que o loop agêntico vai continuar depois de uma aprovação (o pedido não encerra)."""
+        with self._lock, closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            run = self._read_run(db, run_id)
+            if not run:
+                raise KeyError("Pedido não encontrado.")
+            if run.resume_pending != pending and not (pending and run.status in RUN_TERMINAL):
+                run.resume_pending = pending
+                self._save_run(db, run, "resume_pending" if pending else "resume_cleared",
+                               "Etapa aguardando aprovação; o agente continua depois dela." if pending else "Agente retomou a sequência.")
+            return self._refresh_run(db, run_id)
+
+    def finish_resume(self, run_id: str, *, failed: bool, reply: str | None) -> RunRecord:
+        """Fim da continuação após aprovação: grava a resposta e deixa o pedido encerrar."""
+        with self._lock, closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            run = self._read_run(db, run_id)
+            if not run:
+                raise KeyError("Pedido não encontrado.")
+            run.resume_pending = False
+            if run.status not in RUN_TERMINAL:
+                run.turn_failed = failed
+            if reply is not None:
+                run.reply = str(reply)[:4000]
+            self._save_run(db, run, "resume_finished", "Continuação do agente encerrada." if not failed else "Continuação do agente encerrada com falha.")
+            return self._refresh_run(db, run_id)
+
+    def update_run_progress(self, run_id: str, progress: dict) -> None:
+        """Contador visível do loop (etapa e chamadas ao modelo); não cria evento na Central."""
+        allowed = ("step", "max_steps", "model_calls", "max_model_calls", "phase")
+        clean = {key: progress.get(key) for key in allowed if isinstance(progress, dict) and key in progress}
+        with self._lock, closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            run = self._read_run(db, run_id)
+            if not run:
+                return
+            run.progress = clean
+            run.updated_at = time.time()
+            db.execute("UPDATE runs SET payload = ? WHERE id = ?", (json.dumps(asdict(run), ensure_ascii=False), run.id))
 
     def add_run_event(self, run_id: str, kind: str, summary: str) -> None:
         """Etapa interna sem ferramenta (Swarm, Racing, memória): só um evento no pedido (C6).
@@ -330,6 +379,7 @@ class ActionStore:
                 raise ValueError("Este pedido já foi encerrado.")
             if not run.cancel_requested:
                 run.cancel_requested, run.status = True, "cancel_requested"
+                run.resume_pending = False
                 run.result_summary = "Cancelamento solicitado pelo usuário; etapas concluídas não são desfeitas."
                 self._save_run(db, run, "cancel_requested", run.result_summary)
             rows = db.execute("SELECT payload FROM actions WHERE json_extract(payload, '$.run_id') = ? AND status IN ('proposed', 'awaiting_confirmation', 'authorized')", (run_id,)).fetchall()
@@ -342,6 +392,9 @@ class ActionStore:
             result = self._refresh_run(db, run_id).public_dict()
         for row in rows:
             pending_action_broker.discard(json.loads(row[0])["id"])
+        # O loop agêntico nunca retoma um pedido cancelado.
+        from app.core import loop_checkpoints
+        loop_checkpoints.discard_for_run(run_id)
         return result
 
     def run_page(self, *, limit: int = 20, before: int | None = None, status: str | None = None, session_id: str | None = None, include_reads: bool = False) -> dict:

@@ -1184,9 +1184,10 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_json(400, {"ok": False, "error": "Envie um objeto JSON."})
                     return
                 goal = payload.get("goal", "")
-                max_steps = payload.get("max_steps", 8)
+                # Sem max_steps, vale o limite das Configurações (Agente e popups).
+                max_steps = payload.get("max_steps")
                 session_id = payload.get("session_id")
-                if not isinstance(goal, str) or not goal.strip() or type(max_steps) is not int or not 1 <= max_steps <= 20 or (session_id is not None and (not isinstance(session_id, str) or len(session_id) > 200)):
+                if not isinstance(goal, str) or not goal.strip() or (max_steps is not None and (type(max_steps) is not int or not 1 <= max_steps <= 20)) or (session_id is not None and (not isinstance(session_id, str) or len(session_id) > 200)):
                     self._send_json(400, {"ok": False, "error": "Informe um objetivo, um limite inteiro entre 1 e 20 e uma sessão válida."})
                     return
                 if _orchestrator is None:
@@ -2107,6 +2108,28 @@ async def _broadcast_wake_word() -> None:
     _ws_clients.difference_update(dead)
 
 
+async def _broadcast_json(message: str) -> None:
+    """Envia um evento do barramento da interface a todos os clientes do chat."""
+    dead = set()
+    for ws in list(_ws_clients):
+        try:
+            await ws.send(message)
+        except Exception:
+            dead.add(ws)
+    _ws_clients.difference_update(dead)
+
+
+def _forward_ui_event(event: dict) -> None:
+    """Assinante de app.core.ui_events: progresso do loop, resposta retomada e popups."""
+    loop = _ws_loop
+    if loop is None or not loop.is_running() or not _ws_clients:
+        return
+    try:
+        message = json.dumps(event, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return
+    asyncio.run_coroutine_threadsafe(_broadcast_json(message), loop)
+
 
 async def _run_ws_server(host: str, port: int) -> None:
     try:
@@ -2150,9 +2173,12 @@ class PanelServer:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         _ws_loop = loop
+        from app.core import ui_events
+        unsubscribe = ui_events.subscribe(_forward_ui_event)
         try:
             loop.run_until_complete(_run_ws_server(self.settings.host, ws_port))
         finally:
+            unsubscribe()
             loop.close()
             _ws_loop = None
 

@@ -31,6 +31,13 @@ def runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "save_session_history", lambda session, history: saved.append((session, history)))
     monkeypatch.setattr(module, "get_session_history", lambda _: [])
     monkeypatch.setattr("app.core.logger.logger", SimpleNamespace(record_request=lambda: None, info=lambda *a: None))
+    # Lote 6: configurações do loop em tmp e retomada após aprovação síncrona (determinística).
+    (tmp_path / "data").mkdir(exist_ok=True)
+    monkeypatch.setattr("app.storage.runtime_settings.DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr("app.storage.runtime_settings.RUNTIME_SETTINGS_FILE", str(tmp_path / "data" / "runtime_settings.json"))
+    from app.core import loop_checkpoints
+    monkeypatch.setattr(loop_checkpoints, "resume_runner", lambda checkpoint, status: checkpoint.resume(status))
+    loop_checkpoints.loop_checkpoints.clear()
     agent = AgentOrchestrator.__new__(AgentOrchestrator)
     agent.llm_service = agent.profile_memory = agent.settings = agent.vision_service = agent.browser_agent = None
     agent._remember_preferences = lambda *a: None
@@ -50,6 +57,7 @@ def runtime(tmp_path, monkeypatch):
     yield agent, store, calls, saved
     for action in store.list(limit=100):
         pending_action_broker.discard(action.id)
+    loop_checkpoints.loop_checkpoints.clear()
     if store._runtime_lock:
         store._runtime_lock.close()
 
@@ -182,8 +190,9 @@ def react(agent, replies):
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_react_waits_for_bound_approval_without_resuming_loop(runtime, stream):
-    agent, store, calls, _ = runtime
+def test_react_waits_for_bound_approval_then_resumes_loop(runtime, stream):
+    # Lote 6 (C8): depois da aprovação o loop continua sozinho no mesmo pedido.
+    agent, store, calls, saved = runtime
     agent.registry.get_tool_metadata = lambda _: ToolMetadata(("calendar",), "high", requires_confirmation=True)
     prompts = react(agent, ['FERRAMENTA: calendar\nARGS: {"path": "original"}', 'FINISH: feito'])
     plan = list(agent.handle_request_stream("faça", mode="react", session_id="one"))[-1]["plan"] if stream else agent.handle_request("faça", mode="react", session_id="one")
@@ -192,10 +201,12 @@ def test_react_waits_for_bound_approval_without_resuming_loop(runtime, stream):
     assert calls == [] and len(prompts) == 1
     action_id = plan.context["pending_action_id"]
     assert action_id == request["actions"][0]["id"]
-    status, _ = actions.handle_actions_post(f"/api/actions/{action_id}/approve", b"{}", None)
-    assert status == 200 and calls == [("calendar", {"path": "original"})]
-    assert detail(store, plan)["run"]["status"] == "succeeded"
-    assert len(prompts) == 1
+    status, body = actions.handle_actions_post(f"/api/actions/{action_id}/approve", b"{}", None)
+    assert status == 200 and body["resumed"] is True and calls == [("calendar", {"path": "original"})]
+    run = detail(store, plan)["run"]
+    assert run["status"] == "succeeded" and run["reply"] == "feito" and run["resume_pending"] is False
+    assert len(prompts) == 2
+    assert saved[-1][1][-1] == {"role": "assistant", "content": "feito", "run_id": plan.context["run_id"]}
     assert actions.handle_actions_post(f"/api/actions/{action_id}/approve", b"{}", None)[0] == 409
 
 
@@ -283,8 +294,9 @@ def test_approval_can_arrive_as_soon_as_react_proposal_is_visible(runtime, monke
     monkeypatch.setattr(store, "create", publish)
     prompts = react(agent, ["FERRAMENTA: calendar\nARGS: {}", "FINISH: feito"])
     plan = agent.handle_request("faça", mode="react")
-    assert len(prompts) == len(calls) == 1
-    assert plan.context["pending_action_id"]
+    # Lote 6: a aprovação chegou durante o turno; o loop continua uma vez só e consome o FINISH.
+    assert len(prompts) == 2 and len(calls) == 1
+    assert plan.summary == "feito" and not plan.context["pending_action_id"]
     assert detail(store, plan)["run"]["status"] == "succeeded"
 
 
@@ -298,7 +310,8 @@ def test_react_real_whiteboard_approval_targets_only_original_conversation(runti
         session_store.add_session({"id": session, "whiteboard": [{"id": session}]})
     agent.registry = ToolRegistry.__new__(ToolRegistry)
     agent.registry.tools = {"whiteboard_clear": WhiteboardClearTool()}
-    react(agent, ['FERRAMENTA: whiteboard_clear\nARGS: {"session_id":"two"}'])
+    # Lote 6: depois da aprovação o loop retoma e encerra com FINISH.
+    react(agent, ['FERRAMENTA: whiteboard_clear\nARGS: {"session_id":"two"}', 'FINISH: Quadro limpo.'])
     plan = agent.handle_request("Limpe meu quadro", session_id="one", mode="react")
     proposal = detail(store, plan)["actions"][0]
     assert proposal["status"] == "awaiting_confirmation"

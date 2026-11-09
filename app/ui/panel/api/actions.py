@@ -6,6 +6,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from app.storage.action_store import action_store
+from app.core import loop_checkpoints
 from app.core.actions import STATUSES, pending_action_broker
 from app.core.runs import RunCancelled
 
@@ -50,13 +51,16 @@ def handle_actions_post(path: str, body: bytes, _handler: Any) -> tuple[int, dic
         if command == "reject":
             updated = action_store.transition(action_id, "cancelled", result_summary="Cancelada pelo usuário.", expected_status="awaiting_confirmation")
             pending_action_broker.discard(action_id)
-            return 200, {"ok": True, "action": updated.public_dict()}
+            # Recusar uma etapa do loop agêntico encerra a sequência sem nova chamada ao modelo.
+            _abandon_loop(action_id, "Etapa recusada; a sequência foi encerrada sem novas etapas.")
+            return 200, {"ok": True, "action": updated.public_dict(), "resumed": False}
         if action.status != "awaiting_confirmation":
             return 409, {"ok": False, "error": "Esta ação não está aguardando confirmação."}
         updated = action_store.transition(action_id, "authorized", result_summary="Confirmada; aguardando execução segura.", expected_status="awaiting_confirmation")
         callback = pending_action_broker.take(action_id)
         if callback is None:
             expired = action_store.transition(action_id, "expired", result_summary="Ação expirou; solicite novamente pela conversa.")
+            _abandon_loop(action_id, "A aprovação expirou; a sequência foi encerrada sem novas etapas.")
             return 410, {"ok": False, "error": "Ação expirou; solicite novamente pela conversa.", "action": expired.public_dict()}
         try:
             callback()
@@ -64,11 +68,33 @@ def handle_actions_post(path: str, body: bytes, _handler: Any) -> tuple[int, dic
             payload = {"ok": final.status == "succeeded", "action": final.public_dict(), "result": final.result_summary}
             if not payload["ok"]:
                 payload["error"] = final.result_summary or "A ferramenta não confirmou a conclusão."
+            payload["resumed"] = _resume_loop(action_id, final.status)
             return 200, payload
         except Exception:
             final = action_store.get(action_id) or updated
             if final.status == "cancelled":
+                _abandon_loop(action_id, "A etapa foi cancelada antes de iniciar; a sequência foi encerrada.")
                 return 409, {"ok": False, "error": "A ação foi cancelada antes de iniciar.", "action": final.public_dict()}
-            return 500, {"ok": False, "error": "Ação confirmada, mas falhou ao executar.", "action": final.public_dict()}
+            resumed = _resume_loop(action_id, final.status)
+            return 500, {"ok": False, "error": "Ação confirmada, mas falhou ao executar.", "action": final.public_dict(), "resumed": resumed}
     except (ValueError, RunCancelled) as exc:
         return 409, {"ok": False, "error": str(exc)}
+
+
+def _resume_loop(action_id: str, final_status: str) -> bool:
+    """Se a ação era uma etapa do loop agêntico, retoma a sequência no mesmo pedido."""
+    checkpoint = loop_checkpoints.take(action_id)
+    if checkpoint is None:
+        return False
+    loop_checkpoints.resume_runner(checkpoint, final_status)
+    return True
+
+
+def _abandon_loop(action_id: str, reason: str) -> None:
+    checkpoint = loop_checkpoints.take(action_id)
+    if checkpoint is None:
+        return
+    try:
+        checkpoint.abandon(reason)
+    except Exception:
+        pass

@@ -686,6 +686,7 @@ export default function App() {
           streamingReply={streamingReply}
           liveSearch={liveSearch}
           liveReasoning={liveReasoning}
+          agentProgress={IS_MOBILE ? null : pcChat.agentProgress}
           chatError={chatError}
           query={query}
           chatMode={chatMode}

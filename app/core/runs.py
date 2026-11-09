@@ -31,6 +31,12 @@ class RunRecord:
     turn_failed: bool = False
     cancel_requested: bool = False
     result_summary: str | None = None
+    # Loop agêntico (lote 6): uma etapa aguarda aprovação e o agente continua depois dela.
+    resume_pending: bool = False
+    # Resposta final do agente quando ela chega fora do turno (retomada após aprovação).
+    reply: str | None = None
+    # Contador visível: {"step", "max_steps", "model_calls", "max_model_calls", "phase"}.
+    progress: dict | None = None
 
     def public_dict(self) -> dict:
         value = asdict(self)

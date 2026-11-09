@@ -1,8 +1,9 @@
 import { useState, useEffect, type ReactNode } from 'react'
 import { Switch } from '../components/Switch'
 import { AutoApprovalsManager } from '../components/AutoApprovals'
+import { AgentLoopSettings } from '../components/AgentLoopSettings'
 import { VoiceSettings } from '../components/VoiceSettings'
-import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download, User, Mic, Route, ShieldCheck, Cloud, Palette, HardDrive, Search, Star, ArrowUp, ArrowDown, Check, SlidersHorizontal } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download, User, Mic, Route, ShieldCheck, Cloud, Palette, HardDrive, Search, Star, ArrowUp, ArrowDown, Check, SlidersHorizontal, Bot } from 'lucide-react'
 import type { AiSettings, LlmSettings, OxyyCatalog, OxyySettings, Proactive, SttSettings, TtsSettings, Tray, WakeWord } from '../types'
 import { isMobileStandalone, getMobileProvider, getMobileApiKeys, setMobileProvider, setMobileApiKeys, getMobileOxyyModels, setMobileOxyyModels, DEFAULT_MOBILE_KEYS, DEFAULT_OXXY_MODELS, type DirectChatProvider, countKeys, nativeDirectPost } from '../hooks/useDirectChat'
 import { isSfxEnabled, setSfxEnabled, playSuccess } from '../utils/sfx'
@@ -620,6 +621,13 @@ export function SettingsPage({
         </>)}
       {/* Mobile API & Model Configuration Manager */}
       {isMobileStandalone() && <MobileApiConfig />}
+      </>),
+    },
+    {
+      id: 'agent', label: 'Agente e popups', icon: <Bot size={16} />, keywords: 'agente loop etapas chamadas modelo limite verificação automática sequência continuar sozinho popups',
+      render: () => (<>
+      {desktop && <AgentLoopSettings />}
+      {!desktop && <article className="settings-card"><p className="eyebrow">LOOP AGÊNTICO</p><h2>Disponível no PC</h2><p>O loop agêntico roda no backend do computador.</p></article>}
       </>),
     },
     {

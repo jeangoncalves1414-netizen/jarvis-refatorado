@@ -47,6 +47,22 @@ function getScriptRequest(summary: unknown): ScriptRequest | null {
 // onAgentContext recebe o contexto da resposta final (janela, tela e, nas próximas fases, popups) para o App aplicar.
 type UseChatOptions = { onAgentContext?: (context: unknown) => void; onWakeWord?: (phrase: string) => void }
 
+/** Contador do loop agêntico (evento WS agent_progress): etapa e chamadas ao modelo do pedido atual. */
+export type AgentProgress = { run_id?: string; step: number; max_steps: number; model_calls: number; max_model_calls: number; phase: string; summary?: string }
+
+const AWAITING_APPROVAL_TEXT = 'Aguardando aprovação na Central; depois eu continuo sozinho.'
+
+function parseProgress(data: Record<string, unknown>): AgentProgress | null {
+  const numbers = ['step', 'max_steps', 'model_calls', 'max_model_calls'] as const
+  if (numbers.some(key => typeof data[key] !== 'number') || typeof data.phase !== 'string') return null
+  return {
+    run_id: typeof data.run_id === 'string' ? data.run_id : undefined,
+    step: data.step as number, max_steps: data.max_steps as number,
+    model_calls: data.model_calls as number, max_model_calls: data.max_model_calls as number,
+    phase: data.phase, summary: typeof data.summary === 'string' ? data.summary : undefined,
+  }
+}
+
 export function useChat(options: UseChatOptions = {}) {
   // O efeito da conexão roda uma vez; a referência mantém o callback sempre atual.
   const agentContextRef = useRef(options.onAgentContext)
@@ -67,6 +83,7 @@ export function useChat(options: UseChatOptions = {}) {
   const [liveReasoning, setLiveReasoning] = useState('')
   const [chatError, setChatError] = useState('')
   const [pendingScript, setPendingScript] = useState<ScriptRequest | null>(null)
+  const [agentProgress, setAgentProgress] = useState<AgentProgress | null>(null)
   const titledSessions = useRef(new Set<string>())
   useEffect(() => {
     const session = sessions.find(item => item.id === sessionId)
@@ -123,6 +140,7 @@ export function useChat(options: UseChatOptions = {}) {
     finalRunIdRef.current = undefined
     setAnswer(visibleReply)
     setMessages(history)
+    setAgentProgress(null)
     setStreamingReply('')
     setLiveSearch(null)
     setLiveReasoning('')
@@ -195,6 +213,7 @@ export function useChat(options: UseChatOptions = {}) {
     setLoading(false)
     setStreamingReply('')
     setLiveReasoning('')
+    setAgentProgress(null)
     try {
       const response = await fetch(`/api/sessions/${id}/history`)
       const data = await response.json()
@@ -337,6 +356,23 @@ export function useChat(options: UseChatOptions = {}) {
     return reply
   }
 
+  // Mensagem do assistente que chega fora de um turno (loop retomado após aprovação).
+  const appendAssistantMessage = (reply: string, runId?: string) => {
+    const current = messagesRef.current
+    if (runId && current.some(item => item.role === 'assistant' && item.run_id === runId && item.content === reply)) return
+    const history: ChatMessage[] = [...current, { role: 'assistant', content: reply, run_id: runId }]
+    messagesRef.current = history
+    pendingHistoryRef.current = history
+    setMessages(history)
+    setAnswer(reply)
+    const sid = activeSessionRef.current
+    if (sid) {
+      fetch(`/api/sessions/${sid}/history`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ history }),
+      }).catch(() => undefined)
+    }
+  }
+
   const commitRestReply = (reply: string, runId?: string) => {
     finalRunIdRef.current = typeof runId === 'string' ? runId : undefined
     stopTyping()
@@ -367,6 +403,7 @@ export function useChat(options: UseChatOptions = {}) {
     setStreamingReply('')
     setLiveSearch(null)
     setLiveReasoning('')
+    setAgentProgress(null)
     liveReasoningRef.current = ''
     reasoningBufferRef.current = ''
     typingBufferRef.current = ''
@@ -503,7 +540,7 @@ export function useChat(options: UseChatOptions = {}) {
         reconnectAttempts = 0
       }
       socket.onmessage = (event) => {
-        let data: { type?: string; text?: string; message?: string; summary?: string; payload?: SearchPayload; session_id?: string; phrase?: string; context?: { run_id?: string } } = {}
+        let data: { type?: string; text?: string; message?: string; summary?: string; payload?: SearchPayload; session_id?: string; phrase?: string; context?: { run_id?: string }; reply?: unknown; run_id?: unknown } = {}
         try {
           data = JSON.parse(String(event.data))
         } catch {
@@ -514,6 +551,30 @@ export function useChat(options: UseChatOptions = {}) {
         if (type === 'wake_word') { wakeWordRef.current?.(typeof data.phrase === 'string' ? data.phrase : ''); return }
         if (data.session_id && data.session_id !== activeSessionRef.current) return
         lastActivityRef.current = Date.now()
+        if (type === 'agent_progress') {
+          const progress = parseProgress(data as Record<string, unknown>)
+          if (progress) setAgentProgress(['done', 'cancelled', 'limit'].includes(progress.phase) ? null : progress)
+          return
+        }
+        if (type === 'agent_reply') {
+          // Resposta do loop agêntico retomado depois de uma aprovação.
+          const reply = typeof data.reply === 'string' ? data.reply.trim() : ''
+          const runId = typeof data.run_id === 'string' ? data.run_id : undefined
+          setAgentProgress(null)
+          if (!reply) return
+          if (waitForReplyRef.current) {
+            finalRunIdRef.current = runId
+            finalReasoningRef.current = ''
+            finalReplyRef.current = reply
+            finalizePendingRef.current = true
+            pumpTyping()
+            waitForReplyRef.current(reply)
+            waitForReplyRef.current = null
+            return
+          }
+          appendAssistantMessage(reply, runId)
+          return
+        }
         if (type === 'reasoning') {
           reasoningBufferRef.current += text || message
           pumpTyping()
@@ -605,17 +666,18 @@ export function useChat(options: UseChatOptions = {}) {
         const query = new URLSearchParams({ session_id: sid, limit: '1', include_reads: '1' })
         const response = await fetch(`/api/runs?${query}`)
         const data = await response.json().catch(() => null)
-        const run = data?.runs?.[0] as { status?: string; created_at?: number; result_summary?: string | null } | undefined
+        const run = data?.runs?.[0] as { status?: string; created_at?: number; result_summary?: string | null; reply?: string | null } | undefined
         if (disposed || !run || activeSessionRef.current !== sid) return
         if ((run.created_at || 0) * 1000 < turnStartRef.current - 5000) return
         if (run.status === 'awaiting_confirmation') {
-          setStreamingReply('Aguardando aprovação na Central de Execuções…')
+          setStreamingReply(AWAITING_APPROVAL_TEXT)
           lastActivityRef.current = Date.now() - IDLE_MS + 4000
           return
         }
         if (run.status && ['succeeded', 'failed', 'cancelled', 'interrupted'].includes(run.status)) {
           const labels: Record<string, string> = { failed: 'falhou', cancelled: 'foi cancelado', interrupted: 'foi interrompido' }
-          const reply = (run.result_summary || '').trim()
+          // A resposta do agente (loop retomado) vale mais que o resumo do estado.
+          const reply = (run.reply || '').trim() || (run.result_summary || '').trim()
             || (run.status === 'succeeded' ? 'Pedido concluído. Confira o resultado na Central de Execuções.' : `O pedido ${labels[run.status]}. Confira os detalhes na Central de Execuções.`)
           finalReasoningRef.current = ''
           finalReplyRef.current = reply
@@ -725,6 +787,7 @@ export function useChat(options: UseChatOptions = {}) {
     liveSearch,
     messages,
     pendingScript,
+    agentProgress,
     query,
     runPendingScript,
     selectSession,

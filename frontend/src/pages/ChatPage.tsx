@@ -7,6 +7,7 @@ import { MessageRenderer } from '../components/chat/MessageRenderer'
 import { PlanningWorkspace } from '../components/PlanningWorkspace'
 import type { ChatMessage, ChatSession, ScriptRequest, WakeWord } from '../types'
 import type { SearchPayload } from '../components/tools/SearchTool'
+import type { AgentProgress } from '../hooks/useChat'
 
 type CinemaRequestPayload = {
   title?: string
@@ -30,6 +31,8 @@ type ChatPageProps = {
   streamingReply: string
   liveSearch: SearchPayload | null
   liveReasoning: string
+  /** Contador do loop agêntico (etapa e chamadas ao modelo), quando houver. */
+  agentProgress?: AgentProgress | null
   chatError: string
   query: string
   chatMode: ChatMode
@@ -63,6 +66,13 @@ const suggestions = [
   { title: 'Construir com código', description: 'Crie, revise ou resolva um problema', icon: Code2, mode: 'coder', prompt: 'Quero ajuda com código. Meu contexto é: ' },
 ] as const
 
+const progressPhases: Record<string, string> = { planning: 'planejando', acting: 'executando', verifying: 'verificando', waiting_approval: 'aguardando aprovação', resumed: 'retomando', limit: 'limite atingido', done: 'concluindo' }
+
+/** Linha do contador do loop agêntico: "Etapa 3 de 8 · 3/10 chamadas ao modelo · planejando". */
+function AgentProgressLine({ progress }: { progress: AgentProgress }) {
+  return <p className="ws-agent-progress" role="status"><strong>Etapa {progress.step} de {progress.max_steps}</strong><span>· {progress.model_calls}/{progress.max_model_calls} chamadas ao modelo</span><span>· {progressPhases[progress.phase] || progress.phase}</span></p>
+}
+
 export function ChatPage(props: ChatPageProps) {
   const [maxVisible, setMaxVisible] = useState(25)
   const [following, setFollowing] = useState(true)
@@ -80,7 +90,7 @@ export function ChatPage(props: ChatPageProps) {
       {empty ? <div className="ws-welcome"><div className="ws-welcome-mark"><Sparkles size={30} strokeWidth={1.3} /></div><span className="ws-overline">UM ESPAÇO PARA SUAS IDEIAS</span><h1>O que vamos fazer hoje?</h1><p>Uma conversa pode ser o começo de algo maior.<br />Pesquise, crie e coloque seus planos em movimento.</p><div className="ws-suggestions">{suggestions.map(item => <button key={item.title} onClick={() => { props.onModeChange(item.mode); props.onQueryChange(item.prompt); document.querySelector<HTMLTextAreaElement>('.ws-composer textarea')?.focus() }}><item.icon size={19} /><ArrowUpRight size={14} className="suggestion-arrow" /><strong>{item.title}</strong><span>{item.description}</span></button>)}</div>{props.answer && !['Olá. Estou pronto para ajudar.', 'Ola. Estou pronto para ajudar.', 'Nova conversa iniciada.', 'Sessão carregada.'].includes(props.answer) && <div className="ws-answer-note">{renderContent(props.answer)}</div>}</div> : <div className="ws-message-list">
         {props.messages.length > maxVisible && <button className="ws-button ws-load-more" onClick={() => { setFollowing(false); setMaxVisible(value => value + 25) }}>Carregar mensagens anteriores</button>}
         {props.messages.slice(-maxVisible).map((message, index) => <article key={props.messages.length - Math.min(props.messages.length, maxVisible) + index} className={`ws-message ${message.role}`}><div className="ws-message-label">{message.role === 'assistant' && <Sparkles size={15} />}<span>{message.role === 'user' ? 'Você' : 'Assistente'}</span></div><div className="ws-message-content">{renderContent(message.content)}</div>{message.role === 'assistant' && <div className="ws-message-actions">{message.run_id && props.onOpenRun && <button className="ws-text-button" onClick={() => props.onOpenRun?.(message.run_id!)}>Ver execução <ArrowUpRight size={14} /></button>}<button className="ws-icon-button" aria-label="Copiar resposta" onClick={() => void copy(message.content)}><Copy size={14} /></button>{props.onSpeakText && <button className="ws-icon-button" aria-label="Ouvir resposta" onClick={() => props.onSpeakText?.(message.content)}><Volume2 size={14} /></button>}</div>}</article>)}
-        {(props.loading || props.streamingReply) && <article className="ws-message assistant"><div className="ws-message-label"><Sparkles size={15} /><span>Assistente</span><span className="ws-generating">Respondendo</span></div>{renderContent(props.streamingReply || 'Pensando…', true)}</article>}
+        {(props.loading || props.streamingReply || props.agentProgress) && <article className="ws-message assistant"><div className="ws-message-label"><Sparkles size={15} /><span>Assistente</span><span className="ws-generating">{props.loading || props.streamingReply ? 'Respondendo' : 'Continuando'}</span></div>{props.agentProgress && <AgentProgressLine progress={props.agentProgress} />}{renderContent(props.streamingReply || (props.loading ? 'Pensando…' : 'Continuando a sequência…'), true)}</article>}
       </div>}
     </div>
     {!following && !empty && <button className="ws-jump-latest" aria-label="Ir para a última mensagem" onClick={() => setFollowing(true)}><ArrowDown size={16} /> Últimas mensagens</button>}

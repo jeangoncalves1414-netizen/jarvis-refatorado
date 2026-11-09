@@ -756,6 +756,60 @@ ter pesquisado se não pesquisou.
             context={"task_title": args["title"], **result_data} if task else {"action_result": result_data},
         )
 
+    def _run_agent_loop(self, text, mode, session_id, history, max_steps, on_progress, *, allowed_tools) -> AgentPlan:
+        """Loop agêntico no pedido atual: progresso no barramento e no Run, retomada após aprovação."""
+        from app.core import ui_events
+        from app.storage.runtime_settings import get_agent_loop_settings
+
+        settings = get_agent_loop_settings()
+        context_run = current_run.get()
+        store, run_id = (context_run[0], context_run[1]) if context_run else (None, None)
+
+        def progress(event: dict) -> None:
+            payload = {"type": "agent_progress", "session_id": session_id, "run_id": run_id, **event}
+            ui_events.publish(payload)
+            if store is not None and run_id:
+                try:
+                    store.update_run_progress(run_id, event)
+                except Exception:
+                    pass
+            if on_progress:
+                try:
+                    on_progress(payload)
+                except Exception:
+                    pass
+
+        def save_reply(reply: str, _trajectory: Any) -> None:
+            # Resposta da retomada: entra no histórico da conversa e vai ao chat aberto.
+            if session_id and reply and not is_technical_error_memory(reply):
+                updated = [*get_session_history(session_id), {"role": "assistant", "content": reply, "run_id": run_id}]
+                save_session_history(session_id, updated[-40:])
+            ui_events.publish({"type": "agent_reply", "session_id": session_id, "run_id": run_id, "reply": reply})
+
+        try:
+            trajectory = self.react_loop.run_loop(
+                text, max_steps=max_steps if max_steps is not None else settings["max_steps"],
+                context={"session_id": session_id}, allowed_tools=allowed_tools,
+                max_model_calls=settings["max_model_calls"], verify=settings["auto_verify"],
+                progress=progress, history=history, save_reply=save_reply,
+            )
+        except RunCancelled:
+            raise
+        except Exception:
+            return AgentPlan(intent="error", summary="O modo ReAct falhou. Consulte as etapas na Central antes de tentar novamente.", actions=[])
+        intent = "react_loop" if mode == "react" else "agent_loop"
+        return AgentPlan(
+            intent=intent if trajectory.success or trajectory.pending_action_id else "error",
+            summary=trajectory.final_output,
+            actions=[f"react_step_{s.step_number}" for s in trajectory.steps],
+            context={
+                "success": trajectory.success, "pending_action_id": trajectory.pending_action_id,
+                "steps_count": len(trajectory.steps), "elapsed_sec": trajectory.total_elapsed_sec,
+                "model_calls": trajectory.model_calls, "max_steps": trajectory.max_steps,
+                "max_model_calls": trajectory.max_model_calls, "stopped_reason": trajectory.stopped_reason,
+            },
+        )
+
     @track_run
     def handle_request(
         self,
@@ -770,8 +824,9 @@ ter pesquisado se não pesquisou.
         on_search: Any = None,
         profile_id: str | None = None,
         racing_mode: bool = False,
-        react_max_steps: int = 8,
+        react_max_steps: int | None = None,
         origin: str | None = None,
+        on_progress: Any = None,
     ) -> AgentPlan:
         if history is None:
             history = get_session_history(session_id) if session_id else []
@@ -782,6 +837,7 @@ ter pesquisado se não pesquisou.
             plan = self._dispatch_request(
                 text, session_id, mode, history, enem_context, enem_question_id,
                 on_chunk, on_reasoning, on_search, profile_id, racing_mode, react_max_steps,
+                on_progress,
             )
         finally:
             if origin_token is not None:
@@ -796,6 +852,7 @@ ter pesquisado se não pesquisou.
     def _dispatch_request(
         self, text, session_id, mode, history, enem_context, enem_question_id,
         on_chunk, on_reasoning, on_search, profile_id, racing_mode, react_max_steps,
+        on_progress=None,
     ) -> AgentPlan:
         try:
             from app.core.logger import logger
@@ -804,24 +861,11 @@ ter pesquisado se não pesquisou.
         except Exception:
             pass
 
-        # Se o modo ReAct estiver ativado
+        # Se o modo ReAct estiver ativado ("Execução por etapas": ferramentas do modo, REACT_TOOLS)
         if mode == "react":
-            try:
-                trajectory = self.react_loop.run_loop(text, max_steps=react_max_steps, context={"session_id": session_id})
-                plan = AgentPlan(
-                    intent="react_loop" if trajectory.success or trajectory.pending_action_id else "error",
-                    summary=trajectory.final_output,
-                    actions=[f"react_step_{s.step_number}" for s in trajectory.steps],
-                    context={"success": trajectory.success, "pending_action_id": trajectory.pending_action_id, "steps_count": len(trajectory.steps), "elapsed_sec": trajectory.total_elapsed_sec}
-                )
-                self.last_plan = plan
-                return plan
-            except RunCancelled:
-                raise
-            except Exception:
-                plan = AgentPlan(intent="error", summary="O modo ReAct falhou. Consulte as etapas na Central antes de tentar novamente.", actions=[])
-                self.last_plan = plan
-                return plan
+            plan = self._run_agent_loop(text, mode, session_id, history, react_max_steps, on_progress, allowed_tools=None)
+            self.last_plan = plan
+            return plan
 
         # Se o modo Swarm estiver ativado
         if mode == "swarm":
@@ -900,6 +944,17 @@ ter pesquisado se não pesquisou.
                 )
                 self.last_plan = plan
                 return plan
+            # Loop agêntico (regra, zero modelo): pedido de várias partes planeja, age e confere sozinho.
+            if getattr(self, "react_loop", None) is not None and self.registry is not None:
+                from app.agent.loop_policy import should_use_agent_loop
+                from app.storage.runtime_settings import get_agent_loop_settings
+                use_loop, reason = should_use_agent_loop(text, mode, get_agent_loop_settings())
+                if use_loop:
+                    record_run_step(f"Loop agêntico escolhido ({reason}).")
+                    allowed = self.registry.allowed_tool_names(mode="general", provider=provider, user_text=text)
+                    plan = self._run_agent_loop(text, mode, session_id, history, react_max_steps, on_progress, allowed_tools=allowed)
+                    self.last_plan = plan
+                    return plan
             try:
                 plan = self._run_llm_with_tools(
                     text, mode, session_id, history, enem_question=enem_question, on_chunk=on_chunk, on_reasoning=on_reasoning, on_search=on_search, profile_id=profile_id
@@ -975,12 +1030,16 @@ ter pesquisado se não pesquisou.
         def on_reasoning(reason_text: str):
             q.put({"type": "reasoning", "text": reason_text})
 
+        def on_progress(event: dict):
+            q.put({"type": "progress", "event": event})
+
         def run_llm():
             try:
                 plan = self.handle_request(
                     text, mode=mode, session_id=session_id, history=history,
                     enem_context=enem_context, enem_question_id=enem_question_id,
                     on_chunk=on_chunk, on_reasoning=on_reasoning, profile_id=profile_id, origin=origin,
+                    on_progress=on_progress,
                 )
                 self.last_plan = plan
                 q.put({"type": "error" if plan.intent == "error" else "done", "plan": plan})
@@ -1012,3 +1071,6 @@ ter pesquisado se não pesquisou.
                 yield {"status": "streaming", "chunk": msg["text"]}
             elif msg["type"] == "reasoning":
                 yield {"status": "reasoning", "text": msg["text"]}
+            elif msg["type"] == "progress":
+                event = {key: value for key, value in msg["event"].items() if key != "type"}
+                yield {"status": "progress", **event}

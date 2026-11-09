@@ -1,0 +1,273 @@
+"""Loop agêntico (lote 6, Fase 2): lote, orçamento, verificação, retomada após aprovação."""
+from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
+
+import pytest
+
+from app.agent.orchestrator import AgentOrchestrator, AgentPlan
+from app.agent.react_loop import ReActLoopEngine, parse_plan
+from app.agent.tools.base import ToolResult
+from app.core import loop_checkpoints, ui_events
+from app.core.actions import ToolMetadata, pending_action_broker
+from app.storage import runtime_settings
+from app.ui.panel.api import actions
+
+MULTI = "adiciona ler e meditar nos hábitos e depois agenda dentista amanhã às 15h"
+
+
+class FakeRegistry:
+    """Registro falso: grava as chamadas; ``high`` pede aprovação; ``responses`` define resultados."""
+
+    def __init__(self, names=("timer", "calendar", "habit_tool"), high=()):
+        self.tools = {name: SimpleNamespace(description=f"Ferramenta {name}", parameters={"type": "object", "properties": {"action": {"type": "string"}}}) for name in names}
+        self.high = set(high)
+        self.calls = []
+        self.responses = {}
+
+    def allowed_tool_names(self, **_kwargs):
+        return frozenset(self.tools)
+
+    def get_tool_metadata(self, name):
+        if name in self.high:
+            return ToolMetadata((name,), "high", requires_confirmation=True)
+        return ToolMetadata((name,), "observe")
+
+    def execute_tool(self, name, args, **_kwargs):
+        self.calls.append((name, args))
+        handler = self.responses.get((name, args.get("action")))
+        return handler(args) if handler else ToolResult(True, f"{name} ok")
+
+
+@pytest.fixture
+def env(isolated_lote6_data, monkeypatch):
+    import app.agent.orchestrator as module
+    store = isolated_lote6_data.store
+    monkeypatch.setattr(actions, "action_store", store)
+    monkeypatch.setattr(module, "build_tutor_system", lambda *a, **k: "test")
+    monkeypatch.setattr("app.services.stm_filters.stm_filter", SimpleNamespace(process=lambda value: value))
+    saved = []
+    monkeypatch.setattr(module, "save_session_history", lambda session, history: saved.append((session, history)))
+    monkeypatch.setattr(module, "get_session_history", lambda _: [])
+    monkeypatch.setattr("app.core.logger.logger", SimpleNamespace(record_request=lambda: None, info=lambda *a: None))
+    monkeypatch.setattr(loop_checkpoints, "resume_runner", lambda checkpoint, status: checkpoint.resume(status))
+    loop_checkpoints.loop_checkpoints.clear()
+    agent = AgentOrchestrator.__new__(AgentOrchestrator)
+    agent.llm_service = SimpleNamespace(get_active_provider=lambda: "gemini", _api_key_for=lambda _: "fixture-key")
+    agent.profile_memory = agent.settings = agent.vision_service = agent.browser_agent = None
+    agent._remember_preferences = lambda *a: None
+    agent._resolve_enem_context = lambda *a: None
+    agent.productivity_service = agent.file_action_service = None
+    agent.registry = FakeRegistry()
+    events = []
+    unsubscribe = ui_events.subscribe(events.append)
+    yield SimpleNamespace(agent=agent, store=store, saved=saved, events=events)
+    unsubscribe()
+    for action in store.list(limit=200):
+        pending_action_broker.discard(action.id)
+    loop_checkpoints.loop_checkpoints.clear()
+
+
+def script(env, replies):
+    prompts = []
+    sequence = iter(replies)
+
+    def ask(prompt):
+        prompts.append(prompt)
+        return next(sequence)
+    env.agent.react_loop = ReActLoopEngine(SimpleNamespace(ask=ask), env.agent.registry)
+    return prompts
+
+
+def detail(env, plan):
+    return env.store.run_details(plan.context["run_id"])
+
+
+def approve(action_id):
+    return actions.handle_actions_post(f"/api/actions/{action_id}/approve", b"{}", None)
+
+
+BATCH3 = 'ACOES: [{"ferramenta": "timer", "args": {"n": 1}}, {"ferramenta": "calendar", "args": {"n": 2}}, {"ferramenta": "timer", "args": {"n": 3}}]'
+
+
+def test_batch_of_three_actions_costs_two_model_calls_and_one_run(env):
+    prompts = script(env, [BATCH3, "FINISH: Tudo pronto."])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    assert plan.intent == "agent_loop" and plan.summary == "Tudo pronto."
+    assert len(prompts) == 2 and plan.context["model_calls"] == 2
+    assert [args["n"] for _, args in env.agent.registry.calls] == [1, 2, 3]
+    request = detail(env, plan)
+    assert [a["tool_name"] for a in request["actions"]] == ["timer", "calendar", "timer"]
+    assert request["run"]["status"] == "succeeded"
+    assert len(env.store.run_page(include_reads=True)["runs"]) == 1
+    # O prompt é compacto: só as ferramentas do turno, com descrição e esquema reduzido.
+    assert '"nome": "timer"' in prompts[0] and "ACOES:" in prompts[0] and "create_many" in prompts[0]
+
+
+def test_model_call_limit_stops_without_extra_call_and_answers_by_rule(env):
+    runtime_settings.set_agent_loop_settings({"max_model_calls": 2})
+    one = 'ACOES: [{"ferramenta": "timer", "args": {"n": 1}}]'
+    prompts = script(env, [one, one, "FINISH: nunca chega"])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    assert len(prompts) == 2
+    assert plan.context["stopped_reason"] == "limit_calls"
+    assert plan.summary.startswith("Fiz 2 de 2 etapa(s)") and "Parei no limite de 2 chamada(s) ao modelo." in plan.summary
+    assert detail(env, plan)["run"]["status"] == "succeeded"
+
+
+def test_step_limit_stops_the_batch(env):
+    runtime_settings.set_agent_loop_settings({"max_steps": 2})
+    prompts = script(env, [BATCH3, "FINISH: nunca chega"])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    assert len(prompts) == 1 and len(env.agent.registry.calls) == 2
+    assert plan.context["stopped_reason"] == "limit_steps"
+    assert "Fiz 2 de 3 etapa(s)" in plan.summary and "Parei no limite de 2 etapa(s)." in plan.summary
+
+
+@pytest.mark.parametrize("forgets", [False, True])
+def test_verification_reads_in_same_run_and_detects_divergence(env, forgets):
+    registry = env.agent.registry
+    registry.responses[("habit_tool", "create_many")] = lambda args: ToolResult(True, "2 hábitos criados", data={"habits": [{"name": "Ler"}, {"name": "Meditar"}], "habit_ids": ["h1", "h2"]})
+    listed = [] if forgets else [{"id": "h1", "name": "Ler"}, {"id": "h2", "name": "Meditar"}]
+    registry.responses[("habit_tool", "list")] = lambda args: ToolResult(True, "lista", data={"habits": listed})
+    prompts = script(env, ['ACOES: [{"ferramenta": "habit_tool", "args": {"action": "create_many", "habits": [{"name": "Ler"}, {"name": "Meditar"}]}}]', "FINISH: Criei Ler e Meditar."])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    request = detail(env, plan)
+    assert [(a["tool_name"], a["risk"]) for a in request["actions"]] == [("habit_tool", "observe"), ("habit_tool", "observe")]
+    assert registry.calls[1] == ("habit_tool", {"action": "list"})
+    assert len(prompts) == 2
+    if forgets:
+        assert "Ler, Meditar não apareceu na leitura de hábitos" in prompts[1]
+        assert "Atenção:" in plan.summary
+    else:
+        assert "SUCESSO" in prompts[1] and "Atenção" not in plan.summary
+
+
+def test_verification_with_real_tools_uses_isolated_data(env):
+    from app.agent.tools.registry import ToolRegistry
+    from app.agent.tools.lifeos_tool import LifeOSTool
+    registry = ToolRegistry.__new__(ToolRegistry)
+    registry.tools = {"lifeos_tool": LifeOSTool()}
+    env.agent.registry = registry
+    prompts = script(env, ['ACOES: [{"ferramenta": "lifeos_tool", "args": {"action": "set_water", "total_ml": 3000}}]', "FINISH: Registrei 3 L."])
+    plan = env.agent.handle_request("coloca que bebi 3 litros de água hoje e depois confere se ficou certo", session_id="s1")
+    request = detail(env, plan)
+    assert [a["tool_name"] for a in request["actions"]] == ["lifeos_tool", "lifeos_tool"]
+    assert request["actions"][1]["risk"] == "observe"
+    assert plan.summary == "Registrei 3 L." and "SUCESSO" in prompts[1]
+
+
+def test_approval_resumes_remaining_batch_and_planning_in_same_run(env):
+    env.agent.registry.high = {"calendar"}
+    prompts = script(env, [BATCH3, "FINISH: Tudo feito depois da aprovação."])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    assert plan.context["stopped_reason"] == "waiting_approval"
+    assert "precisa da sua aprovação" in plan.summary and "continuo sozinho" in plan.summary
+    assert [args["n"] for _, args in env.agent.registry.calls] == [1]
+    run = detail(env, plan)["run"]
+    assert run["status"] == "awaiting_confirmation" and run["resume_pending"] is True
+    status, body = approve(plan.context["pending_action_id"])
+    assert status == 200 and body["resumed"] is True
+    assert [args["n"] for _, args in env.agent.registry.calls] == [1, 2, 3]
+    assert len(prompts) == 2
+    request = detail(env, plan)
+    assert request["run"]["status"] == "succeeded" and request["run"]["reply"] == "Tudo feito depois da aprovação."
+    assert {a["run_id"] for a in request["actions"]} == {plan.context["run_id"]}
+    assert env.saved[-1] == ("s1", [{"role": "assistant", "content": "Tudo feito depois da aprovação.", "run_id": plan.context["run_id"]}])
+    replies = [e for e in env.events if e["type"] == "agent_reply"]
+    assert replies == [{"type": "agent_reply", "session_id": "s1", "run_id": plan.context["run_id"], "reply": "Tudo feito depois da aprovação."}]
+    assert approve(plan.context["pending_action_id"])[0] == 409
+
+
+def test_reject_ends_sequence_without_new_model_call(env):
+    env.agent.registry.high = {"calendar"}
+    prompts = script(env, [BATCH3, "FINISH: nunca chega"])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    status, body = actions.handle_actions_post(f"/api/actions/{plan.context['pending_action_id']}/reject", b"{}", None)
+    assert status == 200 and body["resumed"] is False
+    assert len(prompts) == 1 and [args["n"] for _, args in env.agent.registry.calls] == [1]
+    run = detail(env, plan)["run"]
+    assert run["status"] == "cancelled" and run["resume_pending"] is False
+    assert "Etapa recusada" in run["reply"] and run["reply"].startswith("Fiz 1 de 3 etapa(s)")
+    assert any(e["type"] == "agent_reply" and "recusada" in e["reply"] for e in env.events)
+
+
+def test_cancel_while_waiting_discards_checkpoint_and_approval_never_resumes(env):
+    env.agent.registry.high = {"calendar"}
+    prompts = script(env, [BATCH3, "FINISH: nunca chega"])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    action_id = plan.context["pending_action_id"]
+    assert env.store.cancel_run(plan.context["run_id"])["status"] == "cancelled"
+    assert loop_checkpoints.take(action_id) is None
+    assert approve(action_id)[0] == 409
+    assert len(prompts) == 1 and len(env.agent.registry.calls) == 1
+    run = detail(env, plan)["run"]
+    assert run["status"] == "cancelled" and run["resume_pending"] is False
+
+
+def test_approval_during_turn_continues_once(env, monkeypatch):
+    env.agent.registry.high = {"calendar"}
+    create = env.store.create
+
+    def publish(action):
+        created = create(action)
+        if action.status == "awaiting_confirmation":
+            with ThreadPoolExecutor() as pool:
+                assert pool.submit(approve, action.id).result(5)[0] == 200
+        return created
+    monkeypatch.setattr(env.store, "create", publish)
+    prompts = script(env, [BATCH3, "FINISH: feito uma vez"])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    assert plan.summary == "feito uma vez" and len(prompts) == 2
+    assert [args["n"] for _, args in env.agent.registry.calls] == [1, 2, 3]
+    assert detail(env, plan)["run"]["status"] == "succeeded"
+    assert not [e for e in env.events if e["type"] == "agent_reply"]
+
+
+def test_progress_events_are_published_and_stored(env):
+    script(env, [BATCH3, "FINISH: ok"])
+    stream = list(env.agent.handle_request_stream(MULTI, session_id="s1"))
+    plan = stream[-1]["plan"]
+    progress = [e for e in env.events if e["type"] == "agent_progress"]
+    phases = [e["phase"] for e in progress]
+    assert phases[0] == "planning" and "acting" in phases and phases[-1] == "done"
+    assert all(e["session_id"] == "s1" and e["run_id"] == plan.context["run_id"] for e in progress)
+    assert progress[-1]["step"] == 3 and progress[-1]["max_steps"] == 8 and progress[-1]["max_model_calls"] == 10
+    streamed = [item for item in stream if item["status"] == "progress"]
+    assert streamed and streamed[0]["phase"] == "planning" and "type" not in streamed[0]
+    assert detail(env, plan)["run"]["progress"]["phase"] == "done"
+
+
+def test_tool_outside_turn_list_is_blocked(env):
+    env.agent.registry.allowed_tool_names = lambda **k: frozenset({"timer"})
+    script(env, ['ACOES: [{"ferramenta": "calendar", "args": {}}]', "FINISH: feito"])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    assert plan.intent == "error" and "bloqueada" in plan.summary
+    assert env.agent.registry.calls == [] and detail(env, plan)["actions"] == []
+
+
+def test_orchestrator_uses_loop_for_multi_part_and_native_for_simple(env):
+    native = []
+    env.agent._run_llm_with_tools = lambda text, *a, **k: native.append(text) or AgentPlan(intent="general", summary="nativo", actions=[])
+    prompts = script(env, ["FINISH: loop"])
+    assert env.agent.handle_request(MULTI, session_id="s1").intent == "agent_loop"
+    assert env.agent.handle_request("abre minhas finanças", session_id="s1").summary == "nativo"
+    assert native == ["abre minhas finanças"] and len(prompts) == 1
+    runtime_settings.set_agent_loop_settings({"mode": "off"})
+    assert env.agent.handle_request(MULTI, session_id="s1").summary == "nativo"
+
+
+@pytest.mark.parametrize("raw", [
+    'ACOES: []', 'ACOES: [{"ferramenta": "x"}]', 'ACOES: [{"ferramenta": "", "args": {}}]',
+    'ACOES: [{"ferramenta": "x", "args": []}]', 'ACOES: {"ferramenta": "x", "args": {}}',
+    'FINISH: ok\nACOES: [{"ferramenta": "x", "args": {}}]',
+    'ACOES: ' + str([{"ferramenta": "x", "args": {}}] * 6).replace("'", '"'),
+    'ACOES: [broken', 'FINISH:',
+])
+def test_invalid_batch_plans_are_rejected(raw):
+    with pytest.raises(ValueError):
+        parse_plan(raw)
+
+
+def test_batch_plan_accepts_code_fences():
+    assert parse_plan('```json\nACOES: [{"ferramenta": "timer", "args": {"label": "chá"}}]\n```') == ("actions", [("timer", {"label": "chá"})])
+    assert parse_plan("FERRAMENTA: timer\nARGS: {}") == ("actions", [("timer", {})])

@@ -65,3 +65,11 @@
   .agent-workspace .st-nav-row { flex: 1 1 auto; }
   .agent-workspace .st-body .settings-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Lote 6: configuração do loop agêntico (Agente e popups). */
+.agent-workspace .st-body .agent-loop-modes { display: grid; gap: 8px; margin: 12px 0; padding: 0; border: 0; min-width: 0; }
+.agent-workspace .st-body .agent-loop-mode { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--ws-border, #3f4942); border-radius: 8px; cursor: pointer; }
+.agent-workspace .st-body .agent-loop-mode span { display: grid; gap: 3px; min-width: 0; }
+.agent-workspace .st-body .agent-loop-mode small { color: var(--ws-muted); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.agent-workspace .st-body .agent-loop-limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.agent-workspace .st-body .settings-error { color: var(--ws-danger, #e49b9b); font-size: 12px; line-height: 1.5; }

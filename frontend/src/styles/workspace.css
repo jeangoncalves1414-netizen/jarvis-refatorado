@@ -214,3 +214,7 @@
 .ws-capability-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 14px 0; font-size: 11px; }
 .ws-capability-facts dt { color: #93a197; }
 .ws-capability-facts dd { margin: 0; color: #c9d6cd; overflow-wrap: anywhere; }
+
+/* Lote 6: contador do loop agêntico no balão do assistente. */
+.ws-agent-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 8px; color: var(--ws-muted, #94a398); font-size: 11px; overflow-wrap: anywhere; }
+.ws-agent-progress strong { color: var(--ws-text, #dfe7e1); font-weight: 600; }

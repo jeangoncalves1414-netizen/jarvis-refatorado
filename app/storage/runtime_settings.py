@@ -589,6 +589,55 @@ def set_mic_settings(values: dict[str, Any]) -> dict[str, Any]:
     return get_mic_settings()
 
 
+# Loop agêntico (lote 6): quando o agente planeja, age, confere e continua sozinho.
+AGENT_LOOP_MODES = ("auto", "always", "off")
+AGENT_LOOP_DEFAULTS: dict[str, Any] = {"mode": "auto", "max_steps": 8, "max_model_calls": 10, "auto_verify": True}
+_AGENT_LOOP_LIMITS = {"max_steps": (1, 20), "max_model_calls": (1, 30)}
+_AGENT_LOOP_LABELS = {"max_steps": "O limite de etapas", "max_model_calls": "O limite de chamadas ao modelo"}
+
+
+def get_agent_loop_settings() -> dict[str, Any]:
+    saved = _read().get("agent_loop")
+    saved = saved if isinstance(saved, dict) else {}
+    mode = str(saved.get("mode", AGENT_LOOP_DEFAULTS["mode"])).lower()
+    result: dict[str, Any] = {"mode": mode if mode in AGENT_LOOP_MODES else "auto"}
+    for key, (low, high) in _AGENT_LOOP_LIMITS.items():
+        value = saved.get(key, AGENT_LOOP_DEFAULTS[key])
+        result[key] = value if type(value) is int and low <= value <= high else AGENT_LOOP_DEFAULTS[key]
+    verify = saved.get("auto_verify", True)
+    result["auto_verify"] = verify if isinstance(verify, bool) else True
+    return result
+
+
+def set_agent_loop_settings(values: dict[str, Any]) -> dict[str, Any]:
+    """Valida tudo antes de gravar; valor inválido não altera nada."""
+    if not isinstance(values, dict):
+        raise ValueError("Configuração do agente inválida.")
+    unknown = set(values) - set(AGENT_LOOP_DEFAULTS)
+    if unknown:
+        raise ValueError("Campo desconhecido na configuração do agente: " + ", ".join(sorted(unknown)) + ".")
+    current = get_agent_loop_settings()
+    if "mode" in values:
+        mode = values["mode"]
+        if not isinstance(mode, str) or mode.lower() not in AGENT_LOOP_MODES:
+            raise ValueError("Modo do agente inválido: use auto, always ou off.")
+        current["mode"] = mode.lower()
+    for key, (low, high) in _AGENT_LOOP_LIMITS.items():
+        if key in values:
+            value = values[key]
+            if type(value) is not int or not low <= value <= high:
+                raise ValueError(f"{_AGENT_LOOP_LABELS[key]} deve ser um número inteiro de {low} a {high}.")
+            current[key] = value
+    if "auto_verify" in values:
+        if not isinstance(values["auto_verify"], bool):
+            raise ValueError("A verificação automática deve ser ligada ou desligada (true/false).")
+        current["auto_verify"] = values["auto_verify"]
+    data = _read()
+    data["agent_loop"] = current
+    _write(data)
+    return get_agent_loop_settings()
+
+
 # ---------------------------------------------------------------------------
 # Capability routes
 # ---------------------------------------------------------------------------

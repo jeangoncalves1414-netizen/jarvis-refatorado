@@ -558,7 +558,17 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
                   sentenceRegex.lastIndex = 0
                 }
               }
+            } else if (data.status === 'progress' && typeof data.step === 'number' && typeof data.max_steps === 'number') {
+              // Loop agêntico: o contador aparece na linha de status da ligação.
+              const phases: Record<string, string> = { planning: 'planejando', acting: 'executando', verifying: 'verificando', waiting_approval: 'aguardando aprovação na Central', resumed: 'retomando' }
+              if (!isSpeakingRef.current) setLiveCallStatus(`Etapa ${data.step} de ${data.max_steps} · ${phases[data.phase] || 'processando'}…`)
             } else if (data.status === 'complete') {
+              // O loop agêntico não transmite pedaços: a resposta final vem inteira no plano.
+              const summary = typeof data.plan?.summary === 'string' ? data.plan.summary.trim() : ''
+              if (!fullReply.trim() && summary && ['agent_loop', 'react_loop'].includes(data.plan?.intent)) {
+                fullReply = summary
+                sentenceBuffer += summary
+              }
               if (sentenceBuffer.trim()) {
                 enqueuePhrase(sentenceBuffer)
                 sentenceBuffer = ''
