@@ -18,6 +18,7 @@ from .clipboard import ClipboardTool, NewsTool
 from .open_windows_app import OpenWindowsAppTool
 from .script_runner import ScriptRunnerTool
 from .vision_tool import VisionTool
+from .video_analyst_tool import VideoAnalystTool
 from .qr_reader_tool import QRReaderTool
 from .realtime_tool import RealTimeTool
 from .cinema_tool import CinemaTool
@@ -107,7 +108,8 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
         # Pedido com horário ou repetição vira rotina gravada.
         (r"\brotina|\btodo dia|\btodos os dias|\btoda (segunda|terca|quarta|quinta|sexta)|\btodo (sabado|domingo)|\bdias uteis|\ba cada \d+ ?min|\bas \d{1,2} ?h\b|\bas \d{1,2}:\d{2}", ("routine",)),
         (r"\bpersona|\bpersonalidade|\btom de voz|\bdesafio matinal|\bmude seu nome|\btroque seu nome", ("persona_tool",)),
-        (r"\bvideo|\bvideos|\bmotivac|\bmidia\b|\bplayer\b", ("media_tool",)),
+        (r"\bmidia\b|\bmotivac|\bplayer\b", ("media_tool",)),
+        (r"\bvideo|\bvideos|\byoutube|\bgravacao|\bmp4|\bmkv|\btranscricao", ("video_analyst", "media_tool")),
     )
 )
 
@@ -134,6 +136,7 @@ LOOP_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
         (r"\bscript\b|\bcodigo\b|\bexecut", ("script_runner",)),
         (r"\btela\b|\bvejo\b|\bscreenshot|\bprint\b", ("vision",)),
         (r"\bnaveg|\bplaywright|\bclic|\bformulario|\bextrair.*pagina|\bpreench", ("browser",)),
+        (r"\bvideo|\bvideos|\byoutube|\bgravacao|\bmp4|\bmkv|\btranscricao", ("video_analyst", "web_search")),
         (r"\brotina|\btodo dia|\btodos os dias|\btoda (segunda|terca|quarta|quinta|sexta)|\btodo (sabado|domingo)|\bdias uteis|\ba cada \d+ ?min|\bas \d{1,2} ?h\b|\bas \d{1,2}:\d{2}", ("routine",)),
     )
 )
@@ -141,7 +144,7 @@ LOOP_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
 GENERAL_TOOL_NAMES = {
     "file_manager", "system_control", "jarvis_mode", "web_search", "browser", "browser_agent", "timer", "wait",
     "whatsapp", "spotify", "clipboard", "news_reader", "open_windows_app", "script_runner",
-    "vision", "qr_reader", "realtime", "proactive_agent", "system_tray", "cinema", "calendar", "image_generator",
+    "vision", "video_analyst", "media_tool", "qr_reader", "realtime", "proactive_agent", "system_tray", "cinema", "calendar", "image_generator",
     "screen_peeler", "phantom_typer", "smart_drop_zone",
     "desktop_search", "kasa_control", "home", "document_generator", "telegram_bot", "mobile_adb",
     "wormhole", "wallpaper_engine", "clipboard_intelligence",
@@ -239,6 +242,7 @@ class ToolRegistry:
         self._register(OpenWindowsAppTool())
         self._register(ScriptRunnerTool())
         self._register(VisionTool())
+        self._register(VideoAnalystTool())
         self._register(QRReaderTool())
         self._register(RealTimeTool())
         self._register(CinemaTool())

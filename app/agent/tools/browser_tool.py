@@ -43,18 +43,28 @@ class BrowserTool(BaseTool):
                         "navigate",
                         "extract",
                         "extract_content",
+                        "clean_text",
+                        "interactive_snapshot",
+                        "deep_search",
                         "search_and_extract",
                         "click",
+                        "click_element",
                         "fill_form",
+                        "type_element",
                         "screenshot",
                     ],
                     "description": (
                         "Ação a executar no navegador: "
                         "'navigate' (acessa URL e espera DOM), "
                         "'extract' ou 'extract_content' (extrai texto limpo, headings e links da página ou seletor), "
+                        "'clean_text' (extrai texto limpo sem anúncios, scripts ou cookies da página web), "
+                        "'interactive_snapshot' (mapeia elementos interativos numerados [1], [2] para cliques precisos), "
+                        "'deep_search' (pesquisa aprofundada na web lendo páginas em paralelo com fontes), "
                         "'search_and_extract' (pesquisa palavras-chave/preços dentro da página), "
                         "'click' (clica em elemento por seletor CSS), "
+                        "'click_element' (clica em elemento por ID numérico do snapshot), "
                         "'fill_form' (preenche campos/inputs com dicionário seletor->valor), "
+                        "'type_element' (digita texto em elemento por ID numérico do snapshot), "
                         "'screenshot' (captura imagem da página para diagnósticos)."
                     ),
                 },
@@ -68,7 +78,19 @@ class BrowserTool(BaseTool):
                 },
                 "query": {
                     "type": "string",
-                    "description": "Termo de busca ou palavras-chave para search_and_extract.",
+                    "description": "Termo de busca para search_and_extract ou deep_search.",
+                },
+                "max_sites": {
+                    "type": "integer",
+                    "description": "Número máximo de páginas para deep_search ler em paralelo (padrão: 3).",
+                },
+                "element_id": {
+                    "type": "integer",
+                    "description": "ID numérico do elemento no snapshot interativo para click_element ou type_element.",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Texto para digitar no elemento em type_element.",
                 },
                 "fields": {
                     "type": "object",
@@ -144,6 +166,34 @@ class BrowserTool(BaseTool):
             selector = kwargs.get("selector")
             return service.extract_content(selector=selector)
 
+        if action == "clean_text":
+            url = kwargs.get("url")
+            if url:
+                service.navigate(url)
+            txt = service.extract_clean_text()
+            return {"ok": bool(txt), "text": txt, "message": txt[:4000]}
+
+        if action == "interactive_snapshot":
+            url = kwargs.get("url")
+            if url:
+                service.navigate(url)
+            elements = service.get_interactive_snapshot()
+            return {"ok": True, "elements": elements, "count": len(elements)}
+
+        if action == "click_element":
+            el_id = kwargs.get("element_id") or 0
+            return service.click_interactive_element(int(el_id))
+
+        if action == "type_element":
+            el_id = kwargs.get("element_id") or 0
+            text = str(kwargs.get("text") or "")
+            return service.type_interactive_element(int(el_id), text=text)
+
+        if action == "deep_search":
+            query = kwargs.get("query") or kwargs.get("url") or ""
+            max_sites = int(kwargs.get("max_sites") or 3)
+            return service.deep_search(query=query, max_sites=max_sites)
+
         if action == "search_and_extract":
             query = kwargs.get("query") or kwargs.get("url") or ""
             url = kwargs.get("url") if kwargs.get("query") else None
@@ -187,6 +237,44 @@ class BrowserTool(BaseTool):
                 ok = res.get("ok", False)
                 msg = res.get("message", res.get("error", "Conteúdo extraído."))
                 return ToolResult(ok=ok, message=msg, data=res)
+
+            elif action == "clean_text":
+                url = args.get("url")
+                if url:
+                    service.navigate(url)
+                txt = service.extract_clean_text()
+                return ToolResult(ok=bool(txt), message=txt[:4000] if txt else "Nenhum texto encontrado.", data={"text": txt})
+
+            elif action == "interactive_snapshot":
+                url = args.get("url")
+                if url:
+                    service.navigate(url)
+                elements = service.get_interactive_snapshot()
+                msg = f"Elementos ({len(elements)}):\n" + "\n".join(e["label"] for e in elements[:30])
+                return ToolResult(ok=True, message=msg, data={"elements": elements, "count": len(elements)})
+
+            elif action == "click_element":
+                el_id = args.get("element_id")
+                if el_id is None:
+                    return ToolResult(ok=False, message="Parâmetro 'element_id' é obrigatório para click_element.")
+                res = service.click_interactive_element(int(el_id))
+                return ToolResult(ok=res.get("ok", False), message=res.get("message", res.get("error", "")), data=res)
+
+            elif action == "type_element":
+                el_id = args.get("element_id")
+                if el_id is None:
+                    return ToolResult(ok=False, message="Parâmetro 'element_id' é obrigatório para type_element.")
+                text = str(args.get("text") or "")
+                res = service.type_interactive_element(int(el_id), text=text)
+                return ToolResult(ok=res.get("ok", False), message=res.get("message", res.get("error", "")), data=res)
+
+            elif action == "deep_search":
+                query = str(args.get("query") or args.get("url") or "").strip()
+                if not query:
+                    return ToolResult(ok=False, message="Parâmetro 'query' é obrigatório para deep_search.")
+                max_sites = int(args.get("max_sites") or 3)
+                res = service.deep_search(query=query, max_sites=max_sites)
+                return ToolResult(ok=res.get("ok", False), message=res.get("message", res.get("synthesis", "")), data=res)
 
             elif action == "search_and_extract":
                 query = str(args.get("query") or "").strip()

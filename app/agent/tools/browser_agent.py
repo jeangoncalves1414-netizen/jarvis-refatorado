@@ -99,35 +99,168 @@ class BrowserAgentTool(BaseTool):
         return {
             "type": "object",
             "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "auto",
+                        "deep_search",
+                        "clean_text",
+                        "interactive_snapshot",
+                        "click_element",
+                        "type_element",
+                        "dump_dom",
+                        "click_text",
+                        "type_input",
+                    ],
+                    "description": (
+                        "Modo ou ação a executar: "
+                        "'deep_search' (busca e sintetiza conteúdo de múltiplos sites em paralelo citando fontes), "
+                        "'clean_text' (extrai conteúdo textual limpo da página sem anúncios, menus ou cookies), "
+                        "'interactive_snapshot' (mapeia botões, links e campos com números [1], [2] para cliques precisos), "
+                        "'click_element' (clica no elemento indicado pelo ID numérico do snapshot), "
+                        "'type_element' (digita texto no elemento pelo ID numérico do snapshot), "
+                        "'auto' (agente autônomo com visão computacional para cumprir o objetivo informado)."
+                    ),
+                },
                 "goal": {
                     "type": "string",
-                    "description": "O que você quer que o agente faça no navegador (ex: 'pesquisar passagem para SP', 'verificar o primeiro email')."
+                    "description": "Objetivo geral da tarefa no navegador ou termo de busca para deep_search.",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Termo de busca para a ação 'deep_search'.",
+                },
+                "max_sites": {
+                    "type": "integer",
+                    "description": "Número máximo de páginas a ler em paralelo para deep_search (padrão: 3).",
+                },
+                "element_id": {
+                    "type": "integer",
+                    "description": "ID numérico do elemento (obtido via interactive_snapshot) para clicar ou digitar.",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Texto a ser digitado na ação 'type_element' ou 'type_input'.",
                 },
                 "start_url": {
                     "type": "string",
-                    "description": "URL inicial opcional (default: https://google.com)"
+                    "description": "URL inicial para navegação (ex: https://exemplo.com).",
+                },
+                "url": {
+                    "type": "string",
+                    "description": "URL de destino para navegação, extração de texto limpo ou snapshot.",
                 },
                 "fast_action": {
                     "type": "string",
-                    "enum": ["auto", "dump_dom", "click_text", "type_input"],
-                    "description": "Modo de execução: 'auto' (Visão autônoma), 'dump_dom' (Ler elementos HTML em 0.02s), 'click_text' (Clicar direto em texto), 'type_input' (Digitar em seletor)."
+                    "enum": ["auto", "dump_dom", "click_text", "type_input", "clean_text", "interactive_snapshot", "deep_search"],
+                    "description": "Modo rápido de execução (compatibilidade).",
                 },
                 "target_text": {
                     "type": "string",
-                    "description": "Texto do botão ou link para ação rápida click_text."
+                    "description": "Texto do botão ou link para ação rápida click_text.",
                 },
                 "target_selector": {
                     "type": "string",
-                    "description": "Seletor CSS para ação rápida type_input (ex: 'input[name=q]')."
-                }
+                    "description": "Seletor CSS para ação rápida type_input (ex: 'input[name=q]').",
+                },
             },
-            "required": ["goal"]
         }
 
+    def run(self, **kwargs: Any) -> dict[str, Any]:
+        """Implementação base para o protocolo BaseTool."""
+        res = self.execute(kwargs)
+        data = dict(res.data) if res.data else {}
+        data["ok"] = res.ok
+        data["message"] = res.message
+        return data
+
     def execute(self, args: dict[str, Any], context: dict[str, Any] | None = None) -> ToolResult:
-        goal = args.get("goal")
+        args = args or {}
+        context = context or {}
+
+        action = str(args.get("action") or args.get("fast_action") or "").strip().lower()
+
+        # 1. AÇÃO: DEEP_SEARCH (não necessita de VLM/Visão)
+        if action == "deep_search":
+            query = str(args.get("query") or args.get("goal") or "").strip()
+            if not query:
+                return ToolResult(ok=False, message="Parâmetro 'query' ou 'goal' é obrigatório para deep_search.")
+            max_sites = int(args.get("max_sites") or 3)
+            from app.services.browser import get_browser_service
+            service = context.get("browser") or get_browser_service()
+            res = service.deep_search(query=query, max_sites=max_sites)
+            ok = res.get("ok", False)
+            msg = res.get("message", res.get("synthesis", "Pesquisa concluída."))
+            return ToolResult(ok=ok, message=msg, data=res)
+
+        # 2. AÇÃO: CLEAN_TEXT
+        if action == "clean_text":
+            from app.services.browser import get_browser_service
+            service = context.get("browser") or get_browser_service()
+            target_url = str(args.get("url") or args.get("start_url") or "").strip()
+            if target_url:
+                nav = service.navigate(target_url)
+                if not nav.get("ok"):
+                    return ToolResult(ok=False, message=nav.get("error", "Falha ao navegar."), data=nav)
+            clean_str = service.extract_clean_text()
+            if not clean_str:
+                return ToolResult(ok=False, message="Nenhum conteúdo textual legível encontrado na página.")
+            truncated = clean_str[:8000]
+            return ToolResult(
+                ok=True,
+                message=truncated,
+                data={"text": clean_str, "total_chars": len(clean_str), "truncated": len(clean_str) > 8000}
+            )
+
+        # 3. AÇÃO: INTERACTIVE_SNAPSHOT
+        if action == "interactive_snapshot":
+            from app.services.browser import get_browser_service
+            service = context.get("browser") or get_browser_service()
+            target_url = str(args.get("url") or args.get("start_url") or "").strip()
+            if target_url:
+                nav = service.navigate(target_url)
+                if not nav.get("ok"):
+                    return ToolResult(ok=False, message=nav.get("error", "Falha ao navegar."), data=nav)
+            elements = service.get_interactive_snapshot()
+            if not elements:
+                return ToolResult(ok=True, message="Nenhum elemento interativo visível encontrado na página.", data={"elements": []})
+            summary_lines = [f"Elementos interativos encontrados na página ({len(elements)}):"]
+            for el in elements[:40]:
+                summary_lines.append(f"  {el.get('label')}")
+            if len(elements) > 40:
+                summary_lines.append(f"  ... e mais {len(elements) - 40} elementos.")
+            msg = "\n".join(summary_lines)
+            return ToolResult(ok=True, message=msg, data={"elements": elements, "count": len(elements)})
+
+        # 4. AÇÃO: CLICK_ELEMENT (por ID do snapshot)
+        if action == "click_element":
+            el_id = args.get("element_id")
+            if el_id is None:
+                return ToolResult(ok=False, message="Parâmetro 'element_id' é obrigatório para click_element.")
+            from app.services.browser import get_browser_service
+            service = context.get("browser") or get_browser_service()
+            res = service.click_interactive_element(int(el_id))
+            ok = res.get("ok", False)
+            msg = res.get("message", res.get("error", f"Clique executado no elemento [{el_id}]."))
+            return ToolResult(ok=ok, message=msg, data=res)
+
+        # 5. AÇÃO: TYPE_ELEMENT (por ID do snapshot)
+        if action == "type_element":
+            el_id = args.get("element_id")
+            if el_id is None:
+                return ToolResult(ok=False, message="Parâmetro 'element_id' é obrigatório para type_element.")
+            text = str(args.get("text") or "")
+            from app.services.browser import get_browser_service
+            service = context.get("browser") or get_browser_service()
+            res = service.type_interactive_element(int(el_id), text=text)
+            ok = res.get("ok", False)
+            msg = res.get("message", res.get("error", f"Texto digitado no elemento [{el_id}]."))
+            return ToolResult(ok=ok, message=msg, data=res)
+
+        # 6. MODO AUTO (ou default): AGENTE COM VISÃO MULTIMODAL
+        goal = args.get("goal") or args.get("query")
         if not goal:
-            return ToolResult(ok=False, message="Objetivo (goal) é obrigatório.")
+            return ToolResult(ok=False, message="Objetivo (goal) é obrigatório para navegação autônoma.")
         
         import urllib.parse
 
