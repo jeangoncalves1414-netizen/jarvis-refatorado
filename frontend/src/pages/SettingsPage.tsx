@@ -3,8 +3,9 @@ import { Switch } from '../components/Switch'
 import { AutoApprovalsManager } from '../components/AutoApprovals'
 import { AgentLoopSettings } from '../components/AgentLoopSettings'
 import { PopupSettings } from '../components/PopupSettings'
+import { ContextSettings } from '../components/ContextSettings'
 import { VoiceSettings } from '../components/VoiceSettings'
-import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download, User, Mic, Route, ShieldCheck, Cloud, Palette, HardDrive, Search, Star, ArrowUp, ArrowDown, Check, SlidersHorizontal, Bot } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, RefreshCw, Save, Download, User, Mic, Route, ShieldCheck, Cloud, Palette, HardDrive, Search, Star, ArrowUp, ArrowDown, Check, SlidersHorizontal, Bot, Compass } from 'lucide-react'
 import type { AiSettings, LlmSettings, OxyyCatalog, OxyySettings, Proactive, SttSettings, TtsSettings, Tray, WakeWord } from '../types'
 import { isMobileStandalone, getMobileProvider, getMobileApiKeys, setMobileProvider, setMobileApiKeys, getMobileOxyyModels, setMobileOxyyModels, DEFAULT_MOBILE_KEYS, DEFAULT_OXXY_MODELS, type DirectChatProvider, countKeys, nativeDirectPost } from '../hooks/useDirectChat'
 import { isSfxEnabled, setSfxEnabled, playSuccess } from '../utils/sfx'
@@ -673,6 +674,13 @@ export function SettingsPage({
       id: 'approvals', label: 'Aprovações automáticas', icon: <ShieldCheck size={16} />, keywords: 'aprovações automáticas modo liberado ferramentas regras permitir aprovar',
       render: () => (<>
       <AutoApprovalsManager />
+      </>),
+    },
+    {
+      id: 'context', label: 'Contexto e casa', icon: <Compass size={16} />, keywords: 'contexto situação janela música agenda água hábitos tarefas rotinas bateria cpu privacidade títulos home assistant casa',
+      render: () => (<>
+      {desktop && <ContextSettings />}
+      {!desktop && <article className="settings-card"><p className="eyebrow">CONTEXTO</p><h2>Disponível no PC</h2><p>O contexto da situação é montado no backend do computador.</p></article>}
       </>),
     },
     {

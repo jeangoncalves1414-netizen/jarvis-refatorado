@@ -13,7 +13,11 @@ export type SttSettings = { stt_provider?: 'local' | 'groq' | 'oxyy' | 'google';
 export type OxyyModel = { id: string; name?: string; provider?: string; type?: string; context_length?: number | null }
 export type OxyyCatalog = { models?: Record<string, OxyyModel[]>; all?: OxyyModel[]; remote?: boolean; error?: string }
 export type OxyySettings = { models: { chat?: string; tts?: string; tts_voice?: string; stt?: string; image?: string; video?: string; embedding?: string }; oxyy_configured?: boolean; key_count?: number; base_url?: string }
-export type ChatMessage = { role: 'user' | 'assistant'; content: string; run_id?: string }
+/** Memória citada no turno (fase contexto 2). */
+export type MemoryCitation = { id: string; text: string; date: string; label: string; origin: string; session_id?: string; applied_to?: { tool: string; param: string; value: string }; how: 'preenchido' | 'citado' }
+/** Metadados do turno, só ao vivo (não vão para o histórico salvo). */
+export type TurnMeta = { situational_context?: { text: string; sources: { key: string; label: string }[]; chars: number }; memory_used?: MemoryCitation[] }
+export type ChatMessage = { role: 'user' | 'assistant'; content: string; run_id?: string; meta?: TurnMeta }
 export type ScriptRequest = { language: 'python' | 'powershell'; code: string; description: string }
 export type StudyCategory = { id: string; name: string; color: string; created_at?: number }
 export type ChatSession = { id: string; title?: string; type?: string; updated_at?: number; category_id?: string; category_color?: string; deleted_at?: number }

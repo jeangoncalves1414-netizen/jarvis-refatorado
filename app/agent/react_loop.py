@@ -506,6 +506,8 @@ class ReActLoopEngine:
                 obs.append(f"Visão de Tela: {res.get('reply', '')[:200]}")
             except Exception as e:
                 obs.append(f"Visão de Tela indisponível: {e}")
+        if context.get("situational"):
+            obs.append(str(context["situational"]))
         return "\n".join(obs)
 
     def _tool_lines(self, state: _LoopState) -> str:

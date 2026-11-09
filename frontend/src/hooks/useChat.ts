@@ -1,6 +1,19 @@
 ﻿import { FormEvent, useEffect, useRef, useState } from 'react'
-import type { ChatMessage, ChatSession, ScriptRequest } from '../types'
+import type { ChatMessage, ChatSession, ScriptRequest, TurnMeta } from '../types'
 import type { SearchPayload } from '../components/tools/SearchTool'
+
+/** Copia do contexto da resposta só os metadados do turno (contexto usado e memórias citadas). */
+function pickTurnMeta(context: unknown): TurnMeta | undefined {
+  if (!context || typeof context !== 'object') return undefined
+  const { situational_context, memory_used } = context as TurnMeta
+  const meta: TurnMeta = {}
+  if (situational_context && typeof situational_context.text === 'string' && Array.isArray(situational_context.sources)) meta.situational_context = situational_context
+  if (Array.isArray(memory_used) && memory_used.length) meta.memory_used = memory_used
+  return meta.situational_context || meta.memory_used ? meta : undefined
+}
+
+/** Os metadados do turno são só ao vivo: não vão para o histórico salvo no servidor. */
+const withoutMeta = (history: ChatMessage[]) => history.map(({ meta: _meta, ...rest }) => rest)
 
 /** Origem do pedido registrada nas ações da Central (C10); sem valor, o servidor usa "chat". */
 export type RequestOrigin = 'voice'
@@ -112,6 +125,7 @@ export function useChat(options: UseChatOptions = {}) {
   const finalReasoningRef = useRef('')
   const finalReplyRef = useRef('')
   const finalRunIdRef = useRef<string | undefined>(undefined)
+  const finalMetaRef = useRef<TurnMeta | undefined>(undefined)
   // run_id do pedido em andamento neste aparelho (vem do agent_progress); agent_reply de outro pedido não fecha o turno.
   const turnRunIdRef = useRef<string | undefined>(undefined)
   const waitForReplyRef = useRef<((reply: string) => void) | null>(null)
@@ -141,8 +155,10 @@ export function useChat(options: UseChatOptions = {}) {
     finalReasoningRef.current = ''
     finalReplyRef.current = ''
     const content = buildAssistantContent(reasoning, visibleReply)
-    const history = [...pendingHistoryRef.current, { role: 'assistant' as const, content, run_id: finalRunIdRef.current }]
+    const meta = finalMetaRef.current
+    const history: ChatMessage[] = [...pendingHistoryRef.current, { role: 'assistant' as const, content, run_id: finalRunIdRef.current, ...(meta ? { meta } : {}) }]
     finalRunIdRef.current = undefined
+    finalMetaRef.current = undefined
     turnRunIdRef.current = undefined
     setAnswer(visibleReply)
     setMessages(history)
@@ -158,7 +174,7 @@ export function useChat(options: UseChatOptions = {}) {
       fetch(`/api/sessions/${activeSessionRef.current}/history`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ history }),
+        body: JSON.stringify({ history: withoutMeta(history) }),
       }).catch(error => {
         console.warn('Erro ao salvar histórico:', error)
       })
@@ -357,6 +373,7 @@ export function useChat(options: UseChatOptions = {}) {
     const reply = data.reply || data.summary || ''
     if (activeSessionRef.current === activeSessionId) {
       commitRestReply(reply, data.context?.run_id)
+      finalMetaRef.current = pickTurnMeta(data.context)
       applyAgentContext(data.context)
     }
     return reply
@@ -374,7 +391,7 @@ export function useChat(options: UseChatOptions = {}) {
     const sid = activeSessionRef.current
     if (sid) {
       fetch(`/api/sessions/${sid}/history`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ history }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ history: withoutMeta(history) }),
       }).catch(() => undefined)
     }
   }
@@ -601,6 +618,7 @@ export function useChat(options: UseChatOptions = {}) {
           if (payload?.query && Array.isArray(payload.results)) setLiveSearch(payload)
         } else if (type === 'complete') {
           finalRunIdRef.current = typeof data.context?.run_id === 'string' ? data.context.run_id : undefined
+          finalMetaRef.current = pickTurnMeta(data.context)
           applyAgentContext(data.context)
           finalReasoningRef.current = (liveReasoningRef.current + reasoningBufferRef.current).trim()
           finalReplyRef.current = summary || message || ''

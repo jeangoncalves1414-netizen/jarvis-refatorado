@@ -17,6 +17,8 @@ from app.agent.mode_resolver import ModeResolver
 from app.agent.tool_guardrails import ToolCallGuardrailController
 from app.agent.action_executor import ActionExecutor
 from app.agent.run_tracking import background_run, in_background, record_run_step, track_run
+from app.agent import turn_meta
+from app.agent.turn_context import build_turn_sections
 from app.core.runs import REQUEST_ORIGINS, RunCancelled, check_run_cancelled, current_origin, current_run
 from app.core.actions import ToolMetadata
 from app.agent.tools.base import ToolResult
@@ -497,6 +499,8 @@ class AgentOrchestrator:
                     critical_confirm_enabled=False,
                     runtime_route=runtime_chat_route,
                 )
+            # Contexto situacional do turno (fase contexto 1): texto pronto, sem chamada ao modelo.
+            system += build_turn_sections(text, current_origin.get()).text
 
             if mode == "planning":
                 system += """
@@ -813,7 +817,8 @@ ter pesquisado se não pesquisou.
         try:
             trajectory = self.react_loop.run_loop(
                 text, max_steps=max_steps if max_steps is not None else settings["max_steps"],
-                context={"session_id": session_id}, allowed_tools=allowed_tools,
+                context={"session_id": session_id, "situational": build_turn_sections(text, current_origin.get()).text.strip()},
+                allowed_tools=allowed_tools,
                 max_model_calls=settings["max_model_calls"], verify=settings["auto_verify"],
                 progress=progress, history=history, save_reply=save_reply,
             )
@@ -870,6 +875,8 @@ ter pesquisado se não pesquisou.
                 (ui_events.current_popup_session, ui_events.current_popup_session.set(session_id)),
                 (ui_events.current_popup_listener, ui_events.current_popup_listener.set(on_popup)),
             ]
+        meta_token = turn_meta.start()  # contexto usado / memórias citadas do turno
+        turn_extra: dict = {}
         try:
             plan = self._dispatch_request(
                 text, session_id, mode, history, enem_context, enem_question_id,
@@ -877,12 +884,17 @@ ter pesquisado se não pesquisou.
                 on_progress,
             )
         finally:
+            if meta_token is not None:
+                turn_extra = turn_meta.snapshot()
+                turn_meta.reset(meta_token)
             for var, token in reversed(popup_tokens):
                 var.reset(token)
             if origin_token is not None:
                 current_origin.reset(origin_token)
         if popup_tokens and popups:
             plan.context = {**(plan.context or {}), "ui_popups": list(popups)}
+        if turn_extra:
+            plan.context = {**(plan.context or {}), **turn_extra}
         check_run_cancelled()
         if session_id and plan.intent != "error" and not is_technical_error_memory(plan.summary):
             assistant_message = {"role": "assistant", "content": plan.summary, "run_id": current_run.get()[1]}

@@ -18,6 +18,7 @@ from app.ui.panel.api.dashboard import (
 from app.ui.panel.api.enem import handle_enem_get, handle_enem_post
 from app.ui.panel.api.settings import handle_settings_get, handle_settings_post
 from app.ui.panel.api.tutor import handle_tutor_get, handle_tutor_post
+from app.ui.panel.api.contexto import handle_contexto_get, handle_contexto_post
 from app.ui.panel.api.voice import handle_voice_post, handle_voice_stream, handle_voice_realtime_stream
 from app.ui.panel.api.voice_capture import handle_capture_get, handle_capture_post
 from app.ui.panel.api.planning import handle_planning_get, handle_planning_post
@@ -716,6 +717,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 handle_dashboard_get,
                 handle_tasks_get,
                 handle_tutor_get,
+                handle_contexto_get,
                 handle_enem_get,
                 handle_settings_get,
                 handle_capture_get,
@@ -1999,6 +2001,7 @@ class PanelHandler(BaseHTTPRequestHandler):
         for handler_fn in (
             handle_dashboard_post,
             handle_tutor_post,
+            handle_contexto_post,
             handle_enem_post,
             handle_settings_post,
             handle_voice_post,
