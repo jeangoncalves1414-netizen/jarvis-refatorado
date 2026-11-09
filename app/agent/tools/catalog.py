@@ -685,6 +685,28 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         reversibility="Não reversível: o conteúdo anterior da área de transferência não é guardado.",
         scope="Só a área de transferência deste computador.",
     ),
+    # Fase contexto 2: memórias com fonte; só pelo Kernel (run_action), não é oferecida ao modelo.
+    "memory_tool": ToolMetadata(
+        ("memory",), "low",
+        operation_arguments=("operation",), default_operation="save",
+        operation_risks=_by_operation(observe=("list",), low=("save", "update", "delete")),
+        target_arguments=("text", "id"), default_target="memórias com fonte",
+        operation_effects=(
+            ("list", "Apenas lê as memórias com fonte; nada é alterado."),
+            ("save", "Grava a memória com a data, a conversa e a origem."),
+            ("update", "Troca o texto da memória e recalcula a preferência."),
+            ("delete", "Remove a memória (fica uma lápide local com a data)."),
+        ),
+        operation_reversibility=(
+            ("list", "Nada a desfazer."),
+            ("save", "Reversível: remova a memória em Memórias > Com fonte."),
+            ("update", "Reversível: edite o texto de volta; o anterior não é guardado."),
+            ("delete", "Não há desfazer automático; salve a memória de novo se precisar."),
+        ),
+        effect="Grava, edita ou remove uma memória com fonte.",
+        reversibility="Reversível: edite ou remova em Memórias > Com fonte.",
+        scope="Só o arquivo de memórias do app.",
+    ),
     "whatsapp": ToolMetadata(
         ("messaging",), "high", requires_confirmation=True, target_arguments=("target",),
         default_target="contato do WhatsApp", target_detail=_whatsapp_target_detail,

@@ -2,10 +2,11 @@ import { useState } from 'react'
 import type { IdentityProfile, Memory, ProfileMemory } from '../types'
 import { VaultPanel } from '../components/VaultPanel'
 import { IdentityPage } from './IdentityPage'
+import { CitedMemoriesPanel } from '../components/CitedMemoriesPanel'
 
 type MemoriesPageProps = {
   memories: Memory[]
-  memoryCollection: 'conversations' | 'user_memory' | 'profile_memory' | 'vault' | 'identity'
+  memoryCollection: 'cited' | 'conversations' | 'user_memory' | 'profile_memory' | 'vault' | 'identity'
   notice: string
   identityProfiles: IdentityProfile[]
   selectedProfileId: string
@@ -66,6 +67,7 @@ export function MemoriesPage({
         </div>
       </div>
       <div className="memory-tabs">
+        <button type="button" className={memoryCollection === 'cited' ? 'memory-tab-active' : ''} onClick={() => onSelectCollection('cited')}>Com fonte</button>
         {(['conversations', 'user_memory'] as const).map(collection => (
           <button key={collection} type="button" className={memoryCollection === collection ? 'memory-tab-active' : ''} onClick={() => onSelectCollection(collection)}>
             {collection === 'conversations' ? 'Conversas globais' : 'Sobre você'}
@@ -77,7 +79,9 @@ export function MemoriesPage({
       </div>
       {notice && <p className="settings-notice">{notice}</p>}
 
-      {memoryCollection === 'identity' ? (
+      {memoryCollection === 'cited' ? (
+        <CitedMemoriesPanel />
+      ) : memoryCollection === 'identity' ? (
         <IdentityPage />
       ) : memoryCollection === 'vault' ? (
         <VaultPanel />

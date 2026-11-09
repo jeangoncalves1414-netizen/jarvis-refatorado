@@ -322,7 +322,7 @@ class AgentOrchestrator:
         value = normalize(normalized)
         return any(trigger in value for trigger in _MEMORY_TRIGGERS)
 
-    def _remember_preferences(self, text: str, normalized: str) -> None:
+    def _remember_preferences(self, text: str, normalized: str, session_id: str | None = None) -> None:
         # Detecta preferências explícitas em linguagem natural e salva no memory_store (síncrono)
         _preference_triggers = ("prefiro", "prefer", "me lembre", "lembra que", "quero que voce", "quero que você")
         _style_keywords = {
@@ -345,10 +345,16 @@ class AgentOrchestrator:
         # Também salva na memória semântica vetorial (assíncrono, quando disponível).
         # A extração custa uma chamada ao modelo: só roda com gatilho na mensagem ou com a opção
         # "Extrair memórias de toda mensagem" ligada em Configurações > Agente.
+        should_extract = self._should_extract_memory(normalized)
+        if should_extract:
+            # Fase contexto 2: preferência com slot vira memória com fonte pelo Kernel (sem modelo).
+            from app.services.memory_kernel import save_trigger_memory, save_via_kernel
+            save_trigger_memory(text, session_id=session_id)
         if not self.semantic_memory or not self.llm_service:
             return
-        if not self._should_extract_memory(normalized):
+        if not should_extract:
             return
+        turn_origin = current_origin.get()
 
         def _extract():
             try:
@@ -362,6 +368,10 @@ class AgentOrchestrator:
                         if line and len(line) > 5 and line.lower() != "vazio":
                             # Salva na memória semântica vetorial
                             self.semantic_memory.add_memory("user_memory", line)
+                            try:
+                                save_via_kernel(line[:300], kind="extracao", session_id=session_id, origin=turn_origin)
+                            except Exception:
+                                pass
             except Exception as e:
                 print(f"Erro ao extrair memória inteligente: {e}")
                 raise
@@ -970,7 +980,7 @@ ter pesquisado se não pesquisou.
         if plan is not None:
             self.last_plan = plan
             return plan
-        self._remember_preferences(text, normalized)
+        self._remember_preferences(text, normalized, session_id)
 
         enem_question = self._resolve_enem_context(enem_context, enem_question_id)
         if enem_question and mode == "tutor":

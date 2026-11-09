@@ -1,12 +1,18 @@
 """Seções extras do system prompt de cada turno (chat, voz e loop agêntico).
 
-Fase 1: só o contexto situacional. Nunca levanta exceção: sem dado, devolve vazio.
+Fase 1: contexto situacional. Fase 2: até 3 memórias com fonte ligadas ao pedido
+(sobreposição de palavras, sem chamada ao modelo), ≤ 300 caracteres.
+Nunca levanta exceção: sem dado, devolve vazio.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.agent import turn_meta
+
+MEMORY_HEADER = "\n\n## Preferências salvas (com fonte)\n"
+MEMORY_MAX_CHARS = 300
 
 
 @dataclass
@@ -16,16 +22,41 @@ class TurnSections:
     memories: str = ""
 
 
-def build_turn_sections(text: str, origin: str | None = None) -> TurnSections:
+def _situational() -> str:
     try:
         from app.services.situational_context import get_situational_context
 
         block = get_situational_context().build()
     except Exception:
-        return TurnSections()
+        return ""
     if not block.text:
-        return TurnSections()
-    situational = "\n\n## Situação agora\n" + block.text
+        return ""
     if block.show_in_chat:
         turn_meta.record("situational_context", {"text": block.text, "sources": block.sources, "chars": block.chars})
-    return TurnSections(text=situational, situational=situational)
+    return "\n\n## Situação agora\n" + block.text
+
+
+def _memories(text: str) -> str:
+    try:
+        from app.storage import memory_facts
+
+        facts = memory_facts.relevant(text, limit=3)
+    except Exception:
+        return ""
+    lines: list[str] = []
+    used = 0
+    for fact in facts:
+        stamp = float((fact.get("source") or {}).get("created_at") or fact.get("updated_at") or 0)
+        label = f" (memória de {datetime.fromtimestamp(stamp).strftime('%d/%m')})" if stamp else ""
+        line = f"- {fact.get('text', '')}{label}"
+        if used + len(line) + 1 > MEMORY_MAX_CHARS:
+            break
+        lines.append(line)
+        used += len(line) + 1
+    return MEMORY_HEADER + "\n".join(lines) if lines else ""
+
+
+def build_turn_sections(text: str, origin: str | None = None) -> TurnSections:
+    situational = _situational()
+    memories = _memories(text)
+    return TurnSections(text=situational + memories, situational=situational, memories=memories)

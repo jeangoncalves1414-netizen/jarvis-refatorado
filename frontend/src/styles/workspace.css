@@ -226,3 +226,22 @@
 .ws-turn-meta[open] summary { margin-bottom: 6px; color: var(--ws-accent); }
 .ws-turn-meta-sources { margin: 0 0 6px; overflow-wrap: anywhere; }
 .ws-turn-meta-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; color: var(--ws-text); }
+
+/* Fase contexto 2: memória citada no balão e aba "Com fonte" em Memórias. */
+.ws-turn-memory { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; color: var(--ws-muted); font-size: 11px; }
+.ws-turn-memory li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; overflow-wrap: anywhere; }
+.ws-turn-memory-edit { padding: 0; border: 0; background: none; color: var(--ws-accent); font: inherit; text-decoration: underline; cursor: pointer; }
+.ws-turn-memory-edit:hover { color: var(--ws-text); }
+.mem-panel { position: relative; display: grid; gap: 12px; color: var(--ws-text); }
+.mem-intro { margin: 0; color: var(--ws-muted); font-size: 12px; line-height: 1.6; }
+.mem-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.mem-panel textarea { width: 100%; min-height: 54px; padding: 8px 10px; border: 1px solid var(--ws-border); border-radius: var(--ws-radius); background: var(--ws-field); color: var(--ws-text); font: inherit; font-size: 12px; resize: vertical; }
+.mem-panel textarea:focus { outline: none; border-color: var(--ws-accent-line); }
+.mem-error { margin: 0; color: var(--ws-danger); font-size: 12px; }
+.mem-info { margin: 0; color: var(--ws-ok); font-size: 12px; }
+.mem-list { display: grid; gap: 10px; }
+.mem-item { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--ws-border); border-radius: var(--ws-radius); background: var(--ws-panel); }
+.mem-item-focus { border-color: var(--ws-accent); background: var(--ws-accent-soft); }
+.mem-source { color: var(--ws-muted); font-size: 11px; overflow-wrap: anywhere; }
+.mem-slot { color: var(--ws-info); font-size: 11px; overflow-wrap: anywhere; }
+.mem-actions { display: flex; justify-content: flex-end; gap: 8px; }

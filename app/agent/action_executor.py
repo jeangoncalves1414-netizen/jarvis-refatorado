@@ -100,6 +100,9 @@ class ActionExecutor:
         # Filter by allowed tools
         if self.allowed_tool_names is not None and name not in self.allowed_tool_names:
             return f"Ferramenta bloqueada pelo modo atual: {name}."
+        # Fase contexto 2: memórias com fonte preenchem parâmetros vazios (sem chamada ao modelo).
+        from app.agent.memory_params import apply_memory_params
+        args = apply_memory_params(name, args, user_text)
 
         action = self.propose(name, args, user_text=user_text)
         if action.status == "awaiting_confirmation":

@@ -103,7 +103,7 @@ export default function App() {
   const { addWhiteboardNote, addWhiteboardText, addWhiteboardImage, addWhiteboardImageData, updateWhiteboardElement, deleteWhiteboardElement, duplicateWhiteboardElement, clearWhiteboard, assessmentCorrect, assessmentTotal, assessments, cardBackVisible, createStudySession, dueCards, studyCategories, trashedStudySessions, renameStudySession, deleteStudySession, restoreStudySession, purgeStudySession, createStudyCategory, assignStudyCategory, enemImage, enemQuestions, enemSubject, enemText, enemYear, feynmanAttempts, feynmanExplanation, feynmanTopic, readEnemImage, reviewCard, saveAssessment, saveEnemQuestion, saveFeynman, selectStudySession, sendStudyMessage, setAssessmentCorrect, setAssessmentTotal, setCardBackVisible, setEnemImage, setEnemSubject, setEnemText, setEnemYear, setFeynmanExplanation, setFeynmanTopic, setStudyQuery, setStudySessionId, setWhiteboardNote, studyCardIndex, studyEnemFromBank, studyEnemFromForm, studyMessages, studyProgress, studyQuery, studySessionId, tutorSessions, whiteboard, whiteboardNote } = useStudy(setNotice)
   const [taskTitle, setTaskTitle] = useState('')
   const [memories, setMemories] = useState<Memory[]>([])
-  const [memoryCollection, setMemoryCollection] = useState<'conversations' | 'user_memory' | 'profile_memory'>('conversations')
+  const [memoryCollection, setMemoryCollection] = useState<'cited' | 'conversations' | 'user_memory' | 'profile_memory'>('conversations')
   const [identityProfiles, setIdentityProfiles] = useState<IdentityProfile[]>([])
   const [selectedProfileId, setSelectedProfileId] = useState('')
   const [profileMemories, setProfileMemories] = useState<ProfileMemory[]>([])
@@ -128,6 +128,13 @@ export default function App() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  // Fase contexto 2: "editar" numa memória citada no chat abre Memórias > Com fonte.
+  useEffect(() => {
+    const openMemory = () => { setActive('Memórias'); setMemoryCollection('cited') }
+    window.addEventListener('jarvis:open-memory', openMemory)
+    return () => window.removeEventListener('jarvis:open-memory', openMemory)
   }, [])
 
   // Auto-sync on app open (for mobile and PC)
@@ -376,7 +383,7 @@ export default function App() {
 
   const visibleLogs = logs.filter(log => `${log.component || ''} ${log.message || ''}`.toLocaleLowerCase('pt-BR').includes(logQuery.trim().toLocaleLowerCase('pt-BR')))
 
-  const refreshMemories = async (collection: 'conversations' | 'user_memory' = memoryCollection === 'profile_memory' ? 'conversations' : memoryCollection) => {
+  const refreshMemories = async (collection: 'conversations' | 'user_memory' = memoryCollection === 'profile_memory' || memoryCollection === 'cited' ? 'conversations' : memoryCollection) => {
     const response = await fetch(`/api/memories?collection=${collection}&limit=25`)
     const data = await response.json()
     setMemories(data.memories || [])
@@ -881,7 +888,7 @@ export default function App() {
           onSelectCollection={collection => {
             setMemoryCollection(collection)
             if (collection === 'profile_memory') refreshProfileMemories()
-            else refreshMemories(collection)
+            else if (collection !== 'cited') refreshMemories(collection)
           }}
           onSelectProfile={profileId => { setSelectedProfileId(profileId); refreshProfileMemories(profileId).catch(() => undefined) }}
           onRefreshProfile={() => refreshProfileMemories()}
