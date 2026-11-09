@@ -72,6 +72,28 @@ def _action_verbs(normalized: str) -> int:
     return count
 
 
+_WAIT = re.compile(
+    r"\b(?:espera|espere|esperar|aguarda|aguarde|aguardar|depois de|apos)\s+(?:uns\s+|por\s+)?(\d+)\s*"
+    r"(segundos?|seg|s|minutos?|min|m|horas?|h)\b"
+)
+_ALARM = re.compile(r"\balarme|\btimer\b|\btemporizador|\bme avis|\bme lembr|\bavise\b|\blembre\b|\bdespert")
+
+
+def wait_intent(text: str) -> int | None:
+    """Segundos da primeira espera pedida ("aguarde 50 segundos" -> 50); ``None`` sem espera."""
+    match = _WAIT.search(normalize(text))
+    if not match:
+        return None
+    unit = match.group(2)
+    factor = 3600 if unit.startswith("h") else 60 if unit.startswith("m") else 1
+    return int(match.group(1)) * factor
+
+
+def mentions_alarm(text: str) -> bool:
+    """Pedido de aviso sonoro (alarme, timer, "me avisa", "me lembra"): ``timer`` continua no turno."""
+    return bool(_ALARM.search(normalize(text)))
+
+
 def should_use_agent_loop(text: str, mode: str, settings: dict[str, Any]) -> tuple[bool, str]:
     """Devolve (usar o loop?, motivo curto). ``settings`` vem de ``get_agent_loop_settings()``."""
     if mode == "react":
@@ -89,6 +111,9 @@ def should_use_agent_loop(text: str, mode: str, settings: dict[str, Any]) -> tup
     words = re.findall(r"[a-z0-9]+", normalized)
     if len(words) < 4:
         return False, "pedido curto"
+    # Espera entre ações ("abre o Spotify, aguarde 50 s e abre o YouTube") só funciona no loop, em ordem.
+    if "?" not in normalized and wait_intent(normalized) is not None and _action_verbs(normalized) >= 1:
+        return True, "pedido com espera"
     if _is_conversation(normalized, words):
         return False, "pergunta ou conversa"
     verbs = _action_verbs(normalized)

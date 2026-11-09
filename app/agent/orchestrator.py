@@ -1009,12 +1009,15 @@ ter pesquisado se não pesquisou.
                 return plan
             # Loop agêntico (regra, zero modelo): pedido de várias partes planeja, age e confere sozinho.
             if getattr(self, "react_loop", None) is not None and self.registry is not None:
-                from app.agent.loop_policy import should_use_agent_loop
+                from app.agent.loop_policy import mentions_alarm, should_use_agent_loop, wait_intent
                 from app.storage.runtime_settings import get_agent_loop_settings
                 use_loop, reason = should_use_agent_loop(text, mode, get_agent_loop_settings())
                 if use_loop:
                     record_run_step(f"Loop agêntico escolhido ({reason}).")
                     allowed = self.registry.allowed_tool_names(mode="general", provider=provider, user_text=text, narrow=True)
+                    # Pedido com espera e sem alarme: timer só bipa e não pausa; sem ele o modelo usa wait.
+                    if wait_intent(text) is not None and not mentions_alarm(text):
+                        allowed = frozenset(allowed) - {"timer"}
                     plan = self._run_agent_loop(text, mode, session_id, history, react_max_steps, on_progress, allowed_tools=allowed)
                     self.last_plan = plan
                     return plan

@@ -357,7 +357,7 @@ class ActionStore:
 
     def update_run_progress(self, run_id: str, progress: dict) -> None:
         """Contador visível do loop (etapa e chamadas ao modelo); não cria evento na Central."""
-        allowed = ("step", "max_steps", "model_calls", "max_model_calls", "phase")
+        allowed = ("step", "max_steps", "model_calls", "max_model_calls", "phase", "wait_remaining", "wait_total")
         clean = {key: progress.get(key) for key in allowed if isinstance(progress, dict) and key in progress}
         with self._lock, closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")

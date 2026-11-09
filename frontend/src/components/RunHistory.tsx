@@ -6,9 +6,11 @@ import { ActionDetails, type Decisions } from './ActionHistory'
 
 type Run = { id: string; session_id: string | null; mode: string; status: string; created_at: number; finished_at: number | null; result_summary: string | null; source?: string; origin?: string; reply?: string | null; progress?: RunProgress | null }
 // Contador do loop agêntico (lote 6): etapa e chamadas ao modelo do pedido.
-type RunProgress = { step?: number; max_steps?: number; model_calls?: number; max_model_calls?: number; phase?: string }
-const progressPhases: Record<string, string> = { planning: 'planejando', acting: 'executando', verifying: 'verificando', waiting_approval: 'aguardando aprovação', resumed: 'retomando', limit: 'limite atingido', done: 'concluído', cancelled: 'cancelado' }
-const progressText = (progress?: RunProgress | null) => progress && typeof progress.step === 'number' && typeof progress.max_steps === 'number' ? `Etapa ${progress.step} de ${progress.max_steps}${typeof progress.model_calls === 'number' ? ` · modelo ${progress.model_calls}/${progress.max_model_calls ?? '?'}` : ''}${progress.phase ? ` · ${progressPhases[progress.phase] || progress.phase}` : ''}` : ''
+type RunProgress = { step?: number; max_steps?: number; model_calls?: number; max_model_calls?: number; phase?: string; wait_remaining?: number; wait_total?: number }
+const progressPhases: Record<string, string> = { planning: 'planejando', acting: 'executando', verifying: 'verificando', waiting: 'aguardando', waiting_approval: 'aguardando aprovação', resumed: 'retomando', limit: 'limite atingido', done: 'concluído', cancelled: 'cancelado' }
+// Espera real entre ações (ferramenta wait): "Aguardando 42 s de 50".
+const waitText = (progress?: RunProgress | null) => progress?.phase === 'waiting' && typeof progress.wait_remaining === 'number' && typeof progress.wait_total === 'number' ? `Aguardando ${progress.wait_remaining} s de ${progress.wait_total}${progress.max_steps ? ` · etapa ${progress.step ?? 0} de ${progress.max_steps}` : ''}` : ''
+const progressText = (progress?: RunProgress | null) => waitText(progress) || (progress && typeof progress.step === 'number' && typeof progress.max_steps === 'number' ? `Etapa ${progress.step} de ${progress.max_steps}${typeof progress.model_calls === 'number' ? ` · modelo ${progress.model_calls}/${progress.max_model_calls ?? '?'}` : ''}${progress.phase ? ` · ${progressPhases[progress.phase] || progress.phase}` : ''}` : '')
 type RunEvent = { id: number; kind: string; status: string; timestamp: number; summary: string | null; action_id: string | null }
 type RunDetail = { run: Run; actions: AgentAction[]; events: RunEvent[] }
 type RunPage = { runs: Run[]; next_cursor: number | null }

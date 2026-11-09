@@ -62,7 +62,7 @@ function getScriptRequest(summary: unknown): ScriptRequest | null {
 type UseChatOptions = { onAgentContext?: (context: unknown) => void; onWakeWord?: (phrase: string) => void; onPopup?: (popup: unknown) => void }
 
 /** Contador do loop agêntico (evento WS agent_progress): etapa e chamadas ao modelo do pedido atual. */
-export type AgentProgress = { run_id?: string; step: number; max_steps: number; model_calls: number; max_model_calls: number; phase: string; summary?: string }
+export type AgentProgress = { run_id?: string; step: number; max_steps: number; model_calls: number; max_model_calls: number; phase: string; summary?: string; wait_remaining?: number; wait_total?: number }
 
 const AWAITING_APPROVAL_TEXT = 'Aguardando aprovação na Central; depois eu continuo sozinho.'
 
@@ -74,6 +74,9 @@ function parseProgress(data: Record<string, unknown>): AgentProgress | null {
     step: data.step as number, max_steps: data.max_steps as number,
     model_calls: data.model_calls as number, max_model_calls: data.max_model_calls as number,
     phase: data.phase, summary: typeof data.summary === 'string' ? data.summary : undefined,
+    // Espera real entre ações (ferramenta wait): contador regressivo da fase "waiting".
+    wait_remaining: typeof data.wait_remaining === 'number' ? data.wait_remaining : undefined,
+    wait_total: typeof data.wait_total === 'number' ? data.wait_total : undefined,
   }
 }
 

@@ -33,7 +33,8 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "proposed": frozenset({"awaiting_confirmation", "authorized", "running", "cancelled", "expired"}),
     "awaiting_confirmation": frozenset({"authorized", "cancelled", "expired"}),
     "authorized": frozenset({"running", "cancelled", "expired"}),
-    "running": frozenset({"succeeded", "failed", "interrupted"}),
+    # "cancelled": "Parar pedido" no meio de uma etapa que coopera (espera da ferramenta wait).
+    "running": frozenset({"succeeded", "failed", "interrupted", "cancelled"}),
 }
 
 _SENSITIVE_KEY = re.compile(r"(?:token|secret|password|authorization|api[_-]?key|audio|transcript|prompt|code|script)", re.I)

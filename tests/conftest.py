@@ -24,6 +24,12 @@ def isolated_auto_approvals(tmp_path, monkeypatch):
     return store
 
 
+@pytest.fixture(autouse=True)
+def effect_checks_off(monkeypatch):
+    """Verificação de efeito (processos e janelas reais) fica desligada; os testes dela ligam com sondas falsas."""
+    monkeypatch.setattr("app.agent.effect_checks.enabled", False)
+
+
 @pytest.fixture
 def isolated_conversation_journal(tmp_path, monkeypatch):
     from app.storage.action_store import ActionStore

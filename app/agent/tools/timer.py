@@ -97,8 +97,9 @@ class TimerTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Timers (contagem regressiva, ex.: '10 minutos') e alarmes (horário HH:MM de hoje ou amanhã) com aviso sonoro "
-            "neste PC; também lista e cancela pelo rótulo. Compromisso com data vai para calendar."
+            "Alarme sonoro para avisar a usuária depois (timer/alarme). NÃO pausa nem espera entre ações; para esperar use wait. "
+            "set_timer: aviso após uma duração; set_alarm: aviso em HH:MM; também lista e cancela pelo rótulo. "
+            "Compromisso com data vai para calendar."
         )
 
     @property
@@ -109,7 +110,7 @@ class TimerTool(BaseTool):
                 "action": {
                     "type": "string",
                     "enum": ["set_timer", "set_alarm", "list", "cancel"],
-                    "description": "set_timer: contagem regressiva; set_alarm: horário fixo; list: lista os ativos; cancel: cancela pelo rótulo (label)."
+                    "description": "set_timer: bipe depois da duração (retorna na hora, não espera); set_alarm: bipe no horário fixo; list: lista os ativos; cancel: cancela pelo rótulo (label)."
                 },
                 "duration": {
                     "type": "string",

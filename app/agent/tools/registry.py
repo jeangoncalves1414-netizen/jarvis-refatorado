@@ -9,6 +9,7 @@ from .jarvis_mode import JarvisModeTool
 from .web_search import WebSearchTool
 from .browser_agent import BrowserAgentTool
 from .timer import TimerTool
+from .wait import WaitTool
 from .whatsapp import WhatsAppTool
 from .spotify import SpotifyTool
 from .whiteboard import WhiteboardAddTextTool, WhiteboardAddImageTool, WhiteboardClearTool, WhiteboardEditTool
@@ -77,6 +78,7 @@ from .show_popup import ShowPopupTool
 from .places_search import PlacesSearchTool
 from .planning_workspace import PlanningWorkspaceTool
 from .catalog import metadata_for
+from app.core.runs import RunCancelled
 from .lifestyle_tools import normalize_name
 
 # Groq (limite estrito de tokens): além das ferramentas fixas, entra a ferramenta cujo
@@ -100,14 +102,14 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
 # Loop agêntico: ferramentas de dados do dia a dia que entram em qualquer pedido, para qualquer provedor.
 LOOP_DATA_TOOLS = frozenset({
     "habit_tool", "task_tool", "lifeos_tool", "calendar", "vault_save_note", "vault_search",
-    "open_window", "open_screen",
+    "open_window", "open_screen", "wait",
 })
 
 # Só no loop: assuntos das demais ferramentas comuns (as de dados já entram sempre).
 LOOP_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
     (re.compile(pattern), tools)
     for pattern, tools in (
-        (r"\bpesquis|\bbusca|\bprocur|\bnoticia|\bpesquisa", ("web_search",)),
+        (r"\bpesquis|\bbusca|\bprocur|\bnoticia|\bpesquisa|\byoutube|\bsite\b|\blink\b|\burl\b", ("web_search",)),
         (r"\bapp\b|\baplicativo|\bprograma|\bnavegador|\bchrome|\bjanela", ("open_windows_app",)),
         (r"\bvolume|\bbrilho|\bdesligar\b|\breiniciar|\bbloquear|\bsistema\b", ("system_control",)),
         (r"\bmusica|\btoca\b|\btocar\b|\bspotify|\bplaylist", ("spotify",)),
@@ -123,7 +125,7 @@ LOOP_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
 )
 
 GENERAL_TOOL_NAMES = {
-    "file_manager", "system_control", "jarvis_mode", "web_search", "browser_agent", "timer",
+    "file_manager", "system_control", "jarvis_mode", "web_search", "browser_agent", "timer", "wait",
     "whatsapp", "spotify", "clipboard", "news_reader", "open_windows_app", "script_runner",
     "vision", "qr_reader", "realtime", "proactive_agent", "system_tray", "cinema", "calendar", "image_generator",
     "screen_peeler", "phantom_typer", "smart_drop_zone",
@@ -166,6 +168,7 @@ class ToolRegistry:
         self._register(WebSearchTool())
         self._register(BrowserAgentTool())
         self._register(TimerTool())
+        self._register(WaitTool())
         self._register(WhatsAppTool())
         self._register(SpotifyTool())
         self._register(ClipboardTool())
@@ -281,7 +284,7 @@ class ToolRegistry:
         # Otimização de TPM para provedores com limite estrito de taxa (ex: Groq)
         if (provider == "groq" or narrow) and mode != "tutor":
             core_groq = {
-                "web_search", "system_control", "open_windows_app", "timer",
+                "web_search", "system_control", "open_windows_app", "timer", "wait",
                 "spotify", "whatsapp", "calendar", "file_manager",
                 "cinema", "script_runner", "image_generator", "vision", "planning_workspace", "open_window"
             }
@@ -331,6 +334,9 @@ class ToolRegistry:
             return ToolResult(ok=False, message=f"Ferramenta '{name}' não está cadastrada no registro.")
         try:
             return tool.execute(args, context=context)
+        except RunCancelled:
+            # "Parar pedido" durante uma espera: o cancelamento sobe até o Kernel.
+            raise
         except Exception as e:
             return ToolResult(ok=False, message=f"Erro interno ao executar a ferramenta '{name}': {e}")
 

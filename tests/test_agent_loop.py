@@ -405,3 +405,106 @@ def test_success_text_mentioning_error_or_failure_is_not_a_failure(env):
     plan = env.agent.handle_request(MULTI, session_id="s1")
     assert plan.intent == "agent_loop" and plan.summary == "Sem problemas."
     assert "SUCESSO" in prompts[1] and "FALHA" not in prompts[1] and "Atenção" not in plan.summary
+
+
+# ── rotinas, fase 1: espera real em ordem e resposta só com evidência ────────
+WAIT_REQUEST = "Abra o spotify, aguarde 50 segundos e abra uma música no youtube"
+WAIT_PLAN = ('ACOES: [{"ferramenta": "spotify", "args": {"action": "open"}}, {"ferramenta": "wait", "args": {"seconds": 50}}, '
+             '{"ferramenta": "web_search", "args": {"action": "open_url", "query": "https://www.youtube.com/watch?v=abc"}}]')
+
+
+@pytest.fixture
+def wait_env(env, monkeypatch):
+    """Registro falso com spotify, wait (espera real com relógio falso) e web_search; marca o tempo de cada chamada."""
+    from app.agent import effect_checks
+    from app.agent.tools.wait import WaitTool
+    from app.core import waits
+
+    clock = SimpleNamespace(now=0.0)
+    monkeypatch.setattr(waits, "_monotonic", lambda: clock.now)
+    monkeypatch.setattr(waits, "_sleep", lambda seconds: setattr(clock, "now", clock.now + seconds))
+    monkeypatch.setattr(effect_checks, "_monotonic", lambda: clock.now)
+    monkeypatch.setattr(effect_checks, "_sleep", lambda seconds: setattr(clock, "now", clock.now + seconds))
+    registry = FakeRegistry(names=("timer", "spotify", "wait", "web_search"))
+    stamps = []
+    execute = registry.execute_tool
+
+    def stamped(name, args, **kwargs):
+        stamps.append((name, clock.now))
+        if name == "wait":
+            return WaitTool().execute(args)
+        return execute(name, args, **kwargs)
+    registry.execute_tool = stamped
+    env.agent.registry = registry
+    return SimpleNamespace(clock=clock, stamps=stamps, registry=registry)
+
+
+def test_wait_request_runs_in_order_and_hides_timer(env, wait_env):
+    prompts = script(env, [WAIT_PLAN, "FINISH: Abri o Spotify, esperei 50 s e abri o YouTube."])
+    plan = env.agent.handle_request(WAIT_REQUEST, session_id="s1")
+    assert [name for name, _ in wait_env.stamps] == ["spotify", "wait", "web_search"]
+    assert wait_env.stamps[2][1] >= 50 and wait_env.stamps[0][1] == 0  # a 3ª ação só depois do fim da espera
+    assert '"nome": "wait"' in prompts[0] and '"nome": "timer"' not in prompts[0]
+    assert "timer só agenda um bipe e NÃO pausa" in prompts[0] and "'Confirmado'" in prompts[0]
+    request = detail(env, plan)
+    assert [a["tool_name"] for a in request["actions"]] == ["spotify", "wait", "web_search"]
+    assert request["run"]["status"] == "succeeded"
+
+
+def test_alarm_request_keeps_timer(env, wait_env):
+    prompts = script(env, ["FINISH: ok"])
+    env.agent.handle_request("abre o spotify, aguarde 5 segundos e me avisa com um alarme", session_id="s1")
+    assert '"nome": "timer"' in prompts[0]
+
+
+def test_wait_progress_counts_down_in_chat_and_central(env, wait_env):
+    script(env, ['ACOES: [{"ferramenta": "wait", "args": {"seconds": 3}}]', "FINISH: Esperei."])
+    plan = env.agent.handle_request(WAIT_REQUEST, session_id="s1")
+    waiting = [e for e in env.events if e["type"] == "agent_progress" and e["phase"] == "waiting"]
+    assert [e["wait_remaining"] for e in waiting] == [3, 2, 1, 0] and {e["wait_total"] for e in waiting} == {3}
+    assert all(e["run_id"] == plan.context["run_id"] for e in waiting)
+    # A Central guarda o último contador (fase final "done" sobrescreve depois).
+    assert detail(env, plan)["run"]["progress"]["phase"] == "done"
+
+
+def test_cancel_during_wait_stops_the_sequence(env, wait_env, monkeypatch):
+    from app.core import waits
+    run_ids = []
+
+    def sleep_then_cancel(seconds):
+        wait_env.clock.now += seconds
+        if wait_env.clock.now >= 2 and not run_ids:
+            run = env.store.run_page(include_reads=True)["runs"][0]
+            run_ids.append(run["id"])
+            env.store.cancel_run(run["id"])
+    monkeypatch.setattr(waits, "_sleep", sleep_then_cancel)
+    script(env, [WAIT_PLAN, "FINISH: nunca chega"])
+    env.agent.handle_request(WAIT_REQUEST, session_id="s1")
+    assert [name for name, _ in wait_env.stamps] == ["spotify", "wait"]
+    request = env.store.run_details(run_ids[0])
+    assert [a["status"] for a in request["actions"]] == ["succeeded", "cancelled"]
+    assert request["run"]["status"] == "cancelled"
+
+
+def effects_on(monkeypatch, processes, titles):
+    from app.agent import effect_checks
+    monkeypatch.setattr(effect_checks, "enabled", True)
+    monkeypatch.setattr(effect_checks, "_processes", lambda: set(processes))
+    monkeypatch.setattr(effect_checks, "_window_titles", lambda: list(titles))
+
+
+def test_unconfirmed_effect_replaces_the_model_claim(env, wait_env, monkeypatch):
+    effects_on(monkeypatch, {"spotify.exe"}, ["Spotify Premium"])  # sem navegador: YouTube não confirma
+    script(env, [WAIT_PLAN, "FINISH: Pronto, tocando!"])
+    plan = env.agent.handle_request(WAIT_REQUEST, session_id="s1")
+    assert "Pronto, tocando" not in plan.summary
+    assert "não consegui confirmar" in plan.summary and "Etapa 1 (spotify): confirmado" in plan.summary
+    assert "Esperei 50 s" in plan.summary
+
+
+def test_all_confirmed_keeps_model_text_with_evidence(env, wait_env, monkeypatch):
+    effects_on(monkeypatch, {"spotify.exe", "chrome.exe"}, ["Spotify Premium", "Lofi - YouTube - Google Chrome"])
+    script(env, [WAIT_PLAN, "FINISH: Abri tudo."])
+    plan = env.agent.handle_request(WAIT_REQUEST, session_id="s1")
+    assert plan.summary.startswith("Abri tudo.") and "Confirmado:" in plan.summary
+    assert "abri o vídeo no YouTube" in plan.summary

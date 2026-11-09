@@ -24,9 +24,10 @@ from app.agent.verification import plan_verification
 from app.core import loop_checkpoints
 from app.core.actions import TERMINAL_STATUSES
 from app.core.runs import RunCancelled, check_run_cancelled, current_origin, current_run
+from app.core.waits import current_wait_reporter
 
 # Ferramentas do modo "Execução por etapas" quando o chamador não informa a lista do turno.
-REACT_TOOLS = frozenset({"web_search", "timer", "calendar", "planning_workspace", "whiteboard_add_text", "whiteboard_clear"})
+REACT_TOOLS = frozenset({"web_search", "timer", "wait", "calendar", "planning_workspace", "whiteboard_add_text", "whiteboard_clear"})
 MAX_BATCH = 5
 _HISTORY_STEPS = 6
 _OBS_CHARS = 200
@@ -49,6 +50,9 @@ class ReActStep:
     elapsed_ms: int = 0
     action_status: str = ""
     action_id: str | None = None
+    # Verificação de efeito (effect_checks): "confirmed" | "unconfirmed" | "" e a evidência lida.
+    effect_status: str = ""
+    evidence: str = ""
 
 
 @dataclass
@@ -247,12 +251,20 @@ class ReActLoopEngine:
         step = ReActStep(step_number=len(t.steps) + 1, thought="Executando ação planejada", action_type="tool", tool_name=name, tool_args=args)
         t.steps.append(step)
         self._emit(state, "acting", f"Executando {name}.")
+
+        def report_wait(remaining: int, total: int) -> None:
+            # Contador visível da espera (chat e Central); a fase "waiting" não fecha o contador.
+            self._emit(state, "waiting", f"Aguardando {remaining} s de {total}.", extra={"wait_remaining": remaining, "wait_total": total})
+
+        wait_token = current_wait_reporter.set(report_wait)
         try:
             observation = state.executor.execute(name, args, state.goal)
         except RunCancelled:
             raise
         except Exception:
             observation = "A ferramenta falhou; conclusão não confirmada. Consulte a Central."
+        finally:
+            current_wait_reporter.reset(wait_token)
         action = state.executor.last_action
         step.observation = observation
         step.action_id = action.id if action else None
@@ -274,6 +286,14 @@ class ReActLoopEngine:
             if not verified:
                 step.verification_passed = False
                 step.self_correction_note = verify_note
+        if success:
+            result = state.results.get(_result_key(step.tool_name, step.tool_args))
+            effect = (result.data or {}).get("effect") if result is not None and isinstance(result.data, dict) else None
+            if isinstance(effect, dict) and effect.get("status") in {"confirmed", "unconfirmed"}:
+                step.effect_status, step.evidence = effect["status"], str(effect.get("evidence") or "")
+                if step.effect_status == "unconfirmed":
+                    step.verification_passed = False
+                    step.self_correction_note = f"Abri, mas não consegui confirmar: {step.evidence}."
         if state.step_callback:
             state.step_callback(step)
         summary = (
@@ -438,11 +458,17 @@ class ReActLoopEngine:
         t.stopped_reason = "finish"
         if failed:
             t.final_output = f"Execução encerrada com falha na etapa {failed.step_number}. {failed.observation}"
+        elif any(s.action_status == "succeeded" and s.effect_status == "unconfirmed" for s in t.action_steps):
+            # Sem evidência, o texto do modelo ("Pronto, tocando!") não vale: a resposta sai por regra.
+            t.final_output = self._evidence_summary(state)
         else:
             unverified = [s for s in t.action_steps if s.action_status == "succeeded" and not s.verification_passed and s.self_correction_note]
             t.final_output = text
             if unverified:
                 t.final_output += "\n\nAtenção: " + " ".join(f"etapa {s.step_number}: {s.self_correction_note}" for s in unverified)
+            confirmed = [s for s in t.action_steps if s.action_status == "succeeded" and s.effect_status == "confirmed"]
+            if confirmed:
+                t.final_output += "\n\nConfirmado: " + "; ".join(f"etapa {s.step_number}: {s.evidence}" for s in confirmed) + "."
         if state.step_callback:
             state.step_callback(t.steps[-1])
         self._emit(state, "done", "Sequência concluída.")
@@ -466,6 +492,21 @@ class ReActLoopEngine:
                 return step
         return None
 
+    def _evidence_summary(self, state: _LoopState) -> str:
+        """Resposta por regra quando algum efeito não foi confirmado: cada etapa com o que foi visto."""
+        lines = []
+        for step in state.trajectory.action_steps:
+            if step.action_status != "succeeded":
+                continue
+            if step.effect_status == "confirmed":
+                lines.append(f"Etapa {step.step_number} ({step.tool_name}): confirmado, {step.evidence}.")
+            elif step.effect_status == "unconfirmed":
+                lines.append(f"Etapa {step.step_number} ({step.tool_name}): abri, mas não consegui confirmar: {step.evidence}.")
+            else:
+                head = _short(step.observation, 120)
+                lines.append(f"Etapa {step.step_number} ({step.tool_name}): {head}")
+        return "Fiz as etapas, mas não consegui confirmar todas. Confira na tela:\n" + "\n".join(lines)
+
     def _stop_by_limit(self, state: _LoopState, reason: str) -> None:
         t = state.trajectory
         t.stopped_reason = reason
@@ -485,7 +526,7 @@ class ReActLoopEngine:
         head = f"Fiz {len(done)} de {total} etapa(s)" + (f": {parts}" if parts else "") + "."
         return f"{head} {tail} Confira na Central."
 
-    def _emit(self, state: _LoopState, phase: str, summary: str = "") -> None:
+    def _emit(self, state: _LoopState, phase: str, summary: str = "", *, extra: dict[str, Any] | None = None) -> None:
         if not state.progress:
             return
         t = state.trajectory
@@ -493,6 +534,7 @@ class ReActLoopEngine:
             state.progress({
                 "phase": phase, "step": len(t.action_steps), "max_steps": t.max_steps,
                 "model_calls": t.model_calls, "max_model_calls": t.max_model_calls, "summary": summary[:200],
+                **(extra or {}),
             })
         except Exception:
             pass
@@ -519,6 +561,16 @@ class ReActLoopEngine:
             lines.append(json.dumps({"nome": name, "descricao": description, "parametros": schema}, ensure_ascii=False))
         return "\n".join(lines) or "Nenhuma ferramenta disponível neste modo."
 
+    @staticmethod
+    def _wait_rules(state: _LoopState) -> str:
+        if "wait" not in state.allowed:
+            return ""
+        return (
+            'Para esperar entre ações use wait {"seconds": N} no mesmo lote, na ordem pedida (ex.: abrir, wait, abrir); '
+            "timer só agenda um bipe e NÃO pausa. Espera maior que 1 hora ou pedido com horário/repetição: "
+            "não use wait; crie uma rotina (ferramenta routine).\n"
+        )
+
     def _build_prompt(self, state: _LoopState) -> str:
         t = state.trajectory
         history = "\n".join(state.history[-_HISTORY_STEPS:]) or "Nenhuma ação anterior."
@@ -535,7 +587,9 @@ class ReActLoopEngine:
             f"Ferramentas permitidas (nome, descrição, parâmetros):\n{self._tool_lines(state)}\n\n"
             f"Orçamento: {len(t.action_steps)} de {t.max_steps} etapas usadas; chamada {t.model_calls} de {t.max_model_calls} ao modelo.\n"
             "Regras: números e fatos só das observações; prefira operações em lote (create_many, add_many, check_many); "
-            "não repita uma ação que já deu certo; termine com FINISH quando tudo estiver feito e verificado.\n\n"
+            "não repita uma ação que já deu certo; termine com FINISH quando tudo estiver feito e verificado.\n"
+            f"{self._wait_rules(state)}"
+            "Só diga que abriu ou tocou algo se a observação disser 'Confirmado'; se disser 'não consegui confirmar', diga isso.\n\n"
             "Responda em UM destes formatos:\n"
             "FINISH: <resposta final em português para a usuária>\n"
             f'ACOES: [{{"ferramenta": "<nome>", "args": {{...}}}}]  (1 a {MAX_BATCH} ações, executadas em ordem)\n'

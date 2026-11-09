@@ -218,6 +218,8 @@
 /* Lote 6: contador do loop agêntico no balão do assistente. */
 .ws-agent-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 8px; color: var(--ws-muted, #94a398); font-size: 11px; overflow-wrap: anywhere; }
 .ws-agent-progress strong { color: var(--ws-text, #dfe7e1); font-weight: 600; }
+.ws-agent-wait-bar { flex: 1 1 100%; height: 4px; border-radius: 2px; background: var(--ws-border, rgba(148, 163, 152, 0.25)); overflow: hidden; }
+.ws-agent-wait-bar > span { display: block; height: 100%; background: var(--ws-accent, #7dd3a8); transition: width 0.9s linear; }
 
 /* Fase contexto 1: detalhe "Contexto usado" no balão do assistente. */
 .ws-turn-meta { margin: 8px 0 0; padding: 6px 10px; border: 1px solid var(--ws-border); border-radius: var(--ws-radius); background: var(--ws-field); color: var(--ws-muted); font-size: 11px; }

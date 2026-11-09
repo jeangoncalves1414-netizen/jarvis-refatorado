@@ -13,7 +13,8 @@ from app.core.action_proposals import build_proposal_preview
 from app.core.actions import ActionRecord, ToolMetadata, arguments_digest, pending_action_broker, summarize_result
 from app.storage.action_store import ActionStore, action_store
 from app.storage.auto_approvals import auto_approvals
-from app.core.runs import current_origin, current_run
+from app.core.runs import RunCancelled, current_origin, current_run
+from app.agent import effect_checks
 from app.core.capability_health import record_tool_result
 
 
@@ -129,10 +130,19 @@ class ActionExecutor:
             self.last_action = self.store.transition(action_id, "cancelled", result_summary=before.message, expected_status=action.status)
             return before.message
         self.last_action = self.store.transition(action_id, "running", expected_status=action.status)
+        before_effect = None
+        try:
+            before_effect = effect_checks.capture_before(name, args)
+        except Exception:
+            pass
         try:
             result = self.legacy_execute(name, args, user_text)
             if not isinstance(result, ToolResult) or type(result.ok) is not bool or not isinstance(result.message, str):
                 result = ToolResult(False, "A ferramenta retornou um resultado inválido; conclusão não confirmada.")
+        except RunCancelled:
+            # "Parar pedido" no meio da etapa (ex.: espera): a ação fica cancelada, não com falha.
+            self.last_action = self.store.transition(action_id, "cancelled", result_summary="Pedido cancelado durante a execução.")
+            raise
         except Exception:
             self.last_action = self.store.transition(action_id, "failed", result_summary="A ferramenta lançou uma exceção; conclusão não confirmada.")
             record_tool_result(name, False, "A ferramenta lançou uma exceção.")
@@ -140,6 +150,20 @@ class ActionExecutor:
         after = self.guardrails.after_call(name, args, result.message)
         message = result.message if after.allow else after.message
         succeeded = result.ok and after.allow
+        if succeeded:
+            # Efeito visível (abrir app, tocar mídia, abrir link): confirma por regra ou avisa que não deu.
+            # Nunca vira falha; a sonda com defeito conta como "não se aplica".
+            try:
+                effect = effect_checks.check_effect(name, args, result, before_effect)
+            except RunCancelled:
+                raise
+            except Exception:
+                effect = effect_checks.NOT_APPLICABLE
+            if effect.status != "not_applicable":
+                if not isinstance(result.data, dict):
+                    result.data = {}
+                result.data["effect"] = effect.as_dict()
+                message = f"{message} {effect.text()}".strip()
         self.last_action = self.store.transition(action_id, "succeeded" if succeeded else "failed", result_summary=summarize_result(message, args))
         # O1: o resultado real alimenta a saúde da integração na página Integrações.
         record_tool_result(name, result.ok, None if result.ok else summarize_result(result.message, args))

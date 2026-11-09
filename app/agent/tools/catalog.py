@@ -287,6 +287,13 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         ),
         scope="Só timers e alarmes do Jarvis; somem se o backend reiniciar.",
     ),
+    # Espera real entre ações (risco low para aparecer na Central sem "incluir leituras").
+    "wait": ToolMetadata(
+        ("wait", "control"), "low", reversible=True, default_target="pausa entre ações",
+        effect="Apenas espera; nada é alterado.",
+        reversibility="Nada a desfazer; use 'Parar pedido' para interromper a espera.",
+        scope="Só este pedido; as próximas etapas esperam o fim da pausa.",
+    ),
     "calendar": ToolMetadata(
         ("calendar", "productivity"), "critical", reversible=True,
         operation_arguments=("action",), default_operation="list",

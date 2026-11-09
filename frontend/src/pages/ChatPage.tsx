@@ -67,10 +67,16 @@ const suggestions = [
   { title: 'Construir com código', description: 'Crie, revise ou resolva um problema', icon: Code2, mode: 'coder', prompt: 'Quero ajuda com código. Meu contexto é: ' },
 ] as const
 
-const progressPhases: Record<string, string> = { planning: 'planejando', acting: 'executando', verifying: 'verificando', waiting_approval: 'aguardando aprovação', resumed: 'retomando', limit: 'limite atingido', done: 'concluindo' }
+const progressPhases: Record<string, string> = { planning: 'planejando', acting: 'executando', verifying: 'verificando', waiting: 'aguardando', waiting_approval: 'aguardando aprovação', resumed: 'retomando', limit: 'limite atingido', done: 'concluindo' }
 
 /** Linha do contador do loop agêntico: "Etapa 3 de 8 · 3/10 chamadas ao modelo · planejando". */
 function AgentProgressLine({ progress }: { progress: AgentProgress }) {
+  // Espera real (ferramenta wait): "Aguardando 42 s de 50" com barra; o contador continua aberto.
+  if (progress.phase === 'waiting' && typeof progress.wait_remaining === 'number' && typeof progress.wait_total === 'number') {
+    const total = Math.max(progress.wait_total, 1)
+    const done = Math.min(100, Math.max(0, ((total - progress.wait_remaining) / total) * 100))
+    return <div className="ws-agent-progress" role="status"><strong>Aguardando {progress.wait_remaining} s de {progress.wait_total}</strong>{progress.max_steps > 0 && <span>· etapa {progress.step} de {progress.max_steps}</span>}<span className="ws-agent-wait-bar" aria-hidden="true"><span style={{ width: `${done}%` }} /></span></div>
+  }
   return <p className="ws-agent-progress" role="status"><strong>Etapa {progress.step} de {progress.max_steps}</strong><span>· {progress.model_calls}/{progress.max_model_calls} chamadas ao modelo</span><span>· {progressPhases[progress.phase] || progress.phase}</span></p>
 }
 

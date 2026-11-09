@@ -1077,7 +1077,7 @@ class LLMService:
             # Enviar 35 ferramentas consome ~6500 tokens só de schemas.
             # Filtramos para as essenciais + quaisquer mencionadas na última fala do usuário:
             core_groq_names = {
-                "web_search", "system_control", "open_windows_app", "timer",
+                "web_search", "system_control", "open_windows_app", "timer", "wait",
                 "spotify", "whatsapp", "calendar", "file_manager", "notes",
                 "cinema", "script_runner", "image_generator", "vision"
             }
