@@ -10,6 +10,7 @@ __pycache__/
 *.log
 data/
 scratch/
+.worktrees/
 graphify-out/
 check_html_full_output.txt
 startup_error.txt
