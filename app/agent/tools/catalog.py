@@ -78,14 +78,90 @@ def _system_control_target_detail(operation: str, arguments: dict[str, Any]) -> 
     return ""
 
 
+_MAX_BATCH_NAMES = 6
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _brl(value: float) -> str:
+    return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _batch_names(items: Any, field: str, singular: str, plural: str) -> str:
+    """"3 hábitos: Ler, Correr, Meditar" para listas de objetos (ou de textos, com ``field`` vazio)."""
+    if not isinstance(items, list) or not items:
+        return f"nenhum {singular} informado; a ferramenta vai recusar"
+    names = []
+    for item in items:
+        value = item.get(field) if isinstance(item, dict) and field else item
+        names.append(str(value).strip()[:40] if isinstance(value, str) and value.strip() else "(sem nome)")
+    extra = len(names) - _MAX_BATCH_NAMES
+    shown = ", ".join(names[:_MAX_BATCH_NAMES]) + (f" e mais {extra}" if extra > 0 else "")
+    return f"{len(names)} {singular if len(names) == 1 else plural}: {shown}"
+
+
+def _habit_target_detail(operation: str, arguments: dict[str, Any]) -> str:
+    if operation == "create_many":
+        return _batch_names(arguments.get("habits"), "name", "hábito", "hábitos")
+    if operation == "check_many":
+        return _batch_names(arguments.get("names"), "", "hábito", "hábitos")
+    return ""
+
+
+def _task_target_detail(operation: str, arguments: dict[str, Any]) -> str:
+    if operation == "create_many":
+        return _batch_names(arguments.get("tasks"), "title", "tarefa", "tarefas")
+    return ""
+
+
 def _finance_target_detail(operation: str, arguments: dict[str, Any]) -> str:
+    if operation == "add_many":
+        entries = arguments.get("entries")
+        if not isinstance(entries, list) or not entries:
+            return "nenhum lançamento informado; a ferramenta vai recusar"
+        amounts = [entry.get("amount") for entry in entries if isinstance(entry, dict)]
+        if len(amounts) != len(entries) or not all(_is_number(a) for a in amounts):
+            return f"{len(entries)} lançamentos, algum sem valor numérico válido"
+        noun = "lançamento" if len(entries) == 1 else "lançamentos"
+        return f"{len(entries)} {noun}, total {_brl(float(sum(amounts)))}"
     if operation not in ("add", "create"):
         return ""
     kind = "receita" if str(arguments.get("type", "")).strip().lower() in ("income", "receita", "ganho") else "despesa"
     amount = arguments.get("amount")
-    if isinstance(amount, (int, float)) and not isinstance(amount, bool):
-        return f"{kind} de R$ {amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    if _is_number(amount):
+        return f"{kind} de {_brl(float(amount))}"
     return f"{kind} sem valor numérico válido"
+
+
+def _lifeos_target_detail(operation: str, arguments: dict[str, Any]) -> str:
+    if operation == "set_water":
+        total = arguments.get("total_ml")
+        return f"total do dia: {int(total):,} ml".replace(",", ".") if _is_number(total) else "total de água inválido; a ferramenta vai recusar"
+    if operation == "add_water":
+        amount = arguments.get("amount", 250)
+        return f"somar {int(amount):,} ml".replace(",", ".") if _is_number(amount) else "quantidade inválida; a ferramenta vai recusar"
+    return ""
+
+
+def _calendar_target_detail(operation: str, arguments: dict[str, Any]) -> str:
+    if operation == "create_many":
+        return _batch_names(arguments.get("reminders"), "title", "lembrete", "lembretes")
+    if operation == "create_reminder":
+        start = _text(arguments, "start")
+        return f"em {start[:16].replace('T', ' ')}" if start else ""
+    return ""
+
+
+def _document_target_risk(_operation: str, arguments: dict[str, Any]) -> ActionRisk:
+    """Caminho de saída livre pode sobrescrever qualquer arquivo: pede aprovação."""
+    return "high" if _text(arguments, "output_path") else "low"
+
+
+def _document_target_detail(_operation: str, arguments: dict[str, Any]) -> str:
+    path = _text(arguments, "output_path")
+    return f"salvar em {path[:120]} (substitui arquivo de mesmo nome)" if path else "salvar em data/exports/"
 
 
 def _whatsapp_target_detail(_operation: str, arguments: dict[str, Any]) -> str:
@@ -188,20 +264,244 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         reversibility="Reversível: edite o plano ou feche o painel.", scope="Só o plano desta conversa.",
     ),
     "timer": ToolMetadata(
-        ("timer", "productivity"), "low", reversible=True, target_arguments=("label",), default_target="timers e alarmes",
-        effect="Lista, cria timers de contagem regressiva ou alarmes com horário fixo.",
-        reversibility="Reversível: cancele o timer ou o alarme.", scope="Só timers e alarmes do Jarvis.",
+        ("timer", "productivity"), "critical", reversible=True,
+        operation_arguments=("action",), default_operation="list",
+        operation_risks=_by_operation(observe=("list",), low=("set_timer", "set_alarm", "cancel")),
+        target_arguments=("label", "duration", "time"), default_target="timers e alarmes",
+        operation_effects=(
+            ("list", "Apenas lê os timers e alarmes ativos; nada é alterado."),
+            ("set_timer", "Cria um timer de contagem regressiva com aviso sonoro neste PC."),
+            ("set_alarm", "Cria um alarme para o horário informado, com aviso sonoro neste PC."),
+            ("cancel", "Cancela o timer ou alarme ativo com esse rótulo."),
+        ),
+        operation_reversibility=(
+            ("list", "Nada a desfazer."),
+            *_same_text("Reversível: cancele o timer ou o alarme.", "set_timer", "set_alarm"),
+            ("cancel", "Reversível: crie o timer ou o alarme de novo."),
+        ),
+        scope="Só timers e alarmes do Jarvis; somem se o backend reiniciar.",
     ),
     "calendar": ToolMetadata(
-        ("calendar", "productivity"), "low", reversible=True, target_arguments=("title", "query"), default_target="calendário local",
-        effect="Lista, cria ou cancela lembretes do calendário local.",
-        reversibility="Reversível: cancele o lembrete criado; um lembrete cancelado pode ser criado de novo.",
+        ("calendar", "productivity"), "critical", reversible=True,
+        operation_arguments=("action",), default_operation="list",
+        operation_risks=_by_operation(observe=("list",), low=("create_reminder", "create_many", "cancel_reminder")),
+        target_arguments=("title", "query"), default_target="calendário local", target_detail=_calendar_target_detail,
+        operation_effects=(
+            ("list", "Apenas lê os compromissos do calendário; nada é alterado."),
+            ("create_reminder", "Cria um lembrete no calendário local."),
+            ("create_many", "Cria vários lembretes no calendário local de uma vez."),
+            ("cancel_reminder", "Para os avisos do lembrete indicado."),
+        ),
+        operation_reversibility=(
+            ("list", "Nada a desfazer."),
+            *_same_text("Reversível: cancele o lembrete criado; um lembrete cancelado pode ser criado de novo.", "create_reminder", "create_many"),
+            ("cancel_reminder", "Reversível: crie o lembrete de novo."),
+        ),
         scope="Só o calendário local do Jarvis.",
     ),
-    "notes": ToolMetadata(
-        ("notes", "productivity"), "low", reversible=True, default_target="suas anotações",
-        effect="Lê ou cria anotações.", reversibility="Reversível: edite ou apague a anotação criada.",
-        scope="Só as anotações do Jarvis.",
+    "open_screen": ToolMetadata(
+        ("ui", "screen"), "observe", target_arguments=("screen", "command"), default_target="tela do app",
+        effect="Muda o app para a tela indicada; nenhum dado é alterado.", reversibility="Reversível: volte para a tela anterior.",
+        scope="Só as telas do app.",
+    ),
+    # Cofre de memória (Markdown local, sincronizado com o celular).
+    "vault_search": ToolMetadata(
+        ("vault", "observe"), "observe", target_arguments=("query",), default_target="cofre de memória",
+        effect="Apenas procura nas notas do cofre; nada é alterado.", reversibility="Nada a desfazer.",
+        scope="Só as notas do cofre.",
+    ),
+    "vault_daily_log": ToolMetadata(
+        ("vault", "notes"), "low", reversible=True, target_arguments=("category",), default_target="diário de hoje no cofre",
+        effect="Acrescenta uma linha com horário ao diário de hoje.",
+        reversibility="Reversível: edite ou apague a linha no arquivo do diário no cofre.", scope="Só o diário de hoje.",
+    ),
+    "vault_save_note": ToolMetadata(
+        ("vault", "notes"), "low", reversible=True, target_arguments=("title",), default_target="nota no cofre",
+        effect="Salva a nota no cofre; uma nota com o mesmo título na mesma pasta é substituída.",
+        reversibility="Reversível: edite ou apague o arquivo no cofre; o conteúdo substituído não é guardado.",
+        scope="Só a pasta do cofre indicada (01-Daily-Notes, 03-Priming-Notes, 04-Projects ou 05-Notas).",
+    ),
+    "vault_update_profile": ToolMetadata(
+        ("vault", "profile"), "low", reversible=True, default_target="seu perfil no cofre (USER-PROFILE.md)",
+        effect="Acrescenta um fato ou preferência ao seu perfil, que o agente lê nas conversas.",
+        reversibility="Reversível: edite ou apague a linha no arquivo do perfil no cofre.", scope="Só o arquivo do perfil.",
+    ),
+    # Auditoria do lote 6 (decisão 14): leitura = observe; efeito local reversível = low;
+    # digitar no PC, enviar mensagem, mudar a inicialização do Windows, expor porta ou
+    # mover arquivos em massa = high com confirmação.
+    "cinema": ToolMetadata(
+        ("media", "web"), "critical",
+        operation_arguments=("action",), default_operation="search",
+        operation_risks=_by_operation(observe=("search", "discover", "detect_url"), low=("play",)),
+        target_arguments=("query", "imdb_id", "url"), default_target="busca de filmes e séries",
+        operation_effects=(
+            ("search", "Apenas pesquisa o catálogo de filmes e séries; nada é alterado."),
+            ("discover", "Apenas pesquisa fontes aprovadas; nada é alterado."),
+            ("detect_url", "Apenas analisa a página informada; nada é alterado."),
+            ("play", "Abre o player do título no painel."),
+        ),
+        operation_reversibility=(
+            *_same_text("Nada a desfazer.", "search", "discover", "detect_url"),
+            ("play", "Reversível: feche o player."),
+        ),
+        scope="Só consulta catálogos públicos e o player do painel.",
+    ),
+    "clipboard_intelligence": ToolMetadata(
+        ("clipboard", "observe"), "critical",
+        operation_arguments=("action",), default_operation="read",
+        operation_risks=_by_operation(observe=("read", "refactor", "explain_error", "translate", "summarize")),
+        default_target="texto copiado na área de transferência",
+        operation_effects=(
+            ("read", "Apenas lê o texto copiado; nada é alterado."),
+            *_same_text("Apenas lê o texto copiado e prepara o pedido para a resposta; nada é alterado.", "refactor", "explain_error", "translate", "summarize"),
+        ),
+        reversibility="Nada a desfazer.", scope="Só o texto copiado agora; a área de transferência não muda.",
+    ),
+    "document_generator": ToolMetadata(
+        ("files", "documents"), "critical", reversible=True,
+        operation_arguments=("format",), default_operation="pdf",
+        operation_risks=_by_operation(low=("pptx", "xlsx", "pdf")),
+        target_risk=_document_target_risk,
+        target_arguments=("title",), default_target="documento novo", target_detail=_document_target_detail,
+        operation_effects=(
+            ("pptx", "Gera uma apresentação PowerPoint e salva o arquivo."),
+            ("xlsx", "Gera uma planilha Excel e salva o arquivo."),
+            ("pdf", "Gera um PDF e salva o arquivo."),
+        ),
+        reversibility="Reversível: apague o arquivo gerado; um arquivo de mesmo nome é substituído.",
+        scope="Só o arquivo gerado; caminho próprio pede aprovação.",
+    ),
+    "image_generator": ToolMetadata(
+        ("image", "web"), "low", target_arguments=("size",), default_target="gerador de imagens (Oxyy)",
+        effect="Envia a descrição ao serviço de imagens e devolve o link da imagem gerada; pode consumir créditos.",
+        reversibility="Nada a desfazer neste computador; o uso de créditos não volta.", scope="Só esta geração.",
+    ),
+    "jarvis_mode": ToolMetadata(
+        ("ui", "mode"), "critical", reversible=True,
+        operation_arguments=("command",), default_operation="",
+        operation_risks=_by_operation(low=("silent", "hybrid", "call_mode")),
+        default_target="modo de interação do assistente",
+        operation_effects=(
+            ("silent", "Desliga a fala das respostas (só texto)."),
+            ("hybrid", "Volta a falar as respostas."),
+            ("call_mode", "Abre a interface de ligação por voz."),
+        ),
+        effect="Troca o modo de interação do assistente (silencioso, com voz ou ligação).",
+        reversibility="Reversível: escolha outro modo.", scope="Só o modo do assistente neste app.",
+    ),
+    "news_reader": ToolMetadata(
+        ("news", "observe"), "observe", target_arguments=("feed_url",), default_target="manchetes de notícias (RSS)",
+        effect="Apenas lê manchetes de um feed RSS; nada é alterado.", reversibility="Nada a desfazer.",
+        scope="Só consulta o feed público.",
+    ),
+    "phantom_typer": ToolMetadata(
+        ("desktop", "keyboard"), "high", requires_confirmation=True, default_target="janela ativa do Windows",
+        target_detail=lambda _op, args: f"texto de {len(_text(args, 'text'))} caracteres" if _text(args, "text") else "sem texto",
+        effect="Cola o texto na janela que estiver ativa, como se fosse digitado pela usuária.",
+        reversibility="Não garantida: o programa que recebe o texto pode enviá-lo ou executá-lo; use Ctrl+Z se ele permitir.",
+        scope="A janela que estiver em foco no momento da execução.",
+    ),
+    "proactive_agent": ToolMetadata(
+        ("proactive", "productivity"), "critical", reversible=True,
+        operation_arguments=("action",), default_operation="get_status",
+        operation_risks=_by_operation(observe=("get_status", "trigger_briefing"), low=("configure_briefing", "add_reminder")),
+        target_arguments=("briefing_time", "reminder_time"), default_target="assistente proativo (briefing e lembretes)",
+        operation_effects=(
+            ("get_status", "Apenas lê a configuração do briefing e os lembretes; nada é alterado."),
+            ("trigger_briefing", "Apenas monta o briefing agora; nada é alterado."),
+            ("configure_briefing", "Altera horário, tópicos ou instruções do briefing matinal."),
+            ("add_reminder", "Agenda um lembrete do assistente proativo."),
+        ),
+        operation_reversibility=(
+            *_same_text("Nada a desfazer.", "get_status", "trigger_briefing"),
+            ("configure_briefing", "Reversível: configure o briefing de volta; o valor anterior não é guardado."),
+            ("add_reminder", "Reversível: o lembrete é avisado uma vez e some."),
+        ),
+        scope="Só as configurações do assistente proativo.",
+    ),
+    "qr_reader": ToolMetadata(
+        ("vision", "observe"), "critical",
+        operation_arguments=("source",), default_operation="screen",
+        operation_risks=_by_operation(observe=("screen", "camera")),
+        default_target="tela ou câmera deste computador",
+        operation_effects=(
+            ("screen", "Apenas captura a tela e lê QR codes; nada é alterado."),
+            ("camera", "Apenas liga a câmera por alguns segundos para ler QR codes; nada é alterado."),
+        ),
+        reversibility="Nada a desfazer.", scope="Só a captura desta leitura.",
+    ),
+    "screen_peeler": ToolMetadata(
+        ("vision", "clipboard"), "low", default_target="tela atual e área de transferência",
+        effect="Captura a tela, extrai o texto com o serviço de visão e copia o texto para a área de transferência.",
+        reversibility="Não reversível: o conteúdo anterior da área de transferência não é guardado.",
+        scope="A tela inteira no momento da captura.",
+    ),
+    "smart_drop_zone": ToolMetadata(
+        ("files", "organize"), "high", requires_confirmation=True, target_arguments=("target_folder",),
+        default_target="pasta Downloads",
+        effect="Move os arquivos soltos da pasta para subpastas por tipo (Documentos, Imagens, Compactados, Executaveis, Codigos).",
+        reversibility="Reversível com trabalho: os arquivos continuam nas subpastas da mesma pasta, mas é preciso movê-los de volta à mão.",
+        scope="Só os arquivos soltos de Downloads ou da Área de Trabalho; subpastas não são mexidas.",
+    ),
+    "system_tray": ToolMetadata(
+        ("system", "startup"), "critical",
+        operation_arguments=("action",), default_operation="status",
+        operation_risks=_by_operation(observe=("status",), high=("enable_boot", "disable_boot")),
+        default_target="inicialização automática do Windows",
+        operation_effects=(
+            ("status", "Apenas verifica se o Jarvis inicia com o Windows; nada é alterado."),
+            ("enable_boot", "Registra o Jarvis para iniciar junto com o Windows."),
+            ("disable_boot", "Remove o Jarvis da inicialização do Windows."),
+        ),
+        operation_reversibility=(
+            ("status", "Nada a desfazer."),
+            ("enable_boot", "Reversível: desative a inicialização automática depois."),
+            ("disable_boot", "Reversível: ative a inicialização automática de novo."),
+        ),
+        scope="Só a entrada do Jarvis na inicialização do Windows do seu usuário.",
+    ),
+    "telegram_bot": ToolMetadata(
+        ("messaging",), "critical",
+        operation_arguments=("action",), default_operation="status",
+        operation_risks=_by_operation(observe=("status",), low=("stop_bot",), high=("send", "start_bot")),
+        target_arguments=("chat_id",), default_target="Telegram",
+        target_detail=lambda op, args: _whatsapp_target_detail(op, args) if op == "send" else "",
+        operation_effects=(
+            ("status", "Apenas verifica se o bot do Telegram está rodando; nada é alterado."),
+            ("stop_bot", "Para o bot do Telegram."),
+            ("send", "Envia a mensagem pelo Telegram ao chat indicado."),
+            ("start_bot", "Liga o bot do Telegram, que passa a receber comandos dos contatos autorizados."),
+        ),
+        operation_reversibility=(
+            ("status", "Nada a desfazer."),
+            ("stop_bot", "Reversível: ligue o bot de novo."),
+            ("send", "Não reversível: a mensagem enviada não pode ser retirada por aqui."),
+            ("start_bot", "Reversível: pare o bot depois."),
+        ),
+        scope="Só o bot do Telegram configurado neste computador.",
+    ),
+    "wallpaper_engine": ToolMetadata(
+        ("desktop", "appearance"), "low", target_arguments=("query", "image_url"), default_target="papel de parede do Windows",
+        effect="Baixa uma imagem e troca o papel de parede da área de trabalho.",
+        reversibility="Reversível: escolha outro papel de parede; o anterior não é guardado.",
+        scope="Só o papel de parede do seu usuário.",
+    ),
+    "wormhole": ToolMetadata(
+        ("network", "tunnel"), "critical",
+        operation_arguments=("action",), default_operation="list",
+        operation_risks=_by_operation(observe=("list",), low=("stop",), high=("start",)),
+        target_arguments=("port",), default_target="túneis de rede",
+        operation_effects=(
+            ("list", "Apenas lista os túneis ativos; nada é alterado."),
+            ("stop", "Encerra o túnel da porta indicada."),
+            ("start", "Expõe a porta local na internet por um link público."),
+        ),
+        operation_reversibility=(
+            ("list", "Nada a desfazer."),
+            ("stop", "Reversível: abra o túnel de novo."),
+            ("start", "Reversível: encerre o túnel; quem acessou enquanto ele estava aberto não é desfeito."),
+        ),
+        scope="Só a porta indicada deste computador.",
     ),
     "whiteboard_add_text": ToolMetadata(
         ("whiteboard", "productivity"), "low", reversible=True, default_target="quadro da conversa",
@@ -251,14 +551,16 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         operation_arguments=("action", "command"), default_operation="list",
         operation_risks=_by_operation(
             observe=("list",),
-            low=("create", "update", "check", "complete", "done", "uncheck", "undo"),
+            low=("create", "create_many", "update", "check", "check_many", "complete", "done", "uncheck", "undo"),
             high=("delete",),
         ),
-        target_arguments=("name", "habit_id"), default_target="seus hábitos",
+        target_arguments=("name", "habit_id"), default_target="seus hábitos", target_detail=_habit_target_detail,
         operation_effects=(
             ("list", "Apenas lê os hábitos; nada é alterado."),
             ("create", "Cria um hábito novo."),
-            ("update", "Altera dias, horário ou itens de um hábito existente."),
+            ("create_many", "Cria vários hábitos de uma vez; se algum for inválido, nenhum é criado."),
+            ("update", "Altera nome, categoria, período, dias, horário ou itens de um hábito existente."),
+            ("check_many", "Marca vários hábitos como concluídos hoje."),
             ("check", "Marca o hábito como concluído hoje."),
             ("complete", "Marca o hábito como concluído hoje."),
             ("done", "Marca o hábito como concluído hoje."),
@@ -268,9 +570,9 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         ),
         operation_reversibility=(
             ("list", "Nada a desfazer."),
-            ("create", "Reversível: exclua o hábito depois."),
+            *_same_text("Reversível: exclua o hábito depois.", "create", "create_many"),
             ("update", "Reversível: edite o hábito de volta; o valor anterior não é guardado."),
-            *_same_text("Reversível: desmarque o hábito de hoje.", "check", "complete", "done"),
+            *_same_text("Reversível: desmarque o hábito de hoje.", "check", "check_many", "complete", "done"),
             *_same_text("Reversível: marque o hábito de novo.", "uncheck", "undo"),
             ("delete", "Não reversível: não há desfazer; recrie o hábito manualmente se precisar."),
         ),
@@ -281,13 +583,15 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         operation_arguments=("action", "command"), default_operation="list",
         operation_risks=_by_operation(
             observe=("list",),
-            low=("create", "toggle", "complete", "done"),
+            low=("create", "create_many", "update", "toggle", "complete", "done"),
             high=("delete",),
         ),
-        target_arguments=("title", "task_id"), default_target="suas tarefas",
+        target_arguments=("title", "task_id"), default_target="suas tarefas", target_detail=_task_target_detail,
         operation_effects=(
-            ("list", "Apenas lê as tarefas pendentes; nada é alterado."),
+            ("list", "Apenas lê as tarefas; nada é alterado."),
             ("create", "Cria uma tarefa nova."),
+            ("create_many", "Cria várias tarefas de uma vez; se alguma for inválida, nenhuma é criada."),
+            ("update", "Altera título, prioridade, projeto ou vencimento da tarefa."),
             ("toggle", "Conclui a tarefa ou a reabre."),
             ("complete", "Conclui a tarefa ou a reabre."),
             ("done", "Conclui a tarefa ou a reabre."),
@@ -295,7 +599,8 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         ),
         operation_reversibility=(
             ("list", "Nada a desfazer."),
-            ("create", "Reversível: exclua a tarefa depois."),
+            *_same_text("Reversível: exclua a tarefa depois.", "create", "create_many"),
+            ("update", "Reversível: edite a tarefa de volta; o valor anterior não é guardado."),
             *_same_text("Reversível: alterne a tarefa de novo.", "toggle", "complete", "done"),
             ("delete", "Não reversível: não há desfazer; recrie a tarefa manualmente se precisar."),
         ),
@@ -306,21 +611,24 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         operation_arguments=("action", "command"), default_operation="summary",
         operation_risks=_by_operation(
             observe=("summary", "list"),
-            low=("add", "create"),
+            low=("add", "create", "add_many", "update"),
             high=("delete",),
         ),
         target_arguments=("description", "category", "trans_id"), default_target="suas finanças",
         target_detail=_finance_target_detail,
         operation_effects=(
             ("summary", "Apenas lê o resumo financeiro; nada é alterado."),
-            ("list", "Apenas lê os lançamentos recentes; nada é alterado."),
+            ("list", "Apenas lê os lançamentos do período; nada é alterado."),
             ("add", "Registra um lançamento de receita ou despesa."),
             ("create", "Registra um lançamento de receita ou despesa."),
+            ("add_many", "Registra vários lançamentos de uma vez; se algum for inválido, nenhum é gravado."),
+            ("update", "Corrige valor, tipo, categoria, descrição ou data de um lançamento."),
             ("delete", "Exclui um lançamento financeiro."),
         ),
         operation_reversibility=(
             *_same_text("Nada a desfazer.", "summary", "list"),
-            *_same_text("Reversível: exclua o lançamento depois.", "add", "create"),
+            *_same_text("Reversível: exclua o lançamento depois.", "add", "create", "add_many"),
+            ("update", "Reversível: corrija o lançamento de volta; o valor anterior não é guardado."),
             ("delete", "Não reversível: não há desfazer; recrie o lançamento manualmente se precisar."),
         ),
         scope="Só o lançamento indicado; os totais são recalculados.",
@@ -330,15 +638,16 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         operation_arguments=("action", "command"), default_operation="summary",
         operation_risks=_by_operation(
             observe=("get_water", "list_habits", "summary", "motivate"),
-            low=("add_water", "check_habit", "check", "uncheck_habit", "uncheck", "log_workout"),
+            low=("add_water", "set_water", "check_habit", "check", "uncheck_habit", "uncheck", "log_workout"),
         ),
-        target_arguments=("habit_name", "workout_name"), default_target="seu Life OS",
+        target_arguments=("habit_name", "workout_name"), default_target="seu Life OS", target_detail=_lifeos_target_detail,
         operation_effects=(
             ("get_water", "Apenas lê o consumo de água de hoje; nada é alterado."),
             ("list_habits", "Apenas lê os hábitos do Life OS; nada é alterado."),
             ("summary", "Apenas lê o resumo do dia; nada é alterado."),
             ("motivate", "Apenas lê o resumo do dia para uma mensagem; nada é alterado."),
             ("add_water", "Soma a quantidade informada ao consumo de água de hoje."),
+            ("set_water", "Define o total de água de hoje no valor informado."),
             ("check_habit", "Marca o hábito do Life OS como concluído hoje."),
             ("check", "Marca o hábito do Life OS como concluído hoje."),
             ("uncheck_habit", "Desmarca o hábito do Life OS de hoje."),
@@ -348,6 +657,7 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         operation_reversibility=(
             *_same_text("Nada a desfazer.", "get_water", "list_habits", "summary", "motivate"),
             *_same_text("Não há desfazer automático; corrija o registro de hoje manualmente.", "add_water", "log_workout"),
+            ("set_water", "Reversível: defina o total de novo; o valor anterior aparece no resultado."),
             *_same_text("Reversível: desmarque o hábito de hoje.", "check_habit", "check"),
             *_same_text("Reversível: marque o hábito de novo.", "uncheck_habit", "uncheck"),
         ),

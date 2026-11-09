@@ -128,6 +128,30 @@ class TaskService:
         return TaskService.get_task(task_id)
 
     @staticmethod
+    def update_task(
+        task_id: str,
+        title: str | None = None,
+        description: str | None = None,
+        priority: int | None = None,
+        project: str | None = None,
+        due_date: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Altera só os campos informados. Retorna None se a tarefa não existir."""
+        if not TaskService.get_task(task_id):
+            return None
+        fields = {
+            key: value
+            for key, value in (("title", title), ("description", description), ("priority", priority), ("project", project), ("due_date", due_date))
+            if value is not None
+        }
+        if fields:
+            set_clause = ", ".join(f"{column} = ?" for column in fields)
+            with get_db_connection() as conn:
+                conn.cursor().execute(f"UPDATE tasks SET {set_clause} WHERE id = ?", [*fields.values(), task_id])
+                conn.commit()
+        return TaskService.get_task(task_id)
+
+    @staticmethod
     def delete_task(task_id: str) -> bool:
         with get_db_connection() as conn:
             cursor = conn.cursor()

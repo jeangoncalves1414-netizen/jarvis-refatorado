@@ -17,6 +17,17 @@ export const navigation = [
   { id: 'Configurações', label: 'Configurações', icon: Settings2, group: 'settings', description: 'Modelos, provedores e voz' },
 ] as const
 
+export type ScreenId = (typeof navigation)[number]['id']
+
+// Lê o pedido de tela que a ferramenta open_screen devolve no contexto da resposta do chat:
+// context.tool_results.open_screen.data.ui_screen. Id fora da navegação é ignorado.
+export function extractScreenRequest(context: unknown): ScreenId | null {
+  const result = (context as { tool_results?: { open_screen?: { ok?: unknown; data?: { ui_screen?: { screen?: unknown } } } } } | null | undefined)?.tool_results?.open_screen
+  const screen = result?.ok === true ? result.data?.ui_screen?.screen : undefined
+  const item = navigation.find(entry => entry.id === screen)
+  return item ? item.id : null
+}
+
 export function resolveScreen(stored: string | null) {
   if (stored === 'Analytics') return 'Análises'
   return navigation.some(item => item.id === stored) ? stored! : 'Chat'

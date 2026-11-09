@@ -15,6 +15,15 @@ class ScreenPeelerTool(BaseTool):
     name = "screen_peeler"
     description = "Captura a tela atual, realiza OCR inteligente com IA e envia o texto extraído para a área de transferência."
 
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "description": "Instrução de extração (padrão: extrair todo o texto visível)."},
+            },
+        }
+
     def run(self, prompt: str = "Extraia todo o texto visível nesta imagem de tela.", **kwargs: Any) -> dict[str, Any]:
         try:
             # Importações opcionais — não falham em tempo de import

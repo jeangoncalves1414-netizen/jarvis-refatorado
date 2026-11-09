@@ -23,6 +23,15 @@ class SmartDropZoneTool(BaseTool):
     name = "smart_drop_zone"
     description = "Organiza autonomamente a pasta Downloads ou Área de Trabalho por categorias de arquivo."
 
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "target_folder": {"type": "string", "enum": ["Downloads", "Desktop"], "description": "Pasta a organizar (padrão Downloads)."},
+            },
+        }
+
     def run(self, target_folder: str = "Downloads", **kwargs: Any) -> dict[str, Any]:
         target_folder = target_folder.strip().lower()
         home = Path.home()

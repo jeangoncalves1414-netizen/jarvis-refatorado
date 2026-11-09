@@ -26,6 +26,21 @@ class _TimerManager:
         with self._lock:
             self._timers.append({"fire_at": fire_at, "label": label, "fired": False})
 
+    def cancel(self, label: str) -> list[dict[str, Any]]:
+        """Cancela timers ativos pelo rótulo: igual (sem diferenciar maiúsculas) ou, sem igual, que contenha o texto."""
+        wanted = " ".join(str(label or "").casefold().split())
+        if not wanted:
+            return []
+        with self._lock:
+            now = datetime.now()
+            active = [t for t in self._timers if not t["fired"] and t["fire_at"] > now]
+            matches = [t for t in active if " ".join(str(t["label"]).casefold().split()) == wanted]
+            if not matches:
+                matches = [t for t in active if wanted in str(t["label"]).casefold()]
+            for t in matches:
+                self._timers.remove(t)
+            return matches
+
     def list_active(self) -> list[dict[str, Any]]:
         with self._lock:
             now = datetime.now()
@@ -81,7 +96,10 @@ class TimerTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Cria timers ou alarmes com aviso sonoro, ou lista os timers ativos."
+        return (
+            "Timers (contagem regressiva, ex.: '10 minutos') e alarmes (horário HH:MM de hoje ou amanhã) com aviso sonoro "
+            "neste PC; também lista e cancela pelo rótulo. Compromisso com data vai para calendar."
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -90,8 +108,8 @@ class TimerTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["set_timer", "set_alarm", "list"],
-                    "description": "Ação do timer: 'set_timer' para contagem regressiva, 'set_alarm' para horário fixo, 'list' para listar ativos."
+                    "enum": ["set_timer", "set_alarm", "list", "cancel"],
+                    "description": "set_timer: contagem regressiva; set_alarm: horário fixo; list: lista os ativos; cancel: cancela pelo rótulo (label)."
                 },
                 "duration": {
                     "type": "string",
@@ -103,7 +121,7 @@ class TimerTool(BaseTool):
                 },
                 "label": {
                     "type": "string",
-                    "description": "Descrição opcional para o timer/alarme."
+                    "description": "Rótulo do timer/alarme (opcional ao criar; obrigatório para cancel)."
                 }
             },
             "required": ["action"]
@@ -125,6 +143,15 @@ class TimerTool(BaseTool):
                 rem_seconds = int(rem.total_seconds())
                 lines.append(f"- {t['label']} às {t['fire_at'].strftime('%H:%M:%S')} (faltam {self._fmt_duration(rem_seconds)})")
             return ToolResult(ok=True, message="Timers ativos:\n" + "\n".join(lines), data={"active": active})
+
+        elif action == "cancel":
+            if not label:
+                return ToolResult(ok=False, message="Informe o rótulo (label) do timer ou alarme a cancelar.")
+            cancelled = self.manager.cancel(label)
+            if not cancelled:
+                return ToolResult(ok=False, message=f"Nenhum timer ativo com o rótulo '{label}'.")
+            names = ", ".join(t["label"] for t in cancelled)
+            return ToolResult(ok=True, message=f"Cancelado(s): {names}.", data={"cancelled": [t["label"] for t in cancelled]})
 
         elif action == "set_timer":
             duration = args.get("duration", "").strip()

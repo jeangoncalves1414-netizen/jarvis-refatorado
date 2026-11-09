@@ -9,6 +9,9 @@ from typing import Any
 from app.agent.tools.base import BaseTool, ToolResult
 from app.services.lifeos import LifeOSService
 
+MAX_ADD_ML = 5_000
+MAX_TOTAL_ML = 10_000
+
 
 class LifeOSTool(BaseTool):
     @property
@@ -18,9 +21,10 @@ class LifeOSTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Gerencia e consulta o Life OS / Evolute: registra consumo de água (ex: 500ml), "
-            "marca hábitos concluídos (treino, foco, leitura), consulta sequências (streaks), "
-            "registra treinos e solicita conselho motivacional de alta performance."
+            "Life OS (tela Evolução): água do dia, treino, resumo do dia e marcar hábitos do Life OS. "
+            "Água: 'bebi 3 L hoje' / 'hoje bebi 2 litros' = TOTAL do dia → set_water com total_ml (3000); "
+            "'bebi mais um copo / mais 500 ml' = soma → add_water com amount em ml (copo ≈ 250). "
+            "Não use para criar hábitos novos: isso é habit_tool."
         )
 
     @property
@@ -32,6 +36,7 @@ class LifeOSTool(BaseTool):
                     "type": "string",
                     "enum": [
                         "add_water",
+                        "set_water",
                         "get_water",
                         "check_habit",
                         "uncheck_habit",
@@ -44,7 +49,15 @@ class LifeOSTool(BaseTool):
                 },
                 "amount": {
                     "type": "number",
-                    "description": "Quantidade numérica (ex: 500 para 500ml de água, 45 para 45min de estudo).",
+                    "minimum": 1,
+                    "maximum": MAX_ADD_ML,
+                    "description": f"add_water: ml a SOMAR ao dia (1 a {MAX_ADD_ML}; padrão 250).",
+                },
+                "total_ml": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": MAX_TOTAL_ML,
+                    "description": f"set_water: TOTAL de água do dia em ml (0 a {MAX_TOTAL_ML}; 3 L = 3000).",
                 },
                 "habit_name": {
                     "type": "string",
@@ -53,10 +66,6 @@ class LifeOSTool(BaseTool):
                 "workout_name": {
                     "type": "string",
                     "description": "Nome do treino ou grupamento muscular (ex: 'Peito e Tríceps', 'Pernas').",
-                },
-                "notes": {
-                    "type": "string",
-                    "description": "Observações adicionais para o registro.",
                 },
             },
             "required": ["action"],
@@ -69,15 +78,19 @@ class LifeOSTool(BaseTool):
         habit_name: str = "",
         workout_name: str = "",
         notes: str = "",
+        total_ml: float | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         act = (action or "summary").lower().strip()
 
         # 1. Adicionar Água
         if act == "add_water":
-            ml = int(amount or 250)
-            if ml <= 0:
+            if amount is None:
                 ml = 250
+            elif isinstance(amount, bool) or not isinstance(amount, (int, float)) or not 1 <= amount <= MAX_ADD_ML:
+                return {"ok": False, "error": f"Quantidade de água inválida: informe de 1 a {MAX_ADD_ML} ml."}
+            else:
+                ml = int(round(amount))
             res = LifeOSService.add_water(ml)
             if res.get("ok"):
                 msg = (
@@ -88,6 +101,21 @@ class LifeOSTool(BaseTool):
                     msg += " 🎯 Meta diária de hidratação atingida! Hábito de água marcado."
                 return {"ok": True, "message": msg, "data": res}
             return {"ok": False, "error": "Não foi possível registrar o consumo de água."}
+
+        # 1b. Definir o total do dia
+        if act == "set_water":
+            if isinstance(total_ml, bool) or not isinstance(total_ml, (int, float)) or not 0 <= total_ml <= MAX_TOTAL_ML:
+                return {"ok": False, "error": f"Total de água inválido: informe de 0 a {MAX_TOTAL_ML} ml."}
+            res = LifeOSService.set_water(int(round(total_ml)))
+            if not res.get("ok"):
+                return {"ok": False, "error": "Não foi possível registrar o consumo de água."}
+            msg = (
+                f"💧 Água de hoje definida em {res['total_ml']} ml (antes: {res['previous_ml']} ml), "
+                f"{res['percentage']}% da meta de {res['target_ml']} ml."
+            )
+            if res.get("habit_completed"):
+                msg += " 🎯 Meta diária de hidratação atingida!"
+            return {"ok": True, "message": msg, "data": res}
 
         # 2. Consultar Água
         if act == "get_water":

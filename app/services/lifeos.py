@@ -296,6 +296,15 @@ class LifeOSService:
         }
 
     @classmethod
+    def set_water(cls, total_ml: int, date_str: str | None = None) -> dict[str, Any]:
+        """Define o total de água do dia ("bebi 3 L hoje"); reutiliza ``add_water`` com a diferença."""
+        today = date_str or cls.get_today_str()
+        previous = int(cls.get_data_bucket().get(f"lifeos_water_{today}") or 0)
+        result = cls.add_water(int(total_ml) - previous, date_str=today)
+        result["previous_ml"] = previous
+        return result
+
+    @classmethod
     def toggle_habit(cls, habit_name_or_id: str, completed: bool = True, date_str: str | None = None) -> dict[str, Any]:
         """Marca ou desmarca um hábito pelo ID ou por busca de nome/termo."""
         today = date_str or cls.get_today_str()

@@ -25,6 +25,52 @@ def isolated_conversation_journal(tmp_path, monkeypatch):
         journal._runtime_lock.close()
 
 
+@pytest.fixture
+def isolated_lote6_data(tmp_path, monkeypatch):
+    """Dados pessoais, cofre, configurações, aprovações e Central em tmp (lote 6).
+
+    Nada escreve em data/ do projeto nem em ~/Documents/Evolute: o cwd vai para tmp
+    (CalendarService usa data/calendar.json relativo) e os caminhos fixos são trocados.
+    """
+    from types import SimpleNamespace
+
+    from app.services import finance, habits, memory_vault, tasks
+    from app.storage.action_store import ActionStore
+    from app.storage.auto_approvals import AutoApprovalStore
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data").mkdir(exist_ok=True)
+    monkeypatch.setattr(habits, "DB_PATH", tmp_path / "data" / "lifestyle.db")
+    habits.init_db()
+    tasks.init_task_tables()
+    finance.init_finance_tables()
+
+    lifeos_db = tmp_path / "lifeos" / "lifeos_db.json"
+    monkeypatch.setattr("app.services.lifeos._DOCUMENTS_DB", lifeos_db)
+    monkeypatch.setattr("app.services.lifeos._LOCAL_DB", lifeos_db)
+
+    vault = tmp_path / "vault"
+    monkeypatch.setattr(memory_vault, "VAULT_DIR", vault)
+    monkeypatch.setattr(memory_vault, "DAILY_NOTES_DIR", vault / "01-Daily-Notes")
+    monkeypatch.setattr(memory_vault, "PROFILE_DIR", vault / "02-User-Profile")
+    monkeypatch.setattr(memory_vault, "PRIMING_DIR", vault / "03-Priming-Notes")
+    monkeypatch.setattr(memory_vault, "PROJECTS_DIR", vault / "04-Projects")
+    monkeypatch.setattr(memory_vault, "PROFILE_FILE", vault / "02-User-Profile" / "USER-PROFILE.md")
+    memory_vault.ensure_vault_structure()
+
+    monkeypatch.setattr("app.storage.runtime_settings.DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr("app.storage.runtime_settings.RUNTIME_SETTINGS_FILE", str(tmp_path / "data" / "runtime_settings.json"))
+    monkeypatch.setattr("app.agent.action_executor.auto_approvals", AutoApprovalStore(str(tmp_path / "auto_approvals.json")))
+
+    store = ActionStore(tmp_path / "journal.sqlite3")
+    monkeypatch.setattr("app.storage.action_store.action_store", store)
+    monkeypatch.setattr("app.agent.action_executor.action_store", store)
+    monkeypatch.setattr("app.storage.task_store.TASKS_FILE", str(tmp_path / "tasks.json"))
+    yield SimpleNamespace(store=store, root=tmp_path)
+    if store._runtime_lock:
+        store._runtime_lock.close()
+
+
 def pytest_collection_modifyitems(items):
     """Keep legacy manual suites out of the default deterministic test run."""
     by_file = {

@@ -1,7 +1,6 @@
 ﻿import { FormEvent, useEffect, useRef, useState } from 'react'
 import type { ChatMessage, ChatSession, ScriptRequest } from '../types'
 import type { SearchPayload } from '../components/tools/SearchTool'
-import { extractWindowRequest, type WindowOpenRequest } from '../windows/registry'
 
 /** Origem do pedido registrada nas ações da Central (C10); sem valor, o servidor usa "chat". */
 export type RequestOrigin = 'voice'
@@ -45,17 +44,17 @@ function getScriptRequest(summary: unknown): ScriptRequest | null {
   }
 }
 
-type UseChatOptions = { onOpenWindow?: (request: WindowOpenRequest) => void; onWakeWord?: (phrase: string) => void }
+// onAgentContext recebe o contexto da resposta final (janela, tela e, nas próximas fases, popups) para o App aplicar.
+type UseChatOptions = { onAgentContext?: (context: unknown) => void; onWakeWord?: (phrase: string) => void }
 
 export function useChat(options: UseChatOptions = {}) {
   // O efeito da conexão roda uma vez; a referência mantém o callback sempre atual.
-  const openWindowRef = useRef(options.onOpenWindow)
-  openWindowRef.current = options.onOpenWindow
+  const agentContextRef = useRef(options.onAgentContext)
+  agentContextRef.current = options.onAgentContext
   const wakeWordRef = useRef(options.onWakeWord)
   wakeWordRef.current = options.onWakeWord
-  const openRequestedWindow = (context: unknown) => {
-    const request = extractWindowRequest(context)
-    if (request) openWindowRef.current?.(request)
+  const applyAgentContext = (context: unknown) => {
+    if (context) agentContextRef.current?.(context)
   }
   const [query, setQuery] = useState('')
   const [answer, setAnswer] = useState(initialAnswer)
@@ -333,7 +332,7 @@ export function useChat(options: UseChatOptions = {}) {
     const reply = data.reply || data.summary || ''
     if (activeSessionRef.current === activeSessionId) {
       commitRestReply(reply, data.context?.run_id)
-      openRequestedWindow(data.context)
+      applyAgentContext(data.context)
     }
     return reply
   }
@@ -526,7 +525,7 @@ export function useChat(options: UseChatOptions = {}) {
           if (payload?.query && Array.isArray(payload.results)) setLiveSearch(payload)
         } else if (type === 'complete') {
           finalRunIdRef.current = typeof data.context?.run_id === 'string' ? data.context.run_id : undefined
-          openRequestedWindow(data.context)
+          applyAgentContext(data.context)
           finalReasoningRef.current = (liveReasoningRef.current + reasoningBufferRef.current).trim()
           finalReplyRef.current = summary || message || ''
           const script = getScriptRequest(summary)

@@ -188,3 +188,96 @@ def test_personal_tool_deletion_waits_for_approval_and_reads_do_not(tmp_path):
 def test_invalid_operation_risk_is_rejected():
     with pytest.raises(ValueError):
         ToolMetadata(operation_arguments=("action",), operation_risks=(("list", "safe"),))
+
+
+# ── Lote 6, fase 1: contrato do catálogo para toda ferramenta visível ────────
+
+_OPERATION_KEYS = ("action", "command", "source", "format")
+
+
+def _general_tools():
+    from app.agent.tools.registry import GENERAL_TOOL_NAMES, ToolRegistry
+
+    registry = ToolRegistry()
+    return registry, sorted(name for name in GENERAL_TOOL_NAMES if registry.get_tool(name) is not None)
+
+
+def test_every_general_tool_has_catalog_entry_and_no_declared_operation_is_critical_by_omission():
+    registry, names = _general_tools()
+    for name in names:
+        assert name in TOOL_CATALOG, name
+        metadata = registry.get_tool_metadata(name)
+        properties = (registry.get_tool(name).parameters or {}).get("properties") or {}
+        for key in _OPERATION_KEYS:
+            for operation in (properties.get(key) or {}).get("enum") or ():
+                arguments = {key: operation}
+                if metadata.operation_arguments and key not in metadata.operation_arguments:
+                    continue
+                assert metadata.risk_for(arguments) != "critical", f"{name}.{operation}"
+                assert metadata.effect_for(arguments), f"{name}.{operation}"
+
+
+def test_orphan_notes_entry_was_removed():
+    assert "notes" not in TOOL_CATALOG
+
+
+@pytest.mark.parametrize(("tool", "arguments", "risk"), [
+    ("habit_tool", {"action": "create_many", "habits": [{"name": "Ler"}]}, "low"),
+    ("habit_tool", {"action": "check_many", "names": ["Ler"]}, "low"),
+    ("task_tool", {"action": "create_many", "tasks": [{"title": "x"}]}, "low"),
+    ("task_tool", {"action": "update", "title": "x"}, "low"),
+    ("finance_tool", {"action": "add_many", "entries": [{"amount": 1}]}, "low"),
+    ("finance_tool", {"action": "update", "trans_id": "f1"}, "low"),
+    ("lifeos_tool", {"action": "set_water", "total_ml": 3000}, "low"),
+    ("calendar", {"action": "list"}, "observe"),
+    ("calendar", {"action": "create_many", "reminders": []}, "low"),
+    ("calendar", {"action": "apagar_tudo"}, "critical"),
+    ("timer", {"action": "list"}, "observe"),
+    ("timer", {"action": "cancel", "label": "x"}, "low"),
+    ("vault_search", {"query": "x"}, "observe"),
+    ("vault_save_note", {"title": "x", "content": "y"}, "low"),
+    ("open_screen", {"screen": "Chat"}, "observe"),
+    # Decisão 14: digitar, enviar, mudar a inicialização e expor porta pedem aprovação.
+    ("phantom_typer", {"text": "oi"}, "high"),
+    ("telegram_bot", {"action": "send", "message": "oi"}, "high"),
+    ("telegram_bot", {"action": "status"}, "observe"),
+    ("system_tray", {"action": "enable_boot"}, "high"),
+    ("system_tray", {"action": "disable_boot"}, "high"),
+    ("system_tray", {"action": "status"}, "observe"),
+    ("wormhole", {"action": "start", "port": 8000}, "high"),
+    ("wormhole", {"action": "list"}, "observe"),
+    ("smart_drop_zone", {}, "high"),
+    ("document_generator", {"format": "pdf", "title": "x"}, "low"),
+    ("document_generator", {"format": "pdf", "output_path": "C:/Windows/x.pdf"}, "high"),
+])
+def test_lote6_operations_classify_risk(tool, arguments, risk):
+    assert TOOL_CATALOG[tool].risk_for(arguments) == risk
+
+
+def test_high_risk_audited_tools_require_approval():
+    for name in ("phantom_typer", "smart_drop_zone"):
+        assert TOOL_CATALOG[name].requires_confirmation is True
+
+
+def test_batch_target_details():
+    habit = TOOL_CATALOG["habit_tool"]
+    args = {"action": "create_many", "habits": [{"name": "Ler"}, {"name": "Correr"}, {"name": "Meditar"}]}
+    assert habit.detail_for(args) == "3 hábitos: Ler, Correr, Meditar"
+    finance = {"action": "add_many", "entries": [{"amount": 50}, {"amount": 30}]}
+    assert TOOL_CATALOG["finance_tool"].detail_for(finance) == "2 lançamentos, total R$ 80,00"
+    assert TOOL_CATALOG["lifeos_tool"].detail_for({"action": "set_water", "total_ml": 3000}) == "total do dia: 3.000 ml"
+
+
+def test_inventory_lists_every_general_tool_without_critical_operations():
+    from app.agent.tools.inventory import build_inventory, render_markdown
+
+    registry, names = _general_tools()
+    rows = build_inventory(registry)
+    by_tool = {row["tool"]: row for row in rows}
+    for name in names:
+        row = by_tool[name]
+        assert row["general"] and row["in_catalog"], name
+        assert all(op["risk"] != "critical" for op in row["operations"]), name
+    assert [op["operation"] for op in by_tool["habit_tool"]["operations"]][:3] == ["list", "create", "create_many"]
+    markdown = render_markdown(rows)
+    assert "| habit_tool | geral | sim |" in markdown and "set_water (low)" in markdown

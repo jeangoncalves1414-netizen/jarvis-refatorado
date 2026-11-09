@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 from .base import BaseTool, ToolResult
 from .file_manager import FileManagerTool
@@ -70,8 +71,25 @@ except ImportError:
 from .lifestyle_tools import HabitTool, TaskTool, FinanceTool
 from .lifeos_tool import LifeOSTool
 from .open_window import OpenWindowTool
+from .open_screen import OpenScreenTool
 from .planning_workspace import PlanningWorkspaceTool
 from .catalog import metadata_for
+from .lifestyle_tools import normalize_name
+
+# Groq (limite estrito de tokens): além das ferramentas fixas, entra a ferramenta cujo
+# assunto aparece no pedido. As palavras são comparadas sem acento e em minúsculas.
+GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
+    (re.compile(pattern), tools)
+    for pattern, tools in (
+        (r"\bhabit", ("habit_tool",)),
+        (r"\btaref|\bpendencia", ("task_tool",)),
+        (r"\bagua\b|\bbebi\b|\bhidrat|\btreino\b", ("lifeos_tool",)),
+        (r"\bgastei\b|\bpaguei\b|\bgasto|\bdespesa|\breceita\b|\bfinanc", ("finance_tool",)),
+        (r"\bnota\b|\bnotas\b|\banota|\bcofre\b", ("vault_save_note", "vault_search")),
+        (r"\blembrete|\bagenda|\bcompromisso", ("calendar",)),
+        (r"\btela\b|\bpainel\b|\babre\b|\babrir\b|\babra\b", ("open_screen",)),
+    )
+)
 
 GENERAL_TOOL_NAMES = {
     "file_manager", "system_control", "jarvis_mode", "web_search", "browser_agent", "timer",
@@ -80,8 +98,9 @@ GENERAL_TOOL_NAMES = {
     "screen_peeler", "phantom_typer", "smart_drop_zone",
     "desktop_search", "kasa_control", "document_generator", "telegram_bot", "mobile_adb",
     "wormhole", "wallpaper_engine", "clipboard_intelligence",
-    "habit_tool", "task_tool", "finance_tool", "lifeos_tool", "open_window",
+    "habit_tool", "task_tool", "finance_tool", "lifeos_tool", "open_window", "open_screen",
     "planning_workspace",
+    "vault_search", "vault_daily_log", "vault_save_note", "vault_update_profile",
 }
 
 TUTOR_TOOL_NAMES = {
@@ -152,6 +171,7 @@ class ToolRegistry:
         self._register(FinanceTool())
         self._register(LifeOSTool())
         self._register(OpenWindowTool())
+        self._register(OpenScreenTool())
         self._register(PlanningWorkspaceTool())
         self._register(ScreenPeelerTool())
         self._register(PhantomTyperTool())
@@ -222,7 +242,7 @@ class ToolRegistry:
         if provider == "groq" and mode != "tutor":
             core_groq = {
                 "web_search", "system_control", "open_windows_app", "timer",
-                "spotify", "whatsapp", "calendar", "file_manager", "notes",
+                "spotify", "whatsapp", "calendar", "file_manager",
                 "cinema", "script_runner", "image_generator", "vision", "planning_workspace", "open_window"
             }
             user_lower = (user_text or "").lower()
@@ -230,6 +250,10 @@ class ToolRegistry:
             for t_name in allowed:
                 if t_name in user_lower or t_name.replace("_", " ") in user_lower:
                     dynamic_tools.add(t_name)
+            normalized = normalize_name(user_text)
+            for pattern, tools in GROQ_KEYWORD_TOOLS:
+                if pattern.search(normalized):
+                    dynamic_tools.update(tools)
             allowed = allowed.intersection(dynamic_tools)
 
         return frozenset(name for name in allowed if name in self.tools)

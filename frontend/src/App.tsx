@@ -3,7 +3,7 @@ import { AppShell } from './components/AppShell'
 import { AgentControls } from './components/AgentControls'
 import { useOperationalSnapshot } from './hooks/useOperationalSnapshot'
 import { panelRequest } from './utils/panelApi'
-import { resolveScreen } from './navigation'
+import { extractScreenRequest, resolveScreen } from './navigation'
 import { WorkspaceHome, IntegrationsPage } from './pages/WorkspaceOverview'
 import { CameraWorkspace, type CameraWorkspaceHandle } from './components/CameraWorkspace'
 import { type ChatMode } from './components/ChatComposer'
@@ -22,7 +22,7 @@ import { useMediaAssistant } from './hooks/useMediaAssistant'
 import { useStudy } from './hooks/useStudy'
 import { playToggle, playSuccess, toggleSfx } from './utils/sfx'
 import { runCommandById, unescapeSlash, WINDOW_CAMERAS, WINDOW_CINEMA, WINDOW_LIFE_OS, WINDOW_LIVE_CALL, type CommandHandlers } from './commands/registry'
-import { isManagedWindow } from './windows/registry'
+import { extractWindowRequest, isManagedWindow } from './windows/registry'
 import { useWindows } from './windows/WindowManager'
 import { broadcastSyncEvent } from './utils/syncChannel'
 import { requestNotificationPermission } from './utils/notifications'
@@ -190,8 +190,15 @@ export default function App() {
   const cameraWorkspaceRef = useRef<CameraWorkspaceHandle>(null)
   const taskInputRef = useRef<HTMLInputElement>(null)
   const windows = useWindows()
-  // Pedido de janela vindo da ferramenta open_window do agente: o id e os parâmetros são validados de novo aqui.
-  const pcChat = useChat({ onOpenWindow: request => { if (!windows.open(request.windowId, request.params)) setNotice('O agente pediu uma janela que não existe ou com parâmetros inválidos.') }, onWakeWord: phrase => handleWakeWord(phrase) })
+  // Interface pedida pelo agente no contexto da resposta: janela (open_window) e tela (open_screen).
+  // Ids e parâmetros são validados de novo aqui; o agente nunca gera interface.
+  const applyAgentUi = (context: unknown) => {
+    const windowRequest = extractWindowRequest(context)
+    if (windowRequest && !windows.open(windowRequest.windowId, windowRequest.params)) setNotice('O agente pediu uma janela que não existe ou com parâmetros inválidos.')
+    const screen = extractScreenRequest(context)
+    if (screen) setActive(screen)
+  }
+  const pcChat = useChat({ onAgentContext: context => applyAgentUi(context), onWakeWord: phrase => handleWakeWord(phrase) })
   const mobileChat = useDirectChat()
   const { answer, chatError, copySession, createSession, deleteSession, exportSession, loading, liveReasoning, liveSearch, messages, pendingScript, query, runPendingScript, selectSession, sendText, sendVisionQuestion, sessionId, sessions, setAnswer, setChatError, setPendingScript, setQuery, streamingReply } = IS_MOBILE ? mobileChat : pcChat
   const conversationRun = useConversationRun(sessionId, !IS_MOBILE, loading)

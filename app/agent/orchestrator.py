@@ -515,6 +515,8 @@ ter pesquisado se não pesquisou.
         if active_provider in {"gemini", "groq", "oxyy"}:
             executed_actions: list[str] = []
             executed_tool_results: dict[str, dict] = {}
+            # Todas as chamadas do turno em ordem; o dicionário acima guarda só a última por nome.
+            executed_tool_calls: list[dict[str, Any]] = []
             native_tool_results: dict[str, Any] = {}
 
             def native_legacy_execute(name: str, args: dict, _user_line: str) -> ToolResult:
@@ -555,6 +557,7 @@ ter pesquisado se não pesquisou.
                             'message': getattr(tr, 'message', ''),
                             'data': getattr(tr, 'data', None)
                         }
+                        executed_tool_calls.append({'name': name, **executed_tool_results[name]})
                         if name == "web_search" and on_search:
                             try:
                                 payload = {
@@ -599,7 +602,7 @@ ter pesquisado se não pesquisou.
                 intent="tool_execution" if executed_actions else ("tutor" if mode == "tutor" else "general"),
                 summary=summary,
                 actions=executed_actions,
-                context={'tool_results': executed_tool_results} if executed_tool_results else {},
+                context={'tool_results': executed_tool_results, 'tool_calls': executed_tool_calls} if executed_tool_results else {},
                 whiteboard_updated=False,
             )
 
@@ -680,9 +683,10 @@ ter pesquisado se não pesquisou.
             cinema_marker = _build_cinema_marker(legacy_tool_results) if tool_steps else ""
             if cinema_marker:
                 final_summary = f"{final_summary.rstrip()}\n\n{cinema_marker}" if final_summary.strip() else cinema_marker
-            if tool_steps and legacy_tool_results.get("open_window", {}).get("ok"):
-                # Mesmo formato do caminho nativo: o painel lê context.tool_results.open_window.data.ui_window.
-                context_data["tool_results"] = {"open_window": legacy_tool_results["open_window"]}
+            ui_results = {name: legacy_tool_results[name] for name in ("open_window", "open_screen") if tool_steps and legacy_tool_results.get(name, {}).get("ok")}
+            if ui_results:
+                # Mesmo formato do caminho nativo: o painel lê context.tool_results.<ferramenta>.data.ui_window / ui_screen.
+                context_data["tool_results"] = ui_results
             
             return AgentPlan(
                 intent="tool_execution" if tool_steps else ("tutor" if mode == "tutor" else "general"),

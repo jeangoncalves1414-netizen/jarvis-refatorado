@@ -14,6 +14,17 @@ class PhantomTyperTool(BaseTool):
     name = "phantom_typer"
     description = "Digita autonomamente um texto ou trecho de código na janela ativa do Windows onde o cursor estiver posicionado."
 
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Texto a digitar na janela ativa."},
+                "delay_seconds": {"type": "number", "minimum": 0.5, "maximum": 10, "description": "Espera antes de digitar, para a usuária focar a janela (padrão 1 s)."},
+            },
+            "required": ["text"],
+        }
+
     def run(self, text: str = "", delay_seconds: float = 1.0, **kwargs: Any) -> dict[str, Any]:
         if not text:
             return {"success": False, "error": "Nenhum texto informado para digitação."}

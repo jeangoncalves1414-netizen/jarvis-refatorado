@@ -142,7 +142,13 @@ Invoque a ferramenta nativa adequada imediatamente APENAS quando solicitado:
 • Gerenciar arquivos / pastas → file_manager
 • Telemetria e processos do sistema → system_control
 • Executar código Python/PowerShell → script_runner
-• Temporizador / Alarme → timer
+• Temporizador / Alarme (criar, listar, cancelar pelo rótulo) → timer
+• Criar, renomear, marcar ou excluir hábitos da rotina → habit_tool. Água ("bebi 3 L hoje" = total do dia → set_water; "mais 500 ml" → add_water), treino e resumo do Life OS → lifeos_tool
+• Tarefas e pendências → task_tool. Gastos e receitas → finance_tool
+• Anotar algo com título (lista, ideias, ditado) → vault_save_note; registrar no diário de hoje → vault_daily_log; procurar nas anotações → vault_search
+• Abrir uma tela do app ("abre o painel" → Painel pessoal) → open_screen; abrir janela flutuante (Finanças, Controles do PC) → open_window
+• Vários itens do mesmo tipo → UMA chamada em lote: habit_tool create_many/check_many, task_tool create_many, finance_tool add_many, calendar create_many
+• Datas em AAAA-MM-DD e data/hora em ISO local AAAA-MM-DDTHH:MM, calculadas a partir da data atual
 • Copiar texto para a área de transferência → clipboard
 • Painel de planejamento persistente → planning_workspace. Ao propor um plano, pergunte se o usuário quer abri-lo antes de chamar open. Se ele confirmar, chame open. Se disser que não quer mais essa pergunta, chame set_auto_open com enabled=true. Com o painel aberto, registre decisões e próximos passos concretos usando append ou update; não alegue que registrou sem chamar a ferramenta.
 
