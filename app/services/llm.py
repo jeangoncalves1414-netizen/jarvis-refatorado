@@ -525,20 +525,21 @@ class LLMService:
 
         if tools:
             declarations = []
-            seen_decl: set[str] = set()
+            seen_decl_names = set()
             for tool in tools:
-                t_name = tool.get("name", "")
-                if not t_name or t_name in seen_decl:
+                name = tool.get("name")
+                if not name or name in seen_decl_names:
                     continue
-                seen_decl.add(t_name)
+                seen_decl_names.add(name)
                 decl = types.FunctionDeclaration(
-                    name=t_name,
+                    name=name,
                     description=tool.get("description", ""),
                     parameters_json_schema=tool.get("parameters"),
                 )
                 declarations.append(decl)
-            config_args["tools"] = [types.Tool(function_declarations=declarations)]
-            config_args["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
+            if declarations:
+                config_args["tools"] = [types.Tool(function_declarations=declarations)]
+                config_args["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
 
         config = types.GenerateContentConfig(**config_args)
         
@@ -761,25 +762,26 @@ class LLMService:
 
             if tools:
                 declarations = []
-                seen_decl_stream: set[str] = set()
+                seen_decl_names = set()
                 for t in tools:
-                    t_name = t.get("name", "")
-                    if not t_name or t_name in seen_decl_stream:
+                    name = t.get("name")
+                    if not name or name in seen_decl_names:
                         continue
-                    seen_decl_stream.add(t_name)
+                    seen_decl_names.add(name)
                     declarations.append(
                         types.FunctionDeclaration(
-                            name=t_name,
+                            name=name,
                             description=t.get("description", ""),
-                            parameters_json_schema=t["parameters"],
+                            parameters_json_schema=t.get("parameters"),
                         )
                     )
-                config_args["tools"] = [types.Tool(function_declarations=declarations)]
-                config_args["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
-                fc_mode = "ANY" if force_tool else "AUTO"
-                config_args["tool_config"] = types.ToolConfig(
-                    function_calling_config=types.FunctionCallingConfig(mode=fc_mode)
-                )
+                if declarations:
+                    config_args["tools"] = [types.Tool(function_declarations=declarations)]
+                    config_args["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
+                    fc_mode = "ANY" if force_tool else "AUTO"
+                    config_args["tool_config"] = types.ToolConfig(
+                        function_calling_config=types.FunctionCallingConfig(mode=fc_mode)
+                    )
 
             config = types.GenerateContentConfig(**config_args)
             response_stream = client.models.generate_content_stream(
@@ -1115,14 +1117,24 @@ class LLMService:
                     break
 
             selected_tools = []
+            seen_selected_names: set[str] = set()
             for tool in tools:
                 t_name = tool.get("name", "")
+                if not t_name or t_name in seen_selected_names:
+                    continue
                 # routine só chega aqui quando o registro já casou horário/repetição no pedido.
                 if t_name in core_groq_names or t_name == "routine" or t_name in last_user_content or t_name.replace("_", " ") in last_user_content:
+                    seen_selected_names.add(t_name)
                     selected_tools.append(tool)
 
             if not selected_tools:
-                selected_tools = tools[:8]
+                for tool in tools:
+                    t_name = tool.get("name", "")
+                    if t_name and t_name not in seen_selected_names:
+                        seen_selected_names.add(t_name)
+                        selected_tools.append(tool)
+                    if len(selected_tools) >= 8:
+                        break
 
             groq_tools = [
                 {
@@ -1275,7 +1287,7 @@ class LLMService:
                 for tc in _ordered_tool_calls(first_tools)
             )
             final_messages = formatted_messages[:-(len(first_tools) + 1)]
-            final_messages.append({"role": "user", "content": f"As ações solicitadas foram executadas. Resultados:\n{tool_summary}\nResponda ao usuário diretamente, sem chamar ferramentas novamente."})
+            final_messages.append({"role": "user", "content": f"As ações solicitadas foram executadas. Resultados:\n{tool_summary}\nResponda ao usuário diretamente, sem chamar ferramentas novamente. NUNCA formate sua resposta com cabeçalhos técnicos como 'Resultados das ferramentas:' ou links brutos 'Link: https://...'. Sintetize as informações de forma natural e prestativa."})
             final_text = ""
             try:
                 final_text, _final_tools = _stream_turn(final_messages, with_tools=False)
@@ -1291,7 +1303,7 @@ class LLMService:
                 ]
                 plain_messages.append({
                     "role": "user",
-                    "content": f"Resultados das ferramentas (já executadas, não chame nenhuma ferramenta):\n{tool_summary}\n\nEscreva apenas a resposta final em texto para o usuário.",
+                    "content": f"Resultados das ações (já executadas, não chame nenhuma ferramenta):\n{tool_summary}\n\nEscreva apenas a resposta final em texto para o usuário. NUNCA formate sua resposta com cabeçalhos técnicos como 'Resultados das ferramentas:' ou links brutos 'Link: https://...'. Sintetize as informações de forma natural e prestativa.",
                 })
                 try:
                     final_text, _final_tools = _stream_turn(plain_messages, with_tools=False)
@@ -1299,8 +1311,18 @@ class LLMService:
                     print(f"[Groq] Retry do turno final falhou: {retry_err}")
                     final_text = ""
                 if not final_text:
-                    final_text = f"Resultados das ferramentas:\n{tool_summary}"
+                    try:
+                        from app.services.stm_filters import stm_filter
+                        final_text = stm_filter.process(tool_summary)
+                    except Exception:
+                        final_text = tool_summary
                     _emit_chunk(final_text)
+            if final_text:
+                try:
+                    from app.services.stm_filters import stm_filter
+                    final_text = stm_filter.process(final_text)
+                except Exception:
+                    pass
             return final_text if final_text else (first_text or None)
 
         except RunCancelled:

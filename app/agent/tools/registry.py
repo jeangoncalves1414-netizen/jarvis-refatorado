@@ -123,7 +123,7 @@ LOOP_DATA_TOOLS = frozenset({
 LOOP_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
     (re.compile(pattern), tools)
     for pattern, tools in (
-        (r"\bpesquis|\bbusca|\bprocur|\bnoticia|\bpesquisa|\byoutube|\bsite\b|\blink\b|\burl\b", ("web_search",)),
+        (r"\bpesquis|\bbusca|\bprocur|\bnoticia|\bpesquisa|\bsite\b|\blink\b|\burl\b", ("web_search",)),
         (r"\bapp\b|\baplicativo|\bprograma|\bnavegador|\bchrome|\bjanela", ("open_windows_app",)),
         (r"\bvolume|\bbrilho|\bdesligar\b|\breiniciar|\bbloquear|\bsistema\b", ("system_control",)),
         (r"\bmusica|\btoca\b|\btocar\b|\bspotify|\bplaylist", ("spotify",)),
@@ -136,11 +136,31 @@ LOOP_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
         (r"\bscript\b|\bcodigo\b|\bexecut", ("script_runner",)),
         (r"\btela\b|\bvejo\b|\bscreenshot|\bprint\b", ("vision",)),
         (r"\bnaveg|\bplaywright|\bclic|\bformulario|\bextrair.*pagina|\bpreench", ("browser",)),
-        (r"\bvideo|\bvideos|\byoutube|\bgravacao|\bmp4|\bmkv|\btranscricao", ("video_analyst", "media_tool", "web_search")),
+        (r"\bvideo|\bvideos|\byoutube|\bgravacao|\bmp4|\bmkv|\btranscricao", ("video_analyst", "media_tool")),
         (r"\bmidia\b|\bmotivac|\bplayer\b", ("media_tool",)),
         (r"\brotina|\btodo dia|\btodos os dias|\btoda (segunda|terca|quarta|quinta|sexta)|\btodo (sabado|domingo)|\bdias uteis|\ba cada \d+ ?min|\bas \d{1,2} ?h\b|\bas \d{1,2}:\d{2}", ("routine",)),
     )
 )
+
+def is_video_analysis_request(text: str) -> bool:
+    """Verifica se o pedido do usuário trata de análise/resumo/tópicos de vídeo ou URLs do YouTube."""
+    if not text:
+        return False
+    normalized = normalize_name(text)
+    if "youtube.com" in normalized or "youtu.be" in normalized:
+        return True
+    patterns = (
+        r"\banalise\s+(?:o\s+)?v[ií]deo\b",
+        r"\banalisar\s+(?:o\s+)?v[ií]deo\b",
+        r"\bresumo\s+(?:do\s+)?v[ií]deo\b",
+        r"\bresumir\s+(?:o\s+)?v[ií]deo\b",
+        r"\btranscri[cç][aã]o\b",
+        r"\bt[oó]picos?\s+do\s+v[ií]deo\b",
+        r"\bmomentos?\s+do\s+v[ií]deo\b",
+        r"\bconte[uú]do\s+do\s+v[ií]deo\b",
+        r"\btimestamps?\b",
+    )
+    return any(re.search(pat, normalized, re.IGNORECASE) for pat in patterns)
 
 GENERAL_TOOL_NAMES = {
     "file_manager", "system_control", "jarvis_mode", "web_search", "browser", "browser_agent", "timer", "wait",
@@ -372,6 +392,9 @@ class ToolRegistry:
         if mode != "tutor":
             allowed.update(mcp_tools)
 
+        # Roteamento exclusivo para análise de vídeos (YouTube e arquivos locais)
+        is_video_req = is_video_analysis_request(user_text)
+
         # Otimização de TPM para provedores com limite estrito de taxa (ex: Groq)
         if (provider == "groq" or narrow) and mode != "tutor":
             core_groq = {
@@ -393,9 +416,21 @@ class ToolRegistry:
             for pattern, tools in GROQ_KEYWORD_TOOLS + (LOOP_KEYWORD_TOOLS if narrow else ()):
                 if pattern.search(normalized):
                     dynamic_tools.update(tools)
+            if is_video_req:
+                dynamic_tools.add("video_analyst")
+                dynamic_tools.discard("web_search")
             allowed = allowed.intersection(dynamic_tools)
 
         allowed_set = set(name for name in allowed if name in self.tools)
+        if is_video_req and mode != "tutor":
+            if "video_analyst" in self.tools:
+                allowed_set.add("video_analyst")
+            # URLs com youtube.com/youtu.be ou pedidos de análise de vídeo roteiam exclusivamente para video_analyst
+            allowed_set.discard("web_search")
+            allowed_set.discard("browser")
+            allowed_set.discard("browser_agent")
+            allowed_set.discard("browser_tool")
+            allowed_set.discard("media_tool")
         if "home" in allowed_set:
             try:
                 from app.services import home_assistant
@@ -469,9 +504,18 @@ class ToolRegistry:
             "notes": "notes",
             "media_control": "media_control",
             "realtime": "realtime",
+            "video_analyst": "video_analyst",
+            "video": "video_analyst",
         }
         
         mapped_name = tool_mapping.get(kind_l, kind_l)
+        
+        # Redirecionamento estrito: web_search NUNCA deve sequestrar vídeos do YouTube
+        if mapped_name == "web_search":
+            arg_str = str(arg or "").lower()
+            if "youtube.com" in arg_str or "youtu.be" in arg_str or is_video_analysis_request(user_line):
+                mapped_name = "video_analyst"
+
         tool = self.get_tool(mapped_name)
         
         if not tool:
@@ -479,7 +523,13 @@ class ToolRegistry:
         
         # Preparar argumentos baseados no tipo de ferramenta
         args = {}
-        if arg:
+        if mapped_name == "video_analyst":
+            video_url = arg or ""
+            if not video_url:
+                m = re.search(r"(https?://\S+)", user_line)
+                video_url = m.group(1) if m else user_line
+            args = {"action": "analyze_youtube_video", "url": video_url, "prompt": user_line}
+        elif arg:
             if mapped_name == "web_search":
                 args = {"query": arg}
             elif mapped_name == "open_windows_app":
