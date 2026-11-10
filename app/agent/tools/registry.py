@@ -413,11 +413,14 @@ class ToolRegistry:
     ) -> list[dict[str, Any]]:
         allowed = self.allowed_tool_names(mode, provider, user_text)
         declarations = []
+        seen_names: set[str] = set()
         for tool in self.list_tools():
-            if tool.name not in allowed:
+            t_name = getattr(tool, "name", "")
+            if not t_name or t_name in seen_names or t_name not in allowed:
                 continue
+            seen_names.add(t_name)
             declarations.append({
-                "name": tool.name,
+                "name": t_name,
                 "description": tool.description[:250] if provider == "groq" else tool.description,
                 "parameters": tool.parameters,
             })

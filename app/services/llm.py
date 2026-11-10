@@ -525,11 +525,16 @@ class LLMService:
 
         if tools:
             declarations = []
+            seen_decl: set[str] = set()
             for tool in tools:
+                t_name = tool.get("name", "")
+                if not t_name or t_name in seen_decl:
+                    continue
+                seen_decl.add(t_name)
                 decl = types.FunctionDeclaration(
-                    name=tool["name"],
-                    description=tool["description"],
-                    parameters_json_schema=tool["parameters"],
+                    name=t_name,
+                    description=tool.get("description", ""),
+                    parameters_json_schema=tool.get("parameters"),
                 )
                 declarations.append(decl)
             config_args["tools"] = [types.Tool(function_declarations=declarations)]
@@ -755,14 +760,20 @@ class LLMService:
                 config_args["thinking_config"] = types.ThinkingConfig(include_thoughts=True)
 
             if tools:
-                declarations = [
-                    types.FunctionDeclaration(
-                        name=t["name"],
-                        description=t.get("description", ""),
-                        parameters_json_schema=t["parameters"],
+                declarations = []
+                seen_decl_stream: set[str] = set()
+                for t in tools:
+                    t_name = t.get("name", "")
+                    if not t_name or t_name in seen_decl_stream:
+                        continue
+                    seen_decl_stream.add(t_name)
+                    declarations.append(
+                        types.FunctionDeclaration(
+                            name=t_name,
+                            description=t.get("description", ""),
+                            parameters_json_schema=t["parameters"],
+                        )
                     )
-                    for t in tools
-                ]
                 config_args["tools"] = [types.Tool(function_declarations=declarations)]
                 config_args["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(disable=True)
                 fc_mode = "ANY" if force_tool else "AUTO"
