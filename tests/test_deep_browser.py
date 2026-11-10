@@ -234,3 +234,143 @@ def test_browser_agent_tool_click_and_type_element():
     assert res_type.ok is True
     mock_service.type_interactive_element.assert_called_once_with(2, text="Jarvis User")
 
+
+def test_multi_hop_refinement_triggered_on_generic_results():
+    from app.agent.tools.web_search import search_with_refinement, WebSearchTool
+
+    # Hop 1 (genérico/dicionário) -> Hop 2 (notícias reais)
+    hop1_generic = [
+        {"title": "Significado de Bluezão", "url": "https://www.dicio.com.br/bluezao", "source": "dicio.com.br", "snippet": "Significado no dicionário."},
+        {"title": "Bluezão Instagram", "url": "https://www.instagram.com/bluezao", "source": "instagram.com", "snippet": "Fotos e vídeos."},
+    ]
+    hop2_news = [
+        {"title": "Bluezão se envolve em polêmica na internet", "url": "https://g1.globo.com/pop-arte/noticia/2026/01/bluezao.ghtml", "source": "g1.globo.com", "snippet": "O influenciador Bluezão foi assunto nos principais portais nesta semana após transmissão ao vivo."},
+    ]
+
+    calls = []
+
+    def fake_search(q, limit):
+        calls.append(q)
+        if "noticias" in q or "ultimas" in q:
+            return hop2_news
+        return hop1_generic
+
+    with patch("app.agent.tools.web_search._search", side_effect=fake_search):
+        results, steps, final_q = search_with_refinement("bluezão", limit=3, max_hops=3)
+
+        # Garante que refinou automaticamente ao detectar apenas dicionário/rede social
+        assert len(calls) >= 2
+        assert any("noticias" in c or "ultimas" in c for c in calls)
+        assert results == hop2_news
+        assert any("Refinamento iterativo" in s["label"] for s in steps)
+
+
+def test_multi_hop_early_stopping():
+    from app.agent.tools.web_search import search_with_refinement
+
+    # Resultados já informativos logo no Hop 1
+    hop1_informative = [
+        {"title": "Lançamento da IA Gemini Flash", "url": "https://g1.globo.com/tecnologia/noticia/ia.ghtml", "source": "g1.globo.com", "snippet": "Nova versão multimodal lançada oficialmente com capacidade de vídeo."},
+    ]
+
+    calls = []
+
+    def fake_search(q, limit):
+        calls.append(q)
+        return hop1_informative
+
+    with patch("app.agent.tools.web_search._search", side_effect=fake_search):
+        results, steps, final_q = search_with_refinement("gemini flash", limit=3, max_hops=3)
+
+        # Sabe quando parar: apenas 1 chamada feita, sem desperdício de hops adicionais
+        assert len(calls) == 1
+        assert results == hop1_informative
+        assert len(steps) == 1
+        assert steps[0]["label"] == "Busca inicial"
+
+
+def test_web_search_synthesis_no_raw_links_dump():
+    from app.agent.tools.web_search import WebSearchTool
+
+    fake_news = [
+        {"title": "Notícia Relevante 1", "url": "https://portal.com.br/noticia1", "source": "portal.com.br", "snippet": "Primeiro fato apurado sobre o ocorrido."},
+        {"title": "Notícia Relevante 2", "url": "https://jornal.com.br/noticia2", "source": "jornal.com.br", "snippet": "Segundo fato com detalhes adicionais."},
+    ]
+
+    tool = WebSearchTool()
+    with patch("app.agent.tools.web_search._search", return_value=fake_news):
+        res = tool.execute({"action": "search", "query": "assunto importante"})
+
+        assert res.ok is True
+        msg = res.message
+        # Deve conter síntese e fatos
+        assert "Síntese informativa" in msg
+        assert "Primeiro fato apurado" in msg
+        assert "Segundo fato com detalhes adicionais" in msg
+        # NUNCA deve conter despejos brutos robóticos
+        assert "Resultados das ferramentas:" not in msg
+        assert "Link: https://" not in msg
+
+
+def test_stm_filter_removes_robotic_tool_headers():
+    from app.services.stm_filters import stm_filter
+
+    robotic_output = (
+        "Resultados das ferramentas:\n"
+        "Link: https://www.dicio.com.br/bluezao\n"
+        "Bluezão é um influenciador digital conhecido por seus vídeos na internet."
+    )
+
+    cleaned = stm_filter.process(robotic_output)
+    assert "Resultados das ferramentas:" not in cleaned
+    assert "Link: https://" not in cleaned
+    assert cleaned.startswith("Bluezão é um influenciador")
+
+
+def test_tool_declarations_never_have_duplicates(tmp_path):
+    from app.agent.tools.registry import ToolRegistry
+
+    registry = ToolRegistry(base_folder=str(tmp_path))
+    declarations = registry.get_tool_declarations(mode="general")
+    names = [d["name"] for d in declarations]
+    
+    assert len(names) == len(set(names)), f"Ferramentas duplicadas encontradas: {[n for n in set(names) if names.count(n) > 1]}"
+    assert names.count("browser") == 1
+
+
+def test_gemini_tool_declarations_defensive_dedup():
+    from app.services.llm import LLMService
+
+    llm = LLMService(settings=MagicMock())
+    # Lista propositalmente com ferramentas duplicadas
+    duplicate_tools = [
+        {"name": "web_search", "description": "Busca 1", "parameters": {}},
+        {"name": "browser", "description": "Browser 1", "parameters": {}},
+        {"name": "browser", "description": "Browser 2", "parameters": {}},
+        {"name": "web_search", "description": "Busca 2", "parameters": {}},
+    ]
+
+    with patch("google.genai.Client") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.models.generate_content.return_value = MagicMock(text="Resposta ok", candidates=[])
+
+        # Executa _generate_gemini
+        llm._generate_gemini(
+            contents="teste",
+            tools=duplicate_tools,
+            system_instruction="teste",
+            api_key="fake-key",
+        )
+
+        # Inspeciona chamada do generate_content
+        call_kwargs = mock_client.models.generate_content.call_args[1]
+        config = call_kwargs.get("config")
+        assert config is not None
+        assert len(config.tools) == 1
+        tool_decl_names = [d.name for d in config.tools[0].function_declarations]
+        assert len(tool_decl_names) == 2
+        assert sorted(tool_decl_names) == ["browser", "web_search"]
+
+
+

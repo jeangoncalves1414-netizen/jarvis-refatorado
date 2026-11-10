@@ -14,7 +14,8 @@ STYLE_BREVITY_AND_LENGTH = """## Estilo e concisão (Prioridade MÁXIMA)
 - Fluidez: responda de forma natural e humana. Evite frases robóticas.
 - Tamanho: use 1-3 frases. Se for algo complexo, pode detalhar mais.
 - Voz: sem markdown ou emojis. Português do Brasil falado, natural.
-- Silencioso: NÃO narre o uso de ferramentas ("Acessando banco de dados..."). Apenas dê o resultado."""
+- Silencioso: NÃO narre o uso de ferramentas ("Acessando banco de dados..."). Apenas dê o resultado.
+- NUNCA formate sua resposta para o usuário com cabeçalhos técnicos como "Resultados das ferramentas:" ou despejos de links brutos "Link: https://...". Extraia os dados e responda em tom natural e prestativo."""
 
 
 def _active_agent_profile(agent_profile: dict | None) -> dict:
@@ -108,7 +109,7 @@ _AGENT_NAME_PLACEHOLDER = "{agent_name}"
 AGENT_SYSTEM_CORE_TEMPLATE = """Você é {agent_name}, assistente pessoal no Windows. Use marcadores p/ acoes (nao ouvidos):
 [tool:open_windows_app:Nome] (abre app), [tool:web_search:Termo] (internet), [tool:system_control:telemetry] (info PC), [tool:system_control:list_processes] (listar apps abertos), [tool:vision:analyze_screen] (ver/olhar a tela), [tool:file_manager:acao:caminho] (arquivos).
 NUNCA ESCREVA a palavra "arg" ou "target". Substitua-os pelo termo real da busca.
-Regras: Direta (1-2 frases). Sem narrar ferramentas. OBRIGATÓRIO usar marcadores para ações.
+Regras: Direta (1-2 frases). Sem narrar ferramentas. OBRIGATÓRIO usar marcadores para ações. NUNCA formate sua resposta para o usuário com cabeçalhos técnicos como "Resultados das ferramentas:" ou despejos de links brutos "Link: https://...". Extraia os dados e responda em tom natural e prestativo.
 
 EXEMPLOS:
 Usuário: "abra o spotify" → Resposta: [tool:open_windows_app:spotify] Abrindo o Spotify.
@@ -169,7 +170,8 @@ REGRA Nº 3 — ESTILO DE RESPOSTA E CONFIRMAÇÃO
 ═══════════════════════════════════════════════════════════
 • Siga o tom definido no perfil do agente
 • Após a execução da ferramenta, confirme o resultado real informado pela ferramenta (1 a 2 frases)
-• Se a ferramenta informar que o app não estava rodando ou que já estava aberto, repasse essa informação com clareza"""
+• Se a ferramenta informar que o app não estava rodando ou que já estava aberto, repasse essa informação com clareza
+• NUNCA formate sua resposta para o usuário com cabeçalhos técnicos como "Resultados das ferramentas:" ou despejos de links brutos "Link: https://...". Extraia os dados e responda em tom natural e prestativo."""
 
 
 

@@ -764,8 +764,8 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                             pass
                         if tool_name.startswith("whiteboard_") and executor.last_action and executor.last_action.status == "succeeded":
                             whiteboard_updated = True
-                        # Para system_control, adicionar o resultado ao speakable
-                        if tool_name == "system_control" and res:
+                        # Para ferramentas informativas, anexar o resultado ao speakable se houver retorno
+                        if tool_name in {"system_control", "web_search", "video_analyst", "vision"} and res:
                             if speakable and not speakable.endswith("."):
                                 speakable += ". "
                             speakable += res
@@ -777,6 +777,13 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             # Se houver ferramentas executadas, usar o texto limpo (agora com resultados incluídos)
             # The model's marker preamble precedes execution and is not a receipt.
             final_summary = "\n\n".join(action_feedback) if action_feedback else speakable if tool_steps else summary
+            
+            # Limpeza defensiva de preâmbulos robóticos, cabeçalhos técnicos e links brutos (Groq/Ollama)
+            try:
+                from app.services.stm_filters import stm_filter
+                final_summary = stm_filter.process(final_summary)
+            except Exception:
+                pass
             search_marker = _build_search_marker(legacy_tool_results) if tool_steps else ""
             if search_marker:
                 final_summary = f"{final_summary.rstrip()}\n\n{search_marker}" if final_summary.strip() else search_marker

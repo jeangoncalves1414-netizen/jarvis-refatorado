@@ -130,6 +130,189 @@ def _page_excerpt(url: str) -> str:
         return ""
 
 
+GENERIC_DOMAINS = frozenset({
+    "dicio.com.br",
+    "priberam.pt",
+    "dicionario.priberam.org",
+    "significados.com.br",
+    "michaelis.uol.com.br",
+    "wiktionary.org",
+    "urbandictionary.com",
+    "dicionarioinformal.com.br",
+    "instagram.com",
+    "facebook.com",
+    "tiktok.com",
+    "twitter.com",
+    "x.com",
+    "threads.net",
+    "linkedin.com",
+    "pinterest.com",
+})
+
+
+def _is_informative_result(item: dict[str, Any]) -> bool:
+    """Verifica se um resultado é informativo (não apenas link genérico de rede social ou dicionário)."""
+    url = str(item.get("url") or item.get("href") or "").lower()
+    source = _source_name(url).lower()
+
+    # Dicionários e redes sociais genéricas são não-informativos para fatos/notícias
+    for gen in GENERIC_DOMAINS:
+        if gen in source or gen in url:
+            return False
+
+    snippet = str(item.get("snippet") or item.get("body") or "").strip()
+    title = str(item.get("title") or "").strip()
+
+    if not snippet and not title:
+        return False
+
+    low_text = (title + " " + snippet).lower()
+    boilerplates = (
+        "veja fotos e vídeos", "see instagram photos and videos", "entrar no facebook",
+        "log in to facebook", "sign up", "sign in", "criar uma conta",
+        "significado de ", "definição de ", "o que significa",
+    )
+    if any(b in low_text for b in boilerplates) and len(snippet) < 60:
+        return False
+
+    return True
+
+
+def _needs_refinement(results: list[dict[str, Any]]) -> bool:
+    """Indica se a busca retornou 0 resultados ou apenas itens genéricos que exigem refinamento."""
+    if not results:
+        return True
+    informative_count = sum(1 for r in results if _is_informative_result(r))
+    return informative_count == 0
+
+
+def _generate_refinement_queries(query: str) -> list[str]:
+    """Gera termos de busca refinados para multi-hop (notícias recentes, fontes jornalísticas)."""
+    q = query.strip()
+    clean = re.sub(r'["\']', '', q)
+    clean = re.sub(r'^(?:pesquise|busque|procure|quem\s+[eé]|o\s+que\s+(?:aconteceu|houve)\s+(?:com|sobre)?)\s+', '', clean, flags=re.I).strip()
+
+    candidates: list[str] = []
+    has_news = bool(re.search(r'\bnot[ií]cias?\b', clean, re.I))
+
+    if not has_news:
+        candidates.append(f"{clean} noticias recentes")
+        candidates.append(f"{clean} ultimas noticias")
+        candidates.append(f"{clean} acontecimentos recentes")
+    else:
+        core = re.sub(r'\b(?:ultimas\s+)?not[ií]cias?\s*(?:sobre|do|da|de)?\b', '', clean, flags=re.I).strip()
+        if core:
+            candidates.append(f"{core} noticias recentes g1 uol")
+            candidates.append(f"{core} ultimas novidades hoje")
+            candidates.append(f"{core} o que aconteceu")
+        else:
+            candidates.append(f"{clean} g1 uol metropoles")
+
+    seen = {q.lower()}
+    unique_candidates: list[str] = []
+    for cand in candidates:
+        cand_l = cand.lower().strip()
+        if cand_l not in seen:
+            seen.add(cand_l)
+            unique_candidates.append(cand.strip())
+
+    return unique_candidates
+
+
+def search_with_refinement(
+    query: str,
+    limit: int = 5,
+    max_hops: int = 3,
+) -> tuple[list[dict[str, str]], list[dict[str, str]], str]:
+    """
+    Executa busca multi-hop com refinamento iterativo.
+    Se a busca inicial retornar apenas links genéricos (redes sociais, dicionários)
+    ou 0 resultados, tenta termos refinados antes de desistir.
+    Sabe quando parar assim que obtém resultados informativos suficientes.
+    
+    Retorna: (resultados, passos_executados, query_final_usada)
+    """
+    steps: list[dict[str, str]] = []
+
+    # Hop 1: Busca inicial
+    current_results = _search(query, limit)
+    steps.append({
+        "label": "Busca inicial",
+        "status": "completed",
+        "detail": f"{len(current_results)} resultados para '{query}'",
+    })
+
+    if not _needs_refinement(current_results):
+        # Sabe quando parar: resultados satisfatórios obtidos de primeira
+        return current_results, steps, query
+
+    refinements = _generate_refinement_queries(query)
+    effective_query = query
+    best_results = current_results
+
+    for hop_idx, ref_query in enumerate(refinements[: max_hops - 1], start=2):
+        steps.append({
+            "label": f"Refinamento iterativo (Hop {hop_idx})",
+            "status": "running",
+            "detail": f"Refinando busca com '{ref_query}'",
+        })
+        refined_results = _search(ref_query, limit)
+        informative = [r for r in refined_results if _is_informative_result(r)]
+
+        if informative:
+            steps[-1]["status"] = "completed"
+            steps[-1]["detail"] = f"{len(refined_results)} resultados ({len(informative)} informativos) para '{ref_query}'"
+            best_results = refined_results
+            effective_query = ref_query
+            # Conclui com sucesso no refinamento ("saber quando parar")
+            break
+        else:
+            steps[-1]["status"] = "completed"
+            steps[-1]["detail"] = f"{len(refined_results)} resultados (nenhum informativo) para '{ref_query}'"
+            if len(refined_results) > len(best_results):
+                best_results = refined_results
+                effective_query = ref_query
+
+    return best_results, steps, effective_query
+
+
+def _format_search_response(query: str, results: list[dict[str, Any]], refined_query: str | None = None) -> str:
+    """Sintetiza os fatos encontrados de forma limpa e informativa, sem despejos de links brutos."""
+    if not results:
+        return f"Não foram encontradas notícias ou informações sobre '{query}' após pesquisa aprofundada."
+
+    informative_items = [r for r in results if _is_informative_result(r)]
+    items_to_use = informative_items if informative_items else results
+
+    facts: list[str] = []
+    sources: list[str] = []
+
+    for r in items_to_use:
+        title = r.get("title", "").strip()
+        source = r.get("source", "").strip() or "web"
+        url = r.get("url", "").strip()
+        content = r.get("excerpt", "") or r.get("snippet", "") or ""
+        clean_content = re.sub(r"\s+", " ", content).strip()
+
+        if clean_content:
+            facts.append(f"• [{source}] {clean_content}")
+        elif title:
+            facts.append(f"• [{source}] {title}")
+
+        if title and url:
+            sources.append(f"- {title} ({source}): {url}")
+
+    refinement_info = f" (busca refinada com '{refined_query}')" if refined_query and refined_query.lower() != query.lower() else ""
+
+    sections = [
+        f"Síntese informativa sobre '{query}'{refinement_info}:",
+        "\n".join(facts) if facts else "Nenhum detalhe informativo substantivo extraído.",
+        "\nFontes consultadas:",
+        "\n".join(sources),
+    ]
+    return "\n\n".join(sections)
+
+
 class WebSearchTool(BaseTool):
     @property
     def name(self) -> str:
@@ -176,29 +359,43 @@ class WebSearchTool(BaseTool):
         if not query:
             return ToolResult(ok=False, message="Nenhum termo ou URL fornecido.")
 
+        # Roteamento exclusivo: web_search NUNCA deve sequestrar URLs do YouTube para abrir navegadores locais
+        is_yt_url = "youtube.com" in query.lower() or "youtu.be" in query.lower()
+        if is_yt_url:
+            from .video_analyst_tool import VideoAnalystTool
+            user_line = (context or {}).get("user_line", "")
+            return VideoAnalystTool().execute(
+                {"action": "analyze_youtube_video", "url": query, "prompt": user_line},
+                context=context,
+            )
+
         if action in {"search", "research"}:
             try:
-                results = _search(query, limit)
+                results, steps, effective_q = search_with_refinement(query, limit=limit)
                 if not results:
-                    return ToolResult(ok=True, message=f"Nenhum resultado encontrado para '{query}'.", data={"query": query, "results": []})
-                steps = [{"label": "Busca inicial", "status": "completed", "detail": f"{len(results)} fontes encontradas"}]
+                    return ToolResult(
+                        ok=True,
+                        message=f"Não foram encontradas notícias ou informações sobre '{query}' após pesquisa aprofundada.",
+                        data={"query": query, "results": [], "steps": steps},
+                    )
+
                 if action == "research":
                     steps.append({"label": "Leitura das fontes", "status": "running", "detail": "Abrindo fontes relevantes"})
                     for result in results:
                         result["excerpt"] = _page_excerpt(result["url"])
                     steps[-1]["status"] = "completed"
                     steps[-1]["detail"] = f"{len(results)} fontes consultadas"
-                lines = []
-                for i, result in enumerate(results, 1):
-                    excerpt = f"\n   Trecho consultado: {result['excerpt']}" if result.get("excerpt") else ""
-                    lines.append(f"{i}. {result['title']}\n   {result.get('snippet', '')}{excerpt}\n   Link: {result['url']}")
+
+                refined_from = effective_q if effective_q.lower() != query.lower() else None
+                synthesis_msg = _format_search_response(query, results, refined_query=refined_from)
+
                 return ToolResult(
                     ok=True,
-                    message=f"Resultados para '{query}':\n\n" + "\n\n".join(lines),
-                    data={"query": query, "results": results, "steps": steps, "workflow": action},
+                    message=synthesis_msg,
+                    data={"query": query, "effective_query": effective_q, "results": results, "steps": steps, "workflow": action},
                 )
             except Exception as exc:
-                return ToolResult(ok=False, message=f"Nao foi possivel pesquisar agora: {exc}")
+                return ToolResult(ok=False, message=f"Não foi possível pesquisar agora: {exc}")
 
         if action == "open_url":
             url = query if query.startswith(("http://", "https://")) else "https://" + query
@@ -208,4 +405,4 @@ class WebSearchTool(BaseTool):
             except Exception as exc:
                 return ToolResult(ok=False, message=f"Erro ao abrir URL: {exc}")
 
-        return ToolResult(ok=False, message=f"Acao desconhecida: {action}")
+        return ToolResult(ok=False, message=f"Ação desconhecida: {action}")

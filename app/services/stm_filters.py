@@ -19,6 +19,10 @@ _ROBOTIC_PREAMBLES = [
     r"^olá[!.,]?\s*(como posso te ajudar hoje\??|em que posso ser útil\??)?\s*",
     r"^certamente[!.,]?\s*",
     r"^entendido[!.,]?\s*(aqui está|vou|posso)?[:\s]*",
+    r"^(aqui estão|aqui está)?\s*(os\s+)?resultados?\s+(das?\s+)?ferramentas?[:\s]*",
+    r"^resultados?\s+(da\s+)?pesquisa[:\s]*",
+    r"^executando\s+(a\s+)?ferramenta[:\s]*",
+    r"^vou\s+(pesquisar|buscar|verificar|analisar|abrir|executar)\b.*?[.:\n]+",
 ]
 
 
@@ -38,6 +42,11 @@ class STMFilterEngine:
         # Aplica a limpeza de preâmbulo robótico no início da primeira linha
         for pattern in self.preamble_patterns:
             result = pattern.sub("", result).lstrip()
+
+        # Remove cabeçalhos técnicos soltos e despejos de links brutos gerados por modelos
+        result = re.sub(r"(?im)^\s*(?:aqui\s+(?:est[aá]|est[aã]o)\s+)?(?:os\s+)?resultados?\s+(?:das?\s+)?(?:ferramentas?|a[cç][oõ]es)[:\s]*\n?", "", result)
+        result = re.sub(r"(?im)^\s*resultados?\s+(?:da\s+)?(?:pesquisa|busca)[:\s]*\n?", "", result)
+        result = re.sub(r"(?im)^\s*(?:[-*•]\s*)?(?:link|url|fonte):\s*https?://\S+\s*$\n?", "", result)
 
         # Remove linhas iniciais vazias geradas por cortes
         lines = result.splitlines()

@@ -131,3 +131,13 @@ class TestModeRouterDisambiguation:
         prompt = "Escreva um script python para pesquisar palavras-chave em arquivos"
         resolved, _ = resolve_active_mode(prompt, explicit_mode="auto")
         assert resolved == "coder"
+
+    def test_research_news_about_person(self):
+        prompt = "Pesquise na internet as últimas notícias sobre o Bluezão"
+        resolved, _ = resolve_active_mode(prompt, explicit_mode="auto")
+        assert resolved == "research"
+
+    def test_video_analysis_query(self):
+        prompt = "Analise o video do youtube https://www.youtube.com/watch?v=dQw4w9WgXcQ e me diga os principais tópicos em timestamps"
+        resolved, _ = resolve_active_mode(prompt, explicit_mode="auto")
+        assert resolved == "general"

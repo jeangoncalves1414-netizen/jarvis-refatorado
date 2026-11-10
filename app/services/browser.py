@@ -790,10 +790,14 @@ class BrowserService:
 
         limit = max(1, min(int(max_sites or 3), 6))
 
-        # 1. Busca os links usando o mecanismo de busca existente
+        # 1. Busca os links usando o mecanismo de busca existente com suporte a refinamento iterativo
         try:
-            from app.agent.tools.web_search import _fallback_search
+            from app.agent.tools.web_search import _fallback_search, _needs_refinement, search_with_refinement
             search_items = _fallback_search(query_str, limit=limit)
+            if _needs_refinement(search_items):
+                refined_items, _, _ = search_with_refinement(query_str, limit=limit)
+                if refined_items:
+                    search_items = refined_items
         except Exception as search_err:
             search_items = []
             logger.warning("Erro na busca de links para deep_search: %s", search_err)

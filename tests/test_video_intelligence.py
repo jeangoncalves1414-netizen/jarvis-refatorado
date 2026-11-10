@@ -183,3 +183,72 @@ def test_video_analyst_tool_execution():
     res_err = tool.execute({"action": "unknown_action"})
     assert res_err.ok is False
 
+
+def test_video_exclusive_routing_youtube_url(tmp_path):
+    registry = ToolRegistry(base_folder=str(tmp_path))
+    prompt = "Analise o video do youtube https://www.youtube.com/watch?v=dQw4w9WgXcQ e me diga os principais tópicos em timestamps"
+    
+    # Testa para Groq (onde ocorria o sequestro pelo web_search)
+    allowed_groq = registry.allowed_tool_names(mode="general", provider="groq", user_text=prompt)
+    assert "video_analyst" in allowed_groq
+    assert "web_search" not in allowed_groq
+    assert "browser" not in allowed_groq
+    assert "media_tool" not in allowed_groq
+
+    # Testa para qualquer provedor geral
+    allowed_gen = registry.allowed_tool_names(mode="general", provider="gemini", user_text=prompt)
+    assert "video_analyst" in allowed_gen
+    assert "web_search" not in allowed_gen
+
+
+def test_video_exclusive_routing_keywords(tmp_path):
+    registry = ToolRegistry(base_folder=str(tmp_path))
+    prompts = [
+        "resumo do video https://youtu.be/dQw4w9WgXcQ",
+        "transcricao e topicos do video",
+        "analise o video e extraia os momentos do video com timestamps",
+    ]
+    for p in prompts:
+        allowed = registry.allowed_tool_names(mode="general", provider="groq", user_text=p)
+        assert "video_analyst" in allowed, f"Falha para prompt: {p}"
+        assert "web_search" not in allowed, f"web_search não foi excluído para prompt: {p}"
+
+
+def test_web_search_does_not_hijack_youtube_url():
+    from app.agent.tools.web_search import WebSearchTool
+
+    tool = WebSearchTool()
+    yt_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    with patch("webbrowser.open") as mock_browser_open, \
+         patch("app.agent.tools.video_analyst_tool.VideoAnalystTool.execute") as mock_video_exec:
+        
+        mock_video_exec.return_value = ToolResult(ok=True, message="Vídeo analisado via VideoAnalyst.")
+        
+        # Teste com action="open_url"
+        res_open = tool.execute({"action": "open_url", "query": yt_url})
+        assert res_open.ok is True
+        assert "VideoAnalyst" in res_open.message
+        mock_browser_open.assert_not_called()
+        mock_video_exec.assert_called_once()
+
+        mock_video_exec.reset_mock()
+        # Teste com action="search"
+        res_search = tool.execute({"action": "search", "query": "https://youtu.be/dQw4w9WgXcQ"})
+        assert res_search.ok is True
+        mock_browser_open.assert_not_called()
+        mock_video_exec.assert_called_once()
+
+
+def test_run_by_marker_reroutes_youtube_search_to_video_analyst(tmp_path):
+    registry = ToolRegistry(base_folder=str(tmp_path))
+    yt_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    user_line = f"Analise o video {yt_url}"
+
+    with patch.object(registry.tools["video_analyst"], "execute", return_value=ToolResult(ok=True, message="Sucesso VideoAnalyst")) as mock_exec:
+        res = registry.run_by_marker("web_search", yt_url, user_line)
+        assert res.ok is True
+        assert "Sucesso VideoAnalyst" in res.message
+        mock_exec.assert_called_once()
+
+
