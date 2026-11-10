@@ -15,6 +15,11 @@ type LiveCallModalProps = {
   audioDiagnostics?: LiveAudioDiagnostics | null
   onToggleCapture: () => void
   onBargeIn?: () => void
+  pushToTalkMode?: boolean
+  onTogglePushToTalk?: () => void
+  onPttStart?: () => void
+  onPttEnd?: () => void
+  isPttActive?: boolean
 }
 
 function deriveEmotion(orbState: string, rec: boolean): { emoji: string; label: string; color: string } {
@@ -36,6 +41,11 @@ export function LiveCallModal({
   onToggleCapture,
   onBargeIn,
   audioDiagnostics,
+  pushToTalkMode = false,
+  onTogglePushToTalk,
+  onPttStart,
+  onPttEnd,
+  isPttActive = false,
 }: LiveCallModalProps) {
   const [isMinimized, setIsMinimized] = useState(false)
   const [durationSec, setDurationSec] = useState(0)
@@ -49,6 +59,39 @@ export function LiveCallModal({
     const iv = setInterval(() => setDurationSec(p => p + 1), 1000)
     return () => clearInterval(iv)
   }, [open])
+
+  useEffect(() => {
+    if (!open) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        const target = e.target as HTMLElement | null
+        const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+        if (isInput) return
+        e.preventDefault()
+        if (!e.repeat) {
+          onPttStart?.()
+        }
+      }
+    }
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        const target = e.target as HTMLElement | null
+        const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+        if (isInput) return
+        e.preventDefault()
+        onPttEnd?.()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [open, onPttStart, onPttEnd])
 
   if (!open || typeof document === 'undefined') return null
 
@@ -220,10 +263,34 @@ export function LiveCallModal({
           </div>
         )}
 
+        {onTogglePushToTalk && (
+          <div style={{ textAlign: 'center', marginBottom: 14 }}>
+            <button
+              type="button"
+              onClick={onTogglePushToTalk}
+              className="live-call-mode-pill"
+              title="Alternar entre modo contínuo e segurar para falar"
+            >
+              <span>{pushToTalkMode ? '🎙️ Push-to-Talk (Segurar ou Espaço)' : '⚡ Contínuo (Hands-Free · 1.8s buffer)'}</span>
+            </button>
+          </div>
+        )}
+
         <div className="live-call-actions">
           {isSpeaking && onBargeIn ? (
             <button type="button" onClick={onBargeIn} className="live-call-btn-bargein">
               ✋ Interromper
+            </button>
+          ) : pushToTalkMode ? (
+            <button
+              type="button"
+              onMouseDown={() => onPttStart?.()}
+              onMouseUp={() => onPttEnd?.()}
+              onTouchStart={() => onPttStart?.()}
+              onTouchEnd={() => onPttEnd?.()}
+              className={`live-call-btn-ptt ${isPttActive ? 'active' : 'idle'}`}
+            >
+              <span>{isPttActive ? '🔴 Gravando… solte para enviar' : '🎙️ Segure para Falar (Espaço)'}</span>
             </button>
           ) : (
             <button
@@ -243,7 +310,10 @@ export function LiveCallModal({
         </div>
 
         <p className="live-call-footer-hint">
-          ⚡ <strong>Full-Duplex Barge-in:</strong> Fale ou toque a qualquer momento para interromper o Jarvis. Ele saberá exatamente onde parou.
+          ⚡ <strong>Full-Duplex Barge-in:</strong> Fale ou toque a qualquer momento para interromper o Jarvis.
+          {pushToTalkMode
+            ? ' Segure a Barra de Espaço ou o botão acima enquanto fala.'
+            : ' Buffer de silêncio de 1.8s para formular sua frase sem cortes.'}
         </p>
       </div>
     </div>,
