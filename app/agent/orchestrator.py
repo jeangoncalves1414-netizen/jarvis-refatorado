@@ -121,6 +121,37 @@ def _build_cinema_marker(tool_results: dict[str, dict[str, Any]]) -> str:
         return ""
 
 
+def _build_media_marker(tool_results: dict[str, dict[str, Any]]) -> str:
+    for tool_name in ("media_tool", "image_generator"):
+        res = tool_results.get(tool_name) or {}
+        msg = str(res.get("message") or "")
+        if "__MEDIA_VIEW__" in msg:
+            idx = msg.find("__MEDIA_VIEW__")
+            return msg[idx:]
+        data = res.get("data")
+        if isinstance(data, dict) and data.get("type") in ("video", "image") and data.get("url"):
+            try:
+                return "__MEDIA_VIEW__" + json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+            except (TypeError, ValueError):
+                pass
+    return ""
+
+
+def _build_script_marker(tool_results: dict[str, dict[str, Any]]) -> str:
+    res = tool_results.get("script_runner") or {}
+    msg = str(res.get("message") or "")
+    if "__SCRIPT_CONFIRM__" in msg:
+        idx = msg.find("__SCRIPT_CONFIRM__")
+        return msg[idx:]
+    data = res.get("data")
+    if isinstance(data, dict) and data.get("needs_confirmation"):
+        try:
+            return "__SCRIPT_CONFIRM__" + json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+        except (TypeError, ValueError):
+            pass
+    return ""
+
+
 class AgentOrchestrator:
     def __init__(
         self,
@@ -661,6 +692,12 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             cinema_marker = _build_cinema_marker(executed_tool_results)
             if cinema_marker:
                 summary = f"{summary.rstrip()}\n\n{cinema_marker}" if summary.strip() else cinema_marker
+            media_marker = _build_media_marker(executed_tool_results)
+            if media_marker:
+                summary = f"{summary.rstrip()}\n\n{media_marker}" if summary.strip() else media_marker
+            script_marker = _build_script_marker(executed_tool_results)
+            if script_marker:
+                summary = f"{summary.rstrip()}\n\n{script_marker}" if summary.strip() else script_marker
             return AgentPlan(
                 intent="tool_execution" if executed_actions else ("tutor" if mode == "tutor" else "general"),
                 summary=summary,
@@ -746,6 +783,12 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             cinema_marker = _build_cinema_marker(legacy_tool_results) if tool_steps else ""
             if cinema_marker:
                 final_summary = f"{final_summary.rstrip()}\n\n{cinema_marker}" if final_summary.strip() else cinema_marker
+            media_marker = _build_media_marker(legacy_tool_results) if tool_steps else ""
+            if media_marker:
+                final_summary = f"{final_summary.rstrip()}\n\n{media_marker}" if final_summary.strip() else media_marker
+            script_marker = _build_script_marker(legacy_tool_results) if tool_steps else ""
+            if script_marker:
+                final_summary = f"{final_summary.rstrip()}\n\n{script_marker}" if final_summary.strip() else script_marker
             ui_results = {name: legacy_tool_results[name] for name in ("open_window", "open_screen") if tool_steps and legacy_tool_results.get(name, {}).get("ok")}
             if ui_results:
                 # Mesmo formato do caminho nativo: o painel lê context.tool_results.<ferramenta>.data.ui_window / ui_screen.

@@ -41,5 +41,10 @@ class FileManagerService:
             raise FileNotFoundError(f"Arquivo não encontrado: {path}")
         return path.read_text(encoding="utf-8", errors="replace")
 
+    def create_directory(self, relative_path: str) -> Path:
+        path = self._validate_path(relative_path)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
     def get_supported_directories(self) -> Sequence[str]:
         return [str(self.base_folder)]

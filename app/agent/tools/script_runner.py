@@ -180,6 +180,54 @@ class ScriptRunnerTool(BaseTool):
             if not is_valid:
                 return ToolResult(ok=False, message=error_msg)
 
+        # Se o Modo Liberado estiver ativado, executa diretamente sem exigir confirmação manual
+        from app.storage.auto_approvals import auto_approvals
+        if auto_approvals.liberated():
+            import subprocess, sys, tempfile, os
+            try:
+                if language == "python":
+                    with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w", encoding="utf-8") as f:
+                        f.write(code)
+                        tmp_path = f.name
+                    try:
+                        res = subprocess.run(
+                            [sys.executable, tmp_path],
+                            capture_output=True, text=True, timeout=30,
+                            encoding="utf-8", errors="replace"
+                        )
+                    finally:
+                        try:
+                            os.unlink(tmp_path)
+                        except Exception:
+                            pass
+                else:
+                    res = subprocess.run(
+                        ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", code],
+                        capture_output=True, text=True, timeout=30,
+                        encoding="utf-8", errors="replace"
+                    )
+
+                stdout = (res.stdout or "").strip()
+                stderr = (res.stderr or "").strip()
+                if res.returncode == 0:
+                    output_msg = stdout or "Código executado com sucesso (sem saída no console)."
+                    return ToolResult(
+                        ok=True,
+                        message=f"Script {language} executado com sucesso (Modo Liberado):\n{output_msg}",
+                        data={"stdout": stdout, "stderr": stderr, "exit_code": 0, "auto_approved": True}
+                    )
+                else:
+                    err_msg = stderr or stdout or f"Código de saída: {res.returncode}"
+                    return ToolResult(
+                        ok=False,
+                        message=f"Falha na execução do script {language} (Modo Liberado):\n{err_msg}",
+                        data={"stdout": stdout, "stderr": stderr, "exit_code": res.returncode}
+                    )
+            except subprocess.TimeoutExpired:
+                return ToolResult(ok=False, message="Execução do script expirou (timeout de 30 segundos).")
+            except Exception as exc:
+                return ToolResult(ok=False, message=f"Falha ao executar script: {exc}")
+
         # Retorna uma solicitação de confirmação — o frontend detecta esse campo
         payload = json.dumps({
             "needs_confirmation": True,

@@ -15,7 +15,7 @@ class FileManagerTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Lista arquivos ou lê o conteúdo de um arquivo de texto de forma segura."
+        return "Gerencia arquivos locais com segurança: lista pastas, lê arquivos e cria diretórios autorizados."
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -24,8 +24,8 @@ class FileManagerTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list", "read"],
-                    "description": "Ação a ser executada: 'list' para ver diretório ou 'read' para ver conteúdo."
+                    "enum": ["list", "read", "mkdir"],
+                    "description": "Ação a ser executada: 'list' para ver diretório, 'read' para ver conteúdo ou 'mkdir' para criar pasta."
                 },
                 "path": {
                     "type": "string",
@@ -56,6 +56,13 @@ class FileManagerTool(BaseTool):
                     ok=True,
                     message=f"Conteúdo de '{path}':\n\n{preview}",
                     data={"content": content}
+                )
+            elif action in ("mkdir", "create_dir"):
+                created_p = self.service.create_directory(path)
+                return ToolResult(
+                    ok=True,
+                    message=f"Pasta criada com sucesso: '{path}' (caminho: {created_p})",
+                    data={"path": str(created_p)}
                 )
             else:
                 return ToolResult(ok=False, message=f"Ação desconhecida: {action}")

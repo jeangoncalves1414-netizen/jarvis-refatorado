@@ -136,7 +136,8 @@ LOOP_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
         (r"\bscript\b|\bcodigo\b|\bexecut", ("script_runner",)),
         (r"\btela\b|\bvejo\b|\bscreenshot|\bprint\b", ("vision",)),
         (r"\bnaveg|\bplaywright|\bclic|\bformulario|\bextrair.*pagina|\bpreench", ("browser",)),
-        (r"\bvideo|\bvideos|\byoutube|\bgravacao|\bmp4|\bmkv|\btranscricao", ("video_analyst", "web_search")),
+        (r"\bvideo|\bvideos|\byoutube|\bgravacao|\bmp4|\bmkv|\btranscricao", ("video_analyst", "media_tool", "web_search")),
+        (r"\bmidia\b|\bmotivac|\bplayer\b", ("media_tool",)),
         (r"\brotina|\btodo dia|\btodos os dias|\btoda (segunda|terca|quarta|quinta|sexta)|\btodo (sabado|domingo)|\bdias uteis|\ba cada \d+ ?min|\bas \d{1,2} ?h\b|\bas \d{1,2}:\d{2}", ("routine",)),
     )
 )

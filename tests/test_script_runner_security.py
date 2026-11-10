@@ -282,3 +282,27 @@ def hello(
         """Test that MAX_CODE_LENGTH is set to a reasonable value."""
         assert MAX_CODE_LENGTH > 0
         assert MAX_CODE_LENGTH <= 50000  # Should not be excessive
+
+    def test_script_runner_tool_executes_in_liberated_mode(self, monkeypatch):
+        """Test that ScriptRunnerTool directly executes code when Modo Liberado is active."""
+        tool = ScriptRunnerTool()
+        from app.storage.auto_approvals import auto_approvals
+        monkeypatch.setattr(auto_approvals, "liberated", lambda: True)
+
+        res = tool.execute({
+            "language": "python",
+            "code": "print('LIBERATED_SUCCESS')",
+            "description": "Script de teste liberado"
+        })
+        assert res.ok is True
+        assert "LIBERATED_SUCCESS" in res.message
+        assert res.data.get("auto_approved") is True
+        assert res.data.get("exit_code") == 0
+
+    def test_file_manager_mkdir(self, tmp_path):
+        """Test that FileManagerTool can create directories via mkdir action."""
+        from app.agent.tools.file_manager import FileManagerTool
+        tool = FileManagerTool(base_folder=str(tmp_path))
+        res = tool.execute({"action": "mkdir", "path": "subpasta/teste"})
+        assert res.ok is True
+        assert (tmp_path / "subpasta" / "teste").is_dir()

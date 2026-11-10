@@ -158,7 +158,11 @@ class TestOrchestratorModePrompts:
     """Valida a injeção dos prompts específicos de cada modo no AgentOrchestrator."""
 
     @pytest.fixture
-    def mock_orchestrator(self):
+    def mock_orchestrator(self, tmp_path, monkeypatch):
+        from app.storage.action_store import ActionStore
+        test_store = ActionStore(tmp_path / "runs.jsonl")
+        monkeypatch.setattr("app.storage.action_store.action_store", test_store)
+
         settings = DummySettings()
         mock_llm = MagicMock()
         mock_llm.get_active_provider.return_value = "gemini"

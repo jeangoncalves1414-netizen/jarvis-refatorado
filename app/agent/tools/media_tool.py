@@ -183,11 +183,12 @@ class MediaTool(BaseTool):
             return ToolResult(
                 ok=False,
                 message=(
-                    f"Nenhum vídeo motivacional encontrado para '{query}'."
-                    if query
-                    else "Nenhum vídeo motivacional encontrado em 'data/videos/motivacionais'."
+                    f"Nenhum vídeo motivacional encontrado em 'data/videos/motivacionais'. "
+                    f"A pasta dedicada a vídeos motivacionais existe e está localizada em '{target_dir}', "
+                    f"mas está vazia no momento (nenhum arquivo .mp4, .webm ou .mkv encontrado). "
+                    f"Adicione seus arquivos de vídeo favoritos nessa pasta ou peça para abrir a pasta no Windows Explorer."
                 ),
-                data={"videos": []},
+                data={"videos": [], "directory": str(target_dir), "empty": True},
             )
 
         chosen = random.choice(candidates)
@@ -218,26 +219,32 @@ class MediaTool(BaseTool):
             data=payload,
         )
 
-    def _reveal_in_folder(self, path_arg: str) -> ToolResult:
-        if not path_arg:
-            return ToolResult(ok=False, message="Caminho do arquivo não fornecido para revelação no Explorer.")
-
-        try:
-            safe_path = validate_safe_path(path_arg)
-        except PermissionError as exc:
-            return ToolResult(ok=False, message=f"Erro de segurança: {exc}")
-        except ValueError as exc:
-            return ToolResult(ok=False, message=f"Caminho inválido: {exc}")
+    def _reveal_in_folder(self, path_arg: str = "") -> ToolResult:
+        norm_arg = str(path_arg or "").strip().lower()
+        if not norm_arg or norm_arg in ("motivacional", "motivacionais", "videos", "data/videos/motivacionais"):
+            safe_path = get_motivational_videos_dir(self.base_folder)
+        else:
+            try:
+                safe_path = validate_safe_path(path_arg)
+            except PermissionError as exc:
+                return ToolResult(ok=False, message=f"Erro de segurança: {exc}")
+            except ValueError as exc:
+                return ToolResult(ok=False, message=f"Caminho inválido: {exc}")
 
         if not safe_path.exists():
-            return ToolResult(ok=False, message=f"Arquivo não encontrado: {path_arg}")
+            return ToolResult(ok=False, message=f"Arquivo ou pasta não encontrado: {path_arg}")
 
         try:
             if sys.platform == "win32":
-                subprocess.Popen(["explorer.exe", f"/select,{safe_path}"])
+                if safe_path.is_dir():
+                    subprocess.Popen(["explorer.exe", str(safe_path)])
+                else:
+                    subprocess.Popen(["explorer.exe", f"/select,{safe_path}"])
+
+            msg = f"Pasta aberta no Windows Explorer: {safe_path.name}" if safe_path.is_dir() else f"Arquivo selecionado no Windows Explorer: {safe_path.name}"
             return ToolResult(
                 ok=True,
-                message=f"Arquivo selecionado no Windows Explorer: {safe_path.name}",
+                message=msg,
                 data={"path": str(safe_path)},
             )
         except Exception as exc:

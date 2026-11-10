@@ -629,13 +629,16 @@ export function useChat(options: UseChatOptions = {}) {
           finalMetaRef.current = pickTurnMeta(data.context)
           applyAgentContext(data.context)
           finalReasoningRef.current = (liveReasoningRef.current + reasoningBufferRef.current).trim()
-          finalReplyRef.current = summary || message || ''
-          const script = getScriptRequest(summary)
+          const rawReply = summary || message || ''
+          const marker = '__SCRIPT_CONFIRM__'
+          const markerIndex = rawReply.indexOf(marker)
+          finalReplyRef.current = markerIndex >= 0 ? rawReply.slice(0, markerIndex).trim() : rawReply
+          const script = getScriptRequest(rawReply)
           if (script) setPendingScript(script)
           finalizePendingRef.current = true
           pumpTyping()
           if (waitForReplyRef.current) {
-            waitForReplyRef.current(summary || message || '')
+            waitForReplyRef.current(finalReplyRef.current)
             waitForReplyRef.current = null
           }
         } else if (type === 'error') {
