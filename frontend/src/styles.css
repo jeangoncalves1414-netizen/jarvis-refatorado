@@ -4517,6 +4517,63 @@ body.floating-overlay-active {
   filter: brightness(1.12);
 }
 
+.live-call-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(0, 218, 248, 0.25);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.live-call-mode-pill:hover {
+  background: rgba(0, 218, 248, 0.12);
+  border-color: rgba(0, 218, 248, 0.55);
+  color: #00daf8;
+  transform: translateY(-1px);
+}
+
+.live-call-btn-ptt {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 28px;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(0, 218, 248, 0.4);
+  transition: all 0.2s ease;
+  color: #ffffff;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.live-call-btn-ptt.active {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  border-color: rgba(239, 68, 68, 0.7);
+  box-shadow: 0 0 28px rgba(239, 68, 68, 0.65);
+  transform: scale(0.97);
+  animation: live-pulse-record 1.5s infinite;
+}
+
+.live-call-btn-ptt.idle {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  box-shadow: 0 0 20px rgba(2, 132, 199, 0.4);
+}
+
+.live-call-btn-ptt:hover {
+  filter: brightness(1.15);
+  transform: translateY(-2px) scale(1.02);
+}
+
 @keyframes live-pulse-record {
   0% { box-shadow: 0 0 15px rgba(239, 68, 68, 0.4); }
   50% { box-shadow: 0 0 30px rgba(239, 68, 68, 0.85); }

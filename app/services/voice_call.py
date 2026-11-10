@@ -29,6 +29,24 @@ try:
 except ImportError:
     VOICE_EMOTION_AVAILABLE = False
 
+from app.services.voice.tts.cleaner import sanitize_speech_text, strip_text_for_speech
+
+
+__all__ = [
+    "VoiceCallEngine",
+    "voice_call_engine",
+    "sanitize_speech_text",
+    "strip_text_for_speech",
+    "CallState",
+    "CallSession",
+    "SEARCH_FILLERS",
+    "THINKING_FILLERS",
+    "PROGRESSION_FILLERS",
+    "is_cancel_command",
+    "detect_silence_command",
+    "build_context_stitching_prompt",
+]
+
 
 SEARCH_FILLERS = [
     "Procurando na web...",
@@ -42,9 +60,16 @@ THINKING_FILLERS = [
     "Deixa eu pensar bem nisso...",
 ]
 
+PROGRESSION_FILLERS = [
+    "Ainda estou consultando as informações...",
+    "Só mais um instante...",
+    "Cruzando os dados que encontrei...",
+    "Ainda processando os resultados...",
+]
+
 # Regex para comandos de cancelamento imediato por voz
 CANCEL_COMMAND_REGEX = re.compile(
-    r"^(?:jarvis[,.]?\s*)?(?:cancela(?:r)?(?:\s+(?:a\s+pesquisa|isso|agora|tudo))?|para(?:r)?(?:\s+(?:de\s+(?:pesquisar|buscar)|tudo|agora))?|deixa\s+pra\s+l[aá]|aborta(?:r)?)[.!]?$",
+    r"^(?:jarvis[,.]?\s*)?(?:cancela(?:r)?(?:\s+(?:a\s+pesquisa|isso|agora|tudo))?|para(?:r)?(?:\s+(?:de\s+(?:falar|pesquisar|buscar)|tudo|agora|a\s+pesquisa))?|pare(?:\s+(?:de\s+(?:falar|pesquisar|buscar)|tudo|agora|a\s+pesquisa))?|deixa\s+pra\s+l[aá]|aborta(?:r)?|chega|sil[eê]ncio)[.!]?$",
     re.IGNORECASE,
 )
 
@@ -120,6 +145,8 @@ class CallSession:
     state: CallState = CallState.IDLE
     is_muted: bool = False
     silent_mode: bool = False
+    is_cancelled: bool = False
+    abort_callbacks: list[Callable[[], Any]] = field(default_factory=list)
     metrics: CallMetrics = field(default_factory=CallMetrics)
     last_user_activity: float = field(default_factory=time.time)
     current_transcript: str = ""
@@ -128,6 +155,7 @@ class CallSession:
     last_interrupted_text: str = ""
     last_filler: str = ""
     filler_index: int = 0
+    progression_filler_index: int = 0
     last_emotion: dict = field(default_factory=dict)
     last_turn_eval: dict = field(default_factory=dict)
 
@@ -183,7 +211,16 @@ class VoiceCallEngine:
             session.state = CallState.INTERRUPTED
             session.metrics.interruption_count += 1
             was_interrupted = True
-            # Cancela a reprodução corrente
+
+            # Dispara callbacks de abort registrados
+            for cb in list(session.abort_callbacks):
+                try:
+                    cb()
+                except Exception:
+                    pass
+            session.abort_callbacks.clear()
+
+            # Cancela a reprodução corrente e volta a ouvir
             session.state = CallState.LISTENING
 
         if is_speech and session.state != CallState.THINKING:
@@ -212,6 +249,15 @@ class VoiceCallEngine:
         session.metrics.interruption_count += 1
         if interrupted_text:
             session.last_interrupted_text = interrupted_text
+
+        # Aborta geração / processamento ativo imediatamente
+        for cb in list(session.abort_callbacks):
+            try:
+                cb()
+            except Exception:
+                pass
+        session.abort_callbacks.clear()
+
         session.state = CallState.LISTENING
         return {
             "ok": True,
@@ -228,6 +274,16 @@ class VoiceCallEngine:
             return {"ok": False, "error": "Sessão não encontrada."}
 
         session.state = CallState.LISTENING
+        session.is_cancelled = True
+
+        # Executa callbacks registrados para abortar LLM / TTS em andamento
+        for cb in list(session.abort_callbacks):
+            try:
+                cb()
+            except Exception:
+                pass
+        session.abort_callbacks.clear()
+
         return {
             "ok": True,
             "session_id": session_id,
@@ -236,9 +292,18 @@ class VoiceCallEngine:
             "confirmation": "Cancelado. O que você gostaria de fazer agora?",
         }
 
+    def register_abort_callback(self, session_id: str, callback: Callable[[], Any]) -> bool:
+        """Registra uma função callback a ser executada no cancelamento ou interrupção da sessão."""
+        session = self.active_sessions.get(session_id)
+        if not session:
+            return False
+        session.abort_callbacks.append(callback)
+        return True
+
     def get_filler(self, category: str = "thinking", session_id: str = "", index: int | None = None) -> str:
         """Retorna um filler contextual em pt-BR de baixa latência.
 
+        Suporta categorias 'search', 'thinking' e 'progress'/'progression' (para operações longas).
         Se a sessão estiver em silent_mode, retorna string vazia.
         """
         session = self.active_sessions.get(session_id)
@@ -248,19 +313,29 @@ class VoiceCallEngine:
         cat = (category or "").lower().strip()
         if cat in ("search", "web", "pesquisa", "searching"):
             pool = SEARCH_FILLERS
+        elif cat in ("progress", "progression", "intermediate", "long", "espera"):
+            pool = PROGRESSION_FILLERS
         else:
             pool = THINKING_FILLERS
 
         if index is not None:
             chosen = pool[index % len(pool)]
         elif session:
-            chosen = pool[session.filler_index % len(pool)]
-            session.filler_index += 1
+            if pool is PROGRESSION_FILLERS:
+                chosen = pool[session.progression_filler_index % len(pool)]
+                session.progression_filler_index += 1
+            else:
+                chosen = pool[session.filler_index % len(pool)]
+                session.filler_index += 1
             session.last_filler = chosen
         else:
             chosen = random.choice(pool)
 
         return chosen
+
+    def sanitize_speech_text(self, text: str) -> str:
+        """Higieniza o texto para síntese de fala (TTS) eliminando artefatos técnicos e links."""
+        return sanitize_speech_text(text)
 
     def set_silent_mode(self, session_id: str, silent: bool = True) -> dict[str, Any]:
         """Define o modo silencioso (silence / progress narration off) para a sessão."""

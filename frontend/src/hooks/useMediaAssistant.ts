@@ -77,8 +77,16 @@ export const THINKING_FILLERS = [
   'Deixa eu pensar bem nisso...',
 ]
 
+export const PROGRESSION_FILLERS = [
+  'Ainda estou consultando as informações...',
+  'Só mais um instante...',
+  'Cruzando os dados que encontrei...',
+  'Ainda processando os resultados...',
+]
+
 let searchFillerIndex = 0
 let thinkingFillerIndex = 0
+let progressionFillerIndex = 0
 
 export function pickSearchFiller(): string {
   const filler = SEARCH_FILLERS[searchFillerIndex % SEARCH_FILLERS.length]
@@ -92,17 +100,103 @@ export function pickThinkingFiller(): string {
   return filler
 }
 
+export function pickProgressionFiller(): string {
+  const filler = PROGRESSION_FILLERS[progressionFillerIndex % PROGRESSION_FILLERS.length]
+  progressionFillerIndex++
+  return filler
+}
+
 export function isSearchIntent(text: string): boolean {
   if (!text) return false
   return /\b(pesquis(e|ar?|ando)|procur(e|ar?|ando)|busqu?(e|ar?|ando)|google|not[ií]cias?|sites?|fontes?|internet|quem [eé]|onde fica|quanto custa|pre[cç]o|clima|tempo hoje)\b/i.test(text)
 }
 
-export const CANCEL_COMMAND_REGEX = /^(?:jarvis[,.]?\s*)?(?:cancela(?:r)?(?:\s+(?:a\s+pesquisa|isso|agora|tudo))?|para(?:r)?(?:\s+(?:de\s+(?:pesquisar|buscar)|tudo|agora))?|deixa\s+pra\s+l[aá]|aborta(?:r)?)[.!]?$/i
+export function isToolOrHeavyIntent(text: string): boolean {
+  if (!text) return false
+  if (isSearchIntent(text)) return true
+  return /\b(calcule|calcula|analis(e|ar?|ando)|planej(e|ar?|ando)|execut(e|ar?|ando)|abr(a|ir)|fech(e|ar)|crie?|gerar?|rod(e|ar)|automa[cç]|desenvolv(a|er)|resolv(a|er)|script|c[oó]digo|terminal|navegador|browser|pasta|arquivo|sistema)\b/i.test(text)
+}
+
+export const CANCEL_COMMAND_REGEX = /^(?:jarvis[,.]?\s*)?(?:cancela(?:r)?(?:\s+(?:a\s+pesquisa|isso|agora|tudo))?|para(?:r)?(?:\s+(?:de\s+(?:falar|pesquisar|buscar)|tudo|agora|a\s+pesquisa))?|pare(?:\s+(?:de\s+(?:falar|pesquisar|buscar)|tudo|agora|a\s+pesquisa))?|deixa\s+pra\s+l[aá]|aborta(?:r)?|chega|sil[eê]ncio)[.!]?$/i
 
 export function isCancelCommand(text: string): boolean {
   if (!text) return false
   const clean = text.trim()
   return CANCEL_COMMAND_REGEX.test(clean)
+}
+
+export function sanitizeSpeechText(text: string): string {
+  if (!text) return ''
+  let t = text
+
+  // Remove marcadores de ferramenta [tool:...]
+  t = t.replace(/\[tool:[^\]]+\]/g, '')
+
+  // Remove blocos de código ```...```
+  t = t.replace(/```[\s\S]*?```/g, '')
+
+  // Remove código inline mantendo o texto interno
+  t = t.replace(/`([^`]+)`/g, '$1').replace(/`/g, '')
+
+  // Remove preâmbulos técnicos de ferramentas
+  const toolPreambles = [
+    /\bresultados?\s+das?\s+ferramentas?\s*:\s*/gi,
+    /\bresultados?\s+de\s+[a-zA-Z0-9_\-]+\s*:\s*/gi,
+    /\bresultado\s+da\s+pesquisa\s*:\s*/gi,
+    /\bsa[ií]da\s+d[ao]\s+ferramenta\s*:\s*/gi,
+    /\bferramenta\s+executada\s*:\s*/gi,
+    /\bexecutando\s+ferramenta\s*:\s*/gi,
+    /\bcomando\s+executado\s*:\s*/gi,
+    /\bsa[ií]da\s+do\s+terminal\s*:\s*/gi,
+    /\bnavegador\s+aberto\s+na\s+url\s*:\s*(?:https?:\/\/\S+)?/gi,
+    /\bp[aá]gina\s+aberta\s+em\s*:\s*(?:https?:\/\/\S+)?/gi,
+    /\bacessando(?:\s+a)?\s+url\s*:\s*(?:https?:\/\/\S+)?/gi,
+    /\b(?:no\s+link|do\s+link|pelo\s+link|no\s+site|da\s+fonte|a\s+fonte|o\s+link|a\s+url)\s*:\s*(?:https?:\/\/\S+|www\.\S+)?/gi,
+    /\b(?:link|url|fonte|href)\s*:\s*(?:https?:\/\/\S+|www\.\S+)?/gi,
+  ]
+  for (const pattern of toolPreambles) {
+    t = t.replace(pattern, ' ')
+  }
+
+  // Remove URLs restantes para nunca serem soletradas pelo TTS
+  t = t.replace(/https?:\/\/\S+|www\.\S+/gi, '')
+
+  // Converte links markdown [texto](url) -> texto
+  t = t.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+
+  // Remove citações numéricas tipo [1], [2]
+  t = t.replace(/\[\d+\]/g, '')
+
+  // Remove títulos markdown (# Título)
+  t = t.replace(/^#+\s*/gm, '')
+
+  // Remove formatação básica de markdown (**bold**, *italic*, __underline__, ~~strike~~)
+  t = t.replace(/\*\*/g, '').replace(/__/g, '').replace(/~~/g, '').replace(/\*/g, '')
+
+  // Converte marcadores de lista no início de linhas (-, *, +, •)
+  t = t.replace(/^\s*[-•>+]\s+/gm, '')
+
+  // Trata numerações repetitivas ou inline: ' 1. Item ... 2. Item' -> ' Item. Item'
+  t = t.replace(/(?<=[.:;\n])\s*\d+[\.\)]\s*/g, ' ')
+  t = t.replace(/^\s*\d+[\.\)]\s*/gm, '')
+  t = t.replace(/\s+\d+[\.\)]\s+/g, '. ')
+
+  // Remove emojis e caracteres gráficos
+  t = t.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
+
+  // Normaliza quebras de linha e espaços
+  t = t.replace(/\n{2,}/g, '\n')
+  t = t.replace(/[ \t]+/g, ' ')
+
+  // Limpeza de pontuação duplicada ou órfã
+  t = t.replace(/\s*([:;])\s*([:;])+/g, '$1')
+  t = t.replace(/\s*([.,;!?])\s*([.,;!?])+/g, '$1')
+  t = t.replace(/\s+([.,;:!?])/g, '$1')
+
+  // Remove pontuação solta ou espaços nas pontas
+  t = t.replace(/^[\s:;,-]+|[\s:;,-]+$/g, '')
+
+  return t.trim()
 }
 
 export function detectSilenceCommand(text: string): { isCommand: boolean; enableSilence: boolean } {
@@ -264,6 +358,18 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   const captureNoteRef = useRef('')
   const backendDispatchAbortRef = useRef<AbortController | null>(null)
 
+  // Buffer de silêncio (1.8s) para formulação de frases sem cortes prematuros
+  const SILENCE_BUFFER_MS = 1800
+  const silenceBufferTimerRef = useRef<number | null>(null)
+  const silenceAccumulatedTextRef = useRef('')
+
+  // Push-to-Talk (PTT - segurar para falar)
+  const [pushToTalkMode, setPushToTalkModeState] = useState(false)
+  const pushToTalkModeRef = useRef(false)
+  const [isPttActive, setIsPttActiveState] = useState(false)
+  const isPttActiveRef = useRef(false)
+  const pttAccumulatedTextRef = useRef('')
+
   // Anotação ao vivo (lote 6): enquanto um popup de nota grava durante a ligação, as falas vão para
   // a nota e não para o agente, até "fim da nota" ou o botão Parar.
   useEffect(() => {
@@ -410,7 +516,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   const [liveOrbState, setLiveOrbState] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle')
 
   const fetchAndCreateAudio = async (text: string, signal?: AbortSignal): Promise<HTMLAudioElement | null> => {
-    const cleaned = text.replace(/[*_#`~]/g, '').trim()
+    const cleaned = sanitizeSpeechText(text)
     if (!cleaned) return null
     try {
       const streamRes = await fetch('/api/voice/tts/stream', {
@@ -463,6 +569,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
 
     const audioQueue: { text: string; audioPromise?: Promise<HTMLAudioElement | null>; isFiller?: boolean }[] = []
     let isPlayingQueue = false
+    let isGeneratingResponse = true
     const turnStartedAt = performance.now()
     let firstAudioReported = false
     let phrasesEnqueued = 0
@@ -478,7 +585,11 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         // Se a fila está vazia e não estamos tocando nada → Jarvis terminou de falar
         if (!isPlayingQueue && audioQueue.length === 0 && liveCallActiveRef.current && !abortController.signal.aborted) {
           isSpeakingRef.current = false
-          if (!listeningRestoredRef.current) {
+          // Não rearmar o microfone se a resposta real ainda estiver sendo gerada
+          if (isGeneratingResponse) {
+            setLiveOrbState('thinking')
+            setLiveCallStatus(isSearch ? '⚡ Buscando na web…' : '⚡ Processando resposta…')
+          } else if (!listeningRestoredRef.current) {
             listeningRestoredRef.current = true
             setLiveOrbState('listening')
             setLiveCallStatus('Ouvindo continuamente… fale normalmente.')
@@ -492,11 +603,16 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       if (!item) {
         isPlayingQueue = false
         isSpeakingRef.current = false
-        if (liveCallActiveRef.current && !abortController.signal.aborted && !listeningRestoredRef.current) {
-          listeningRestoredRef.current = true
-          setLiveOrbState('listening')
-          setLiveCallStatus('Ouvindo continuamente… fale normalmente.')
-          setLiveCallRecording(true)
+        if (liveCallActiveRef.current && !abortController.signal.aborted) {
+          if (isGeneratingResponse) {
+            setLiveOrbState('thinking')
+            setLiveCallStatus(isSearch ? '⚡ Buscando na web…' : '⚡ Processando resposta…')
+          } else if (!listeningRestoredRef.current) {
+            listeningRestoredRef.current = true
+            setLiveOrbState('listening')
+            setLiveCallStatus('Ouvindo continuamente… fale normalmente.')
+            setLiveCallRecording(true)
+          }
         }
         return
       }
@@ -549,10 +665,14 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       } finally {
         audioRef.current = null
         isPlayingQueue = false
-        // Quando a fila drena, Jarvis parou de falar
+        // Quando a fila drena:
         if (audioQueue.length === 0 || abortController.signal.aborted) {
           isSpeakingRef.current = false
-          if (liveCallActiveRef.current && !abortController.signal.aborted && !listeningRestoredRef.current) {
+          // Não rearmar o microfone enquanto a resposta real ainda estiver sendo gerada!
+          if (isGeneratingResponse && !abortController.signal.aborted && liveCallActiveRef.current) {
+            setLiveOrbState('thinking')
+            setLiveCallStatus(isSearch ? '⚡ Buscando na web…' : '⚡ Processando resposta…')
+          } else if (liveCallActiveRef.current && !abortController.signal.aborted && !listeningRestoredRef.current) {
             listeningRestoredRef.current = true
             setLiveOrbState('listening')
             setLiveCallStatus('Ouvindo continuamente… fale normalmente.')
@@ -571,36 +691,20 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     }
 
     const isSearch = isSearchIntent(displayText || userText)
-    let fillerTimer: number | null = null
 
-    if (!silentModeRef.current) {
-      if (isSearch) {
-        const filler = pickSearchFiller()
-        const fillerPromise = fetchAndCreateAudio(filler, abortController.signal)
-        audioQueue.push({ text: filler, audioPromise: fillerPromise, isFiller: true })
-        void playNextInQueue()
-      } else {
-        fillerTimer = window.setTimeout(() => {
-          if (!abortController.signal.aborted && phrasesEnqueued === 0 && liveCallActiveRef.current && !silentModeRef.current) {
-            const filler = pickThinkingFiller()
-            const fillerPromise = fetchAndCreateAudio(filler, abortController.signal)
-            audioQueue.push({ text: filler, audioPromise: fillerPromise, isFiller: true })
-            void playNextInQueue()
-          }
-        }, 450)
-      }
+    if (!silentModeRef.current && isSearch) {
+      const filler = pickSearchFiller()
+      const fillerPromise = fetchAndCreateAudio(filler, abortController.signal)
+      audioQueue.push({ text: filler, audioPromise: fillerPromise, isFiller: true })
+      void playNextInQueue()
     }
 
     const enqueuePhrase = (phrase: string) => {
-      const trimmed = phrase.trim()
-      if (!trimmed) return
-      if (fillerTimer !== null) {
-        window.clearTimeout(fillerTimer)
-        fillerTimer = null
-      }
+      const sanitized = sanitizeSpeechText(phrase)
+      if (!sanitized) return
       phrasesEnqueued += 1
-      const audioPromise = fetchAndCreateAudio(trimmed, abortController.signal)
-      audioQueue.push({ text: trimmed, audioPromise })
+      const audioPromise = fetchAndCreateAudio(sanitized, abortController.signal)
+      audioQueue.push({ text: sanitized, audioPromise })
       void playNextInQueue()
     }
 
@@ -703,6 +807,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         enqueuePhrase(sentenceBuffer)
       }
 
+      isGeneratingResponse = false
+
       while ((audioQueue.length > 0 || isPlayingQueue) && liveCallActiveRef.current && !abortController.signal.aborted) {
         await new Promise((r) => setTimeout(r, 60))
       }
@@ -711,10 +817,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         setLiveCallStatus(err?.message || 'Falha durante a ligação.')
       }
     } finally {
-      if (fillerTimer !== null) {
-        window.clearTimeout(fillerTimer)
-        fillerTimer = null
-      }
+      isGeneratingResponse = false
       // Cada fala vira um turno novo (fala + resposta), preservando os anteriores no chat e na ligação.
       const turnReply = fullReply.trim()
       if (turnReply) {
@@ -815,7 +918,18 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     backendDispatchAbortRef.current?.abort()
     backendDispatchAbortRef.current = null
 
-    // 2. Interrompe áudio instantaneamente
+    // Cancela timers de buffer de silêncio e limpa acumuladores
+    if (silenceBufferTimerRef.current !== null) {
+      window.clearTimeout(silenceBufferTimerRef.current)
+      silenceBufferTimerRef.current = null
+    }
+    silenceAccumulatedTextRef.current = ''
+    pttAccumulatedTextRef.current = ''
+
+    // 2. Interrompe áudio instantaneamente em todos os canais (HTMLAudio, Web Speech, Web Audio)
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      try { window.speechSynthesis.cancel() } catch { /* ignore */ }
+    }
     if (audioRef.current) {
       try {
         audioRef.current.pause()
@@ -827,6 +941,19 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     if (audioUrlRef.current) {
       try { URL.revokeObjectURL(audioUrlRef.current) } catch { /* ignore */ }
       audioUrlRef.current = null
+    }
+    if (typeof document !== 'undefined') {
+      try {
+        document.querySelectorAll('audio').forEach((el) => {
+          try {
+            el.pause()
+            el.currentTime = 0
+          } catch { /* ignore */ }
+        })
+      } catch { /* ignore */ }
+    }
+    if (fallbackAudioContextRef.current && fallbackAudioContextRef.current.state === 'running') {
+      void fallbackAudioContextRef.current.suspend().catch(() => undefined)
     }
     stopNativeSpeak()
 
@@ -907,6 +1034,105 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     }, delay)
   }
 
+  const dispatchFinalSpeech = (cleanText: string, wasBargedIn = false) => {
+    if (!cleanText || !liveCallActiveRef.current) return
+
+    if (isCancelCommand(cleanText)) {
+      void handleVoiceCancellation()
+      return
+    }
+
+    const silenceCheck = detectSilenceCommand(cleanText)
+    if (silenceCheck.isCommand) {
+      setSilentMode(silenceCheck.enableSilence)
+      const isPureSilence = /^(?:n[aã]o\s+precisa\s+(?:narrar|falar(?:\s+nada)?(?:\s+enquanto\s+pesquisa)?)|pesquis(?:e|a)\s+em\s+sil[eê]ncio|pesquis(?:e|a)\s+sem\s+falar(?:\s+nada)?|modo\s+silencioso|ativ(?:e|ar)\s+(?:o\s+)?modo\s+silencioso|fiqu?e\s+em\s+sil[eê]ncio|sem\s+narrar|pode\s+(?:narrar|falar)|desativ(?:e|ar)\s+(?:o\s+)?modo\s+silencioso|sa(?:i|ia)\s+do\s+modo\s+silencioso|desativ(?:e|ar)\s+sil[eê]ncio)[.!]?$/i.test(cleanText.replace(/[^\w\s]/g, '').trim())
+      if (isPureSilence) {
+        const confirmMsg = silenceCheck.enableSilence ? 'Modo silencioso ativado. Vou pesquisar em silêncio.' : 'Narração ativada.'
+        setLiveOrbState('speaking')
+        setLiveCallStatus(confirmMsg)
+        setLiveJarvisTranscript(confirmMsg)
+        void (async () => {
+          try {
+            isSpeakingRef.current = true
+            await speakText(confirmMsg)
+          } finally {
+            isSpeakingRef.current = false
+            liveCallProcessingRef.current = false
+            if (liveCallActiveRef.current) {
+              setLiveOrbState('listening')
+              setLiveCallRecording(true)
+              setLiveCallStatus('Ouvindo continuamente… fale normalmente.')
+              safeRestartLiveRecognition(true)
+            }
+          }
+        })()
+        return
+      }
+    }
+
+    // Limpa janela de correção anterior se houver
+    if (correctionWindowTimerRef.current !== null) {
+      window.clearTimeout(correctionWindowTimerRef.current)
+      correctionWindowTimerRef.current = null
+    }
+
+    if (liveCallProcessingRef.current && !wasBargedIn) {
+      lastDispatchedSpeechRef.current?.abort.abort()
+      lastDispatchedSpeechRef.current = null
+      speechAbortRef.current?.abort()
+      liveCallProcessingRef.current = false
+      isSpeakingRef.current = false
+      recordDiagnostic('speech_replaced_while_processing', 'WARN')
+    }
+    liveCallProcessingRef.current = true
+
+    const dispatchAbort = new AbortController()
+    lastDispatchedSpeechRef.current = {
+      text: cleanText,
+      timestamp: Date.now(),
+      abort: dispatchAbort,
+      isCancelled: false,
+    }
+
+    setLiveCallRecording(false)
+    setLiveUserTranscript(cleanText)
+
+    // Janela de correção: após 1800ms sem nova fala, o envio é confirmado definitivamente
+    correctionWindowTimerRef.current = window.setTimeout(() => {
+      correctionWindowTimerRef.current = null
+      if (lastDispatchedSpeechRef.current && !lastDispatchedSpeechRef.current.isCancelled) {
+        lastDispatchedSpeechRef.current = null
+      }
+    }, SILENCE_BUFFER_MS)
+
+    void (async () => {
+      try {
+        let prompt = cleanText
+        if (lastInterruptionRef.current?.text) {
+          const cutOff = lastInterruptionRef.current.text
+          lastInterruptionRef.current = null
+          prompt = buildContextStitchingPrompt(cutOff, cleanText)
+        }
+        if (!dispatchAbort.signal.aborted) {
+          await sendTextStreamAndPlay(prompt, cleanText, dispatchAbort)
+        }
+      } catch (error) {
+        if (!dispatchAbort.signal.aborted) {
+          setLiveCallStatus(error instanceof Error ? error.message : 'Falha durante a ligação.')
+        }
+      } finally {
+        if (!dispatchAbort.signal.aborted || wasBargedIn) {
+          liveCallProcessingRef.current = false
+          isSpeakingRef.current = false
+          bargedInRef.current = false
+          if (liveCallActiveRef.current) {
+            safeRestartLiveRecognition()
+          }
+        }
+      }
+    })()
+  }
+
   const startBrowserLiveRecognition = () => {
     const browserWindow = window as Window & { SpeechRecognition?: any; webkitSpeechRecognition?: any }
     const Recognition = browserWindow.SpeechRecognition || browserWindow.webkitSpeechRecognition
@@ -959,16 +1185,25 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         }
       }
 
+      // Modo Push-to-Talk ativo: grava enquanto segurado e envia apenas ao soltar
+      if (pushToTalkModeRef.current) {
+        if (!isPttActiveRef.current) return
+        if (finalText.trim()) {
+          pttAccumulatedTextRef.current = (pttAccumulatedTextRef.current + ' ' + finalText.trim()).trim()
+        }
+        const fullTranscript = (pttAccumulatedTextRef.current + (interimText ? ' ' + interimText : '')).trim()
+        if (fullTranscript) setLiveUserTranscript(fullTranscript)
+        setLiveOrbState('listening')
+        setLiveCallStatus('🎙️ Ouvindo sua fala… solte o botão para enviar.')
+        return
+      }
+
       const prevDispatch = lastDispatchedSpeechRef.current
-      const CORRECTION_WINDOW_MS = 1400
 
       // ── VERIFICAÇÃO EM PARALELO DE CONTINUAÇÃO (ZERO DELAY) ─────────────
-      // Se enviamos uma mensagem especulativa recente e o usuário voltou a falar:
-      // No primeiro instante (interim ou final), cancelamos imediatamente o envio anterior
-      // antes que gere fala do Jarvis, e atualizamos a tela com a frase se completando.
       if (prevDispatch && !prevDispatch.isCancelled) {
         const elapsed = Date.now() - prevDispatch.timestamp
-        if (elapsed <= CORRECTION_WINDOW_MS && heardSpeech.length >= 1) {
+        if (elapsed <= SILENCE_BUFFER_MS && heardSpeech.length >= 1) {
           prevDispatch.isCancelled = true
           try { prevDispatch.abort.abort() } catch { /* ignore */ }
           if (correctionWindowTimerRef.current !== null) {
@@ -990,11 +1225,22 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         setLiveUserTranscript(`${prevDispatch.text} ${interimText.trim()}`.trim())
       }
 
-      // ⚡ BARGE-IN: detecta fala do usuário enquanto Jarvis está falando (quando NÃO é continuação própria)
+      // ⚡ BARGE-IN: detecta fala do usuário enquanto Jarvis está falando
       if ((isSpeakingRef.current || (audioRef.current && !audioRef.current.paused)) && (!prevDispatch || !prevDispatch.isCancelled)) {
         if (heardSpeech.length >= 2 && !bargedInRef.current) {
           triggerBargeIn()
         }
+      }
+
+      // Reset do buffer de silêncio se o usuário continuar formulando/falando
+      if (silenceBufferTimerRef.current !== null && heardSpeech) {
+        window.clearTimeout(silenceBufferTimerRef.current)
+        silenceBufferTimerRef.current = null
+      }
+
+      const currentFormulation = (silenceAccumulatedTextRef.current + ' ' + heardSpeech).trim()
+      if (currentFormulation) {
+        setLiveUserTranscript(currentFormulation)
       }
 
       if (!finalText.trim() || !liveCallActiveRef.current) return
@@ -1013,8 +1259,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         return
       }
 
-      // Caso 2: Chegou uma frase final rápida dentro da janela de pausa (ex: pausa curta + frase direta):
-      if (prevDispatch && !prevDispatch.isCancelled && (Date.now() - prevDispatch.timestamp <= CORRECTION_WINDOW_MS) && !wasBargedIn) {
+      // Caso 2: Chegou uma frase final rápida dentro da janela de pausa:
+      if (prevDispatch && !prevDispatch.isCancelled && (Date.now() - prevDispatch.timestamp <= SILENCE_BUFFER_MS) && !wasBargedIn) {
         prevDispatch.isCancelled = true
         try { prevDispatch.abort.abort() } catch { /* ignore */ }
         if (correctionWindowTimerRef.current !== null) {
@@ -1032,110 +1278,22 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         return
       }
 
-      // Caso 3: Envio inicial imediato (zero delay):
-      dispatchFinalSpeech(newText)
+      // Buffer de silêncio de 1.8s: acumula a frase finalizada e aguarda 1.8s sem novas falas antes de disparar
+      silenceAccumulatedTextRef.current = (silenceAccumulatedTextRef.current + ' ' + newText).trim()
+      setLiveOrbState('listening')
+      setLiveCallStatus('Ouvindo… formule sua frase com calma.')
 
-      function dispatchFinalSpeech(cleanText: string) {
-        if (!cleanText || !liveCallActiveRef.current) return
-
-        if (isCancelCommand(cleanText)) {
-          void handleVoiceCancellation()
-          return
-        }
-
-        const silenceCheck = detectSilenceCommand(cleanText)
-        if (silenceCheck.isCommand) {
-          setSilentMode(silenceCheck.enableSilence)
-          const isPureSilence = /^(?:n[aã]o\s+precisa\s+(?:narrar|falar(?:\s+nada)?(?:\s+enquanto\s+pesquisa)?)|pesquis(?:e|a)\s+em\s+sil[eê]ncio|pesquis(?:e|a)\s+sem\s+falar(?:\s+nada)?|modo\s+silencioso|ativ(?:e|ar)\s+(?:o\s+)?modo\s+silencioso|fiqu?e\s+em\s+sil[eê]ncio|sem\s+narrar|pode\s+(?:narrar|falar)|desativ(?:e|ar)\s+(?:o\s+)?modo\s+silencioso|sa(?:i|ia)\s+do\s+modo\s+silencioso|desativ(?:e|ar)\s+sil[eê]ncio)[.!]?$/i.test(cleanText.replace(/[^\w\s]/g, '').trim())
-          if (isPureSilence) {
-            const confirmMsg = silenceCheck.enableSilence ? 'Modo silencioso ativado. Vou pesquisar em silêncio.' : 'Narração ativada.'
-            setLiveOrbState('speaking')
-            setLiveCallStatus(confirmMsg)
-            setLiveJarvisTranscript(confirmMsg)
-            void (async () => {
-              try {
-                isSpeakingRef.current = true
-                await speakText(confirmMsg)
-              } finally {
-                isSpeakingRef.current = false
-                liveCallProcessingRef.current = false
-                if (liveCallActiveRef.current) {
-                  setLiveOrbState('listening')
-                  setLiveCallRecording(true)
-                  setLiveCallStatus('Ouvindo continuamente… fale normalmente.')
-                  safeRestartLiveRecognition(true)
-                }
-              }
-            })()
-            return
-          }
-        }
-
-        // Limpa janela de correção anterior se houver
-        if (correctionWindowTimerRef.current !== null) {
-          window.clearTimeout(correctionWindowTimerRef.current)
-          correctionWindowTimerRef.current = null
-        }
-
-        if (liveCallProcessingRef.current && !wasBargedIn) {
-          // Uma nova frase final não pode desaparecer enquanto a anterior ainda
-          // está processando. Cancela a solicitação antiga e privilegia a fala atual.
-          lastDispatchedSpeechRef.current?.abort.abort()
-          lastDispatchedSpeechRef.current = null
-          speechAbortRef.current?.abort()
-          liveCallProcessingRef.current = false
-          isSpeakingRef.current = false
-          recordDiagnostic('speech_replaced_while_processing', 'WARN')
-        }
-        liveCallProcessingRef.current = true
-
-        const dispatchAbort = new AbortController()
-        lastDispatchedSpeechRef.current = {
-          text: cleanText,
-          timestamp: Date.now(),
-          abort: dispatchAbort,
-          isCancelled: false,
-        }
-
-        setLiveCallRecording(false)
-        setLiveUserTranscript(cleanText)
-
-        // Janela de correção: após 1400ms sem nova fala, o envio é confirmado definitivamente
-        correctionWindowTimerRef.current = window.setTimeout(() => {
-          correctionWindowTimerRef.current = null
-          if (lastDispatchedSpeechRef.current && !lastDispatchedSpeechRef.current.isCancelled) {
-            lastDispatchedSpeechRef.current = null
-          }
-        }, CORRECTION_WINDOW_MS)
-
-        void (async () => {
-          try {
-            let prompt = cleanText
-            if (lastInterruptionRef.current?.text) {
-              const cutOff = lastInterruptionRef.current.text
-              lastInterruptionRef.current = null
-              prompt = buildContextStitchingPrompt(cutOff, cleanText)
-            }
-            // Passa o abort do dispatch especulativo para sendTextStreamAndPlay poder ser cancelado
-            if (!dispatchAbort.signal.aborted) {
-              await sendTextStreamAndPlay(prompt, cleanText, dispatchAbort)
-            }
-          } catch (error) {
-            if (!dispatchAbort.signal.aborted) {
-              setLiveCallStatus(error instanceof Error ? error.message : 'Falha durante a ligação.')
-            }
-          } finally {
-            if (!dispatchAbort.signal.aborted || wasBargedIn) {
-              liveCallProcessingRef.current = false
-              isSpeakingRef.current = false
-              bargedInRef.current = false
-              if (liveCallActiveRef.current) {
-                safeRestartLiveRecognition()
-              }
-            }
-          }
-        })()
+      if (silenceBufferTimerRef.current !== null) {
+        window.clearTimeout(silenceBufferTimerRef.current)
       }
+      silenceBufferTimerRef.current = window.setTimeout(() => {
+        silenceBufferTimerRef.current = null
+        const completeSpeech = silenceAccumulatedTextRef.current.trim()
+        silenceAccumulatedTextRef.current = ''
+        if (completeSpeech && liveCallActiveRef.current) {
+          dispatchFinalSpeech(completeSpeech, wasBargedIn)
+        }
+      }, SILENCE_BUFFER_MS)
     }
     recognition.onerror = (event: any) => {
       recognitionAliveRef.current = false
@@ -1162,22 +1320,18 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     recognition.onend = () => {
       recognitionAliveRef.current = false
       if (!liveCallActiveRef.current) return
-      // Não rearma o reconhecimento durante a saída de áudio: alguns motores
-      // recalibram o microfone contra a própria voz do Jarvis e perdem sensibilidade.
-      if (isSpeakingRef.current) {
-        return
-      } else {
-        // Jarvis parou de falar: pausa de calibração (200ms) para resetar o baseline de ruído
-        if (postSpeechRestartTimerRef.current !== null) {
-          window.clearTimeout(postSpeechRestartTimerRef.current)
-        }
-        postSpeechRestartTimerRef.current = window.setTimeout(() => {
-          postSpeechRestartTimerRef.current = null
-          if (liveCallActiveRef.current && !recognitionAliveRef.current) {
-            startBrowserLiveRecognition()
-          }
-        }, 200)
+      // Não bloqueia reinício mesmo se Jarvis estiver falando,
+      // para que o microfone permaneça ouvindo e capture comandos como 'cancela' ou 'para'
+      if (postSpeechRestartTimerRef.current !== null) {
+        window.clearTimeout(postSpeechRestartTimerRef.current)
       }
+      const restartDelay = isSpeakingRef.current ? 120 : 200
+      postSpeechRestartTimerRef.current = window.setTimeout(() => {
+        postSpeechRestartTimerRef.current = null
+        if (liveCallActiveRef.current && !recognitionAliveRef.current) {
+          startBrowserLiveRecognition()
+        }
+      }, restartDelay)
     }
     try {
       recognition.start()
@@ -1355,7 +1509,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
           fallbackSilenceStartedAtRef.current = null
         } else if (recordingNow) {
           if (fallbackSilenceStartedAtRef.current === null) fallbackSilenceStartedAtRef.current = performance.now()
-          if (performance.now() - fallbackSilenceStartedAtRef.current >= mic.silence_ms) liveCallRecorderRef.current?.stop()
+          if (performance.now() - fallbackSilenceStartedAtRef.current >= Math.max(mic.silence_ms, SILENCE_BUFFER_MS)) liveCallRecorderRef.current?.stop()
         }
         fallbackAnimationFrameRef.current = window.requestAnimationFrame(monitor)
       }
@@ -1634,12 +1788,14 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
 
   async function speakText(text: string) {
     if (!text || !speakEnabled) return
+    const sanitized = sanitizeSpeechText(text)
+    if (!sanitized) return
     const requestId = ++speechRequestRef.current
     speechAbortRef.current?.abort()
     const abortController = new AbortController()
     speechAbortRef.current = abortController
     if (isMobileStandalone() && hasNativeVoice()) {
-      setLiveJarvisTranscript(text.replace(/[*_#`~]/g, '').trim())
+      setLiveJarvisTranscript(sanitized)
       await new Promise<void>(resolve => {
         let settled = false
         const finish = () => {
@@ -1649,8 +1805,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
           resolve()
         }
         ttsDoneResolverRef.current = finish
-        nativeSpeak(text)
-        const timeout = Math.min(24000, 600 + text.length * 70)
+        nativeSpeak(sanitized)
+        const timeout = Math.min(24000, 600 + sanitized.length * 70)
         window.setTimeout(finish, timeout)
       })
       if (requestId !== speechRequestRef.current) return
@@ -1663,7 +1819,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     audioUrlRef.current = null
     let url: string | null = null
     try {
-      const request = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }), signal: abortController.signal }
+      const request = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: sanitized }), signal: abortController.signal }
       const streamResponse = await fetch('/api/voice/tts/stream', request)
       if (streamResponse.ok) {
         const streamed = await createStreamingAudio(streamResponse)
@@ -1816,6 +1972,62 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     }
   }
 
+  const setPushToTalkMode = useCallback((enabled: boolean) => {
+    pushToTalkModeRef.current = enabled
+    setPushToTalkModeState(enabled)
+  }, [])
+
+  const togglePushToTalk = useCallback(() => {
+    const next = !pushToTalkModeRef.current
+    pushToTalkModeRef.current = next
+    setPushToTalkModeState(next)
+    if (next) {
+      setLiveCallStatus('Modo Push-to-Talk ativado. Segure o botão ou Barra de Espaço para falar.')
+    } else {
+      setLiveCallStatus('Modo contínuo (Hands-Free) ativado. Buffer de 1.8s ativo.')
+    }
+  }, [])
+
+  const startPtt = useCallback(() => {
+    if (!liveCallActiveRef.current) return
+    isPttActiveRef.current = true
+    setIsPttActiveState(true)
+    pttAccumulatedTextRef.current = ''
+    if (silenceBufferTimerRef.current !== null) {
+      window.clearTimeout(silenceBufferTimerRef.current)
+      silenceBufferTimerRef.current = null
+    }
+    silenceAccumulatedTextRef.current = ''
+    if (isSpeakingRef.current || (audioRef.current && !audioRef.current.paused)) {
+      triggerBargeIn()
+    }
+    setLiveOrbState('listening')
+    setLiveCallRecording(true)
+    setLiveCallStatus('🎙️ Ouvindo você… solte para enviar.')
+    if (!recognitionAliveRef.current) {
+      startBrowserLiveRecognition()
+    }
+  }, [triggerBargeIn])
+
+  const stopPtt = useCallback(() => {
+    if (!liveCallActiveRef.current || !isPttActiveRef.current) return
+    isPttActiveRef.current = false
+    setIsPttActiveState(false)
+    if (silenceBufferTimerRef.current !== null) {
+      window.clearTimeout(silenceBufferTimerRef.current)
+      silenceBufferTimerRef.current = null
+    }
+    const captured = (pttAccumulatedTextRef.current || liveUserTranscript).trim()
+    pttAccumulatedTextRef.current = ''
+    silenceAccumulatedTextRef.current = ''
+    if (captured) {
+      dispatchFinalSpeech(captured)
+    } else {
+      setLiveOrbState('idle')
+      setLiveCallStatus('Pronto para ouvir.')
+    }
+  }, [liveUserTranscript])
+
   return {
     captureVision,
     closeLiveCall,
@@ -1844,5 +2056,11 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     toggleVoiceInput,
     triggerBargeIn,
     visionResult,
+    pushToTalkMode,
+    setPushToTalkMode,
+    togglePushToTalk,
+    startPtt,
+    stopPtt,
+    isPttActive,
   }
 }

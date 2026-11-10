@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .audio_io import AudioIO
 from .stt import STTService, STTEngine, filter_stt_hallucinations
-from .tts import TTSService, TTSEngine, strip_text_for_speech, TTSCache, split_text_for_tts
+from .tts import TTSService, TTSEngine, strip_text_for_speech, sanitize_speech_text, TTSCache, split_text_for_tts
 
 try:
     from .whisper_stt import WhisperSTT
@@ -23,6 +23,7 @@ __all__ = [
     "TTSService",
     "TTSEngine",
     "strip_text_for_speech",
+    "sanitize_speech_text",
     "TTSCache",
     "split_text_for_tts",
     "filter_stt_hallucinations",
