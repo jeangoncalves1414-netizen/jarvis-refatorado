@@ -136,6 +136,28 @@ def test_final_quota_error_never_reexecutes_tools(groq_script, monkeypatch):
     assert 'Nota registrada.' in reply and 'sem repetir' in reply and '604 segundos' in reply
 
 
+def test_synthesis_error_after_tool_returns_results_without_rerun(groq_script) -> None:
+    completions = groq_script([[_tool_chunk("notes")], RuntimeError("APIError 500")])
+    calls = []
+    chunks: list[str] = []
+    reply = _service()._chat_groq_stream("sys", _MESSAGES, tools=_TOOLS, on_function_call=lambda *args: calls.append(args) or "Nota registrada.", on_chunk=chunks.append)
+    assert "Nota registrada." in reply and "não consegui redigir" in reply
+    assert len(calls) == 1 and len(completions.calls) == 2
+    assert chunks == [reply]
+
+
+def test_synthesis_quota_with_free_second_key_never_reruns_tools(groq_script, monkeypatch):
+    from app.services import llm
+    monkeypatch.setattr(llm, '_key_rotator', llm.KeyRotator())
+    monkeypatch.setattr(LLMService, "_api_key_for", lambda self, provider: llm._key_rotator.get_key(provider, self.settings))
+    completions = groq_script([[_tool_chunk("notes")], RuntimeError("429 rate limit reached. Please try again in 5s.")])
+    calls = []
+    service = LLMService(SimpleNamespace(groq_api_keys=['chave-a', 'chave-b']))
+    reply = service._chat_groq_stream('sys', _MESSAGES, tools=_TOOLS, on_function_call=lambda *args: calls.append(args) or 'Nota registrada.')
+    assert len(calls) == 1 and len(completions.calls) == 2
+    assert 'Nota registrada.' in reply and 'sem repetir' in reply
+
+
 def test_oversize_retry_is_bounded_and_preserves_rules_and_latest_request(groq_script):
     completions = groq_script([RuntimeError('413 too large'), RuntimeError('413 too large')])
     messages = [{'role': 'user', 'content': 'antigo'}] * 6 + [{'role': 'user', 'content': 'x' * 4000}]

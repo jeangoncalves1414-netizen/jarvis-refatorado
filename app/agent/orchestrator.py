@@ -703,26 +703,47 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             
             from app.agent.loop_policy import requires_tool_action, missing_requested_steps
             needs_action = requires_tool_action(text)
-            result = self.llm_service.chat_with_functions_stream(
-                system_instruction=system,
-                messages=full_messages,
-                tools=tools_decl,
-                on_function_call=on_function_call,
-                # Voice must receive the validated reply, never raw tool errors or promises.
-                on_chunk=None if needs_action or current_origin.get() == "voice" else on_chunk,
-                on_reasoning=on_reasoning,
-                force_tool=False,
-                mode=mode,
-            )
+
+            def answer_from_receipts(exc: Exception) -> str:
+                # Ações já concluídas: a falha da redação vira aviso, não erro do pedido inteiro.
+                reason = failure_reason(exc).rstrip(".")
+                record_run_step(f"Síntese do modelo falhou depois das ações ({reason}); resposta montada com os recibos.", kind="warning")
+                return "\n".join(action_receipts) + f"\n\nAs ações foram concluídas, mas não consegui redigir a resposta ({reason})."
+
+            try:
+                result = self.llm_service.chat_with_functions_stream(
+                    system_instruction=system,
+                    messages=full_messages,
+                    tools=tools_decl,
+                    on_function_call=on_function_call,
+                    # Voice must receive the validated reply, never raw tool errors or promises.
+                    on_chunk=None if needs_action or current_origin.get() == "voice" else on_chunk,
+                    on_reasoning=on_reasoning,
+                    force_tool=False,
+                    mode=mode,
+                )
+            except RunCancelled:
+                raise
+            except Exception as exc:
+                if not any(step['status'] == 'succeeded' for step in completion_steps):
+                    raise
+                result = answer_from_receipts(exc)
             raw = result or "Sem resposta."
             missing = missing_requested_steps(text, completion_steps)
             if missing and executed_actions:
                 retry_messages = full_messages + [{"role": "assistant", "content": raw}, {"role": "user", "content": "Ainda faltam estas ações do meu pedido: " + ", ".join(missing) + ". Execute somente as pendências; não repita criações já confirmadas. Use os IDs dos resultados anteriores ou consulte para localizá-los."}]
-                result = self.llm_service.chat_with_functions_stream(
-                    system_instruction=system, messages=retry_messages, tools=tools_decl,
-                    on_function_call=on_function_call, on_chunk=None, on_reasoning=on_reasoning,
-                    force_tool=False, mode=mode,
-                )
+                try:
+                    result = self.llm_service.chat_with_functions_stream(
+                        system_instruction=system, messages=retry_messages, tools=tools_decl,
+                        on_function_call=on_function_call, on_chunk=None, on_reasoning=on_reasoning,
+                        force_tool=False, mode=mode,
+                    )
+                except RunCancelled:
+                    raise
+                except Exception as exc:
+                    if not any(step['status'] == 'succeeded' for step in completion_steps):
+                        raise
+                    result = answer_from_receipts(exc)
                 raw = result or raw
             summary, _ = parse_tool_markers(raw)
             unresolved = []

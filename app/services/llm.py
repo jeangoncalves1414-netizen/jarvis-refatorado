@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
-from app.core.capability_health import track_model_call
+from app.core.capability_health import failure_reason, track_model_call
 from app.core.runs import RunCancelled
 from app.services.rate_limits import ProviderRateLimit, is_rate_limit, retry_seconds, limit_reason
 from app.core.secrets_mask import mask_key
@@ -1252,6 +1252,25 @@ class LLMService:
         def _ordered_tool_calls(tool_calls: dict[int, dict[str, str]]) -> list[dict[str, str]]:
             return [tool_calls[i] for i in sorted(tool_calls)]
 
+        def _tool_results_text() -> str:
+            return "\n".join(
+                str(m.get("content", "")).strip()
+                for m in formatted_messages
+                if m.get("role") == "tool" and str(m.get("content", "")).strip()
+            )
+
+        def _warn_synthesis_failed(error: BaseException) -> None:
+            # Ações já executadas: o pedido termina com aviso na Central, não como falha.
+            from app.agent.run_tracking import record_run_step
+            record_run_step(
+                "Síntese do modelo falhou depois das ações (" + failure_reason(error).rstrip(".") + "); resposta montada com os resultados.",
+                kind="warning",
+            )
+
+        # Depois que uma ferramenta roda, nenhuma retentativa (outra chave, compactação ou
+        # outro provedor) pode repetir a rodada: isso duplicava hábitos e registros.
+        tools_ran = False
+
         try:
             first_text, first_tools = _stream_turn(formatted_messages, with_tools=bool(groq_tools))
 
@@ -1283,6 +1302,7 @@ class LLMService:
 
                 tool_result = ""
                 if on_function_call:
+                    tools_ran = True
                     try:
                         tool_result = str(on_function_call(fn_name, args))
                     except RunCancelled:
@@ -1314,15 +1334,21 @@ class LLMService:
             except Exception as final_err:
                 if is_rate_limit(final_err):
                     _key_rotator.mark_rate_limit(api_key, final_err)
+                    _warn_synthesis_failed(final_err)
                     result = tool_summary + "\n\nNão consegui redigir a síntese, os resultados acima foram preservados, sem repetir as ações. " + _key_rotator.wait_message("groq", self.settings)
                     _emit_chunk(result)
                     return result
                 if "413" in str(final_err) or "too large" in str(final_err).lower():
+                    _warn_synthesis_failed(final_err)
                     result = tool_summary + "\n\nA síntese excedeu o tamanho permitido. Os resultados foram preservados, sem repetir as ações."
                     _emit_chunk(result)
                     return result
                 if "tool choice is none" not in str(final_err).lower() and "called a tool" not in str(final_err).lower():
-                    raise
+                    _log(f"[Groq] Síntese falhou depois das ações: {final_err}")
+                    _warn_synthesis_failed(final_err)
+                    result = (_tool_results_text() or tool_summary) + "\n\nAs ações acima foram executadas; não consegui redigir a resposta final."
+                    _emit_chunk(result)
+                    return result
                 # O modelo insistiu em chamar ferramenta no turno de sintese. Os resultados ja
                 # existem: tenta uma vez so com o contexto em texto, depois entrega o resumo.
                 _log(f"[Groq] Turno final tentou chamar ferramenta; tentando de novo sem historico de tools: {final_err}")
@@ -1366,6 +1392,13 @@ class LLMService:
         except RunCancelled:
             raise
         except Exception as e:
+            if tools_ran:
+                # Sem compactar, trocar de chave ou de provedor: isso executaria as ferramentas de novo.
+                _log(f"[Groq] Falha depois das ações; resultados preservados: {e}")
+                _warn_synthesis_failed(e)
+                result = (_tool_results_text() or "As ferramentas foram chamadas, mas não devolveram resultado; nada foi confirmado.") + "\n\nAs ações acima foram executadas; não consegui redigir a resposta final."
+                _emit_chunk(result)
+                return result
             err_msg = str(e)
             # Tratar caso o Groq retorne erro 400 tool_use_failed com failed_generation
             if "failed_generation" in err_msg and ("<function=" in err_msg or "function=" in err_msg):
