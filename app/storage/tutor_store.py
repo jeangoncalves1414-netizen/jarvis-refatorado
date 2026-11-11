@@ -7,7 +7,15 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from app.storage.tutor.fsrs import apply_review, is_due
+from app.storage.tutor.fsrs import (
+    apply_review,
+    is_due,
+    new_card_fields,
+    normalize_card,
+    review_fields,
+    sort_due,
+    validate_grade,
+)
 
 
 DEFAULT_PROGRESS: dict[str, Any] = {
@@ -122,14 +130,7 @@ class TutorStore:
         self._save()
 
     def _normalize_card(self, card: dict[str, Any]) -> dict[str, Any]:
-        card.setdefault("difficulty", 5.0)
-        card.setdefault("stability", 1.0)
-        card.setdefault("ease", 2.3)
-        card.setdefault("interval", 0)
-        card.setdefault("reps", 0)
-        card.setdefault("lapses", 0)
-        card.setdefault("due", str(date.today()))
-        return card
+        return normalize_card(card)
 
     def _refresh_flashcard_stats(self) -> None:
         cards = self._data.setdefault("flashcards", [])
@@ -147,6 +148,7 @@ class TutorStore:
             "topic": topic or self._data.get("current_stage", ""),
             "stage": stage or self._data.get("current_stage", ""),
             "created": str(date.today()),
+            **new_card_fields(),
         }))
         self._refresh_flashcard_stats()
         self._save()
@@ -156,25 +158,16 @@ class TutorStore:
         return [self._normalize_card(dict(c)) for c in self._data.get("flashcards", [])]
 
     def get_due_flashcards(self) -> list[dict[str, Any]]:
-        return [c for c in self.get_flashcards() if is_due(c)]
+        return sort_due([c for c in self.get_flashcards() if is_due(c)])
 
     def review_flashcard(self, card_id: str, grade: int) -> dict[str, Any] | None:
+        validate_grade(grade)
         cards = self._data.setdefault("flashcards", [])
         for card in cards:
             if card.get("id") != card_id:
                 continue
             self._normalize_card(card)
-            result = apply_review(card, grade)
-            card.update({
-                "interval": result.interval,
-                "ease": result.ease,
-                "reps": result.reps,
-                "lapses": result.lapses,
-                "due": result.due,
-                "difficulty": getattr(result, "difficulty", 5.0),
-                "stability": getattr(result, "stability", 1.0),
-                "last_review": str(date.today()),
-            })
+            card.update(review_fields(apply_review(card, grade)))
             self._refresh_flashcard_stats()
             self._save()
             return dict(card)

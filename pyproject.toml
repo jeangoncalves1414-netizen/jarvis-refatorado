@@ -38,6 +38,7 @@ dependencies = [
     "pystray>=0.19",
     "pywin32>=306; sys_platform == 'win32'",
     "ddgs>=9.0,<10",
+    "fsrs>=6.3,<7",
 ]
 
 [project.optional-dependencies]

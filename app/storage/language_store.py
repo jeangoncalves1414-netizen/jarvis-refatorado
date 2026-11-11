@@ -8,7 +8,15 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from app.storage.tutor.fsrs import apply_review, is_due
+from app.storage.tutor.fsrs import (
+    apply_review,
+    is_due,
+    new_card_fields,
+    normalize_card,
+    review_fields,
+    sort_due,
+    validate_grade,
+)
 
 CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 
@@ -141,11 +149,7 @@ class LanguageStore:
     # ── Vocabulary ────────────────────────────────────────────────
 
     def _normalize_vocab(self, card: dict[str, Any]) -> dict[str, Any]:
-        card.setdefault("difficulty", 5.0)
-        card.setdefault("stability", 1.0)
-        card.setdefault("reps", 0)
-        card.setdefault("lapses", 0)
-        card.setdefault("due", str(date.today()))
+        normalize_card(card)
         card.setdefault("cefr", self._data.get("cefr_level", "A1"))
         card.setdefault("category", "general")
         return card
@@ -174,6 +178,7 @@ class LanguageStore:
             "category": category or "general",
             "cefr": cefr or self._data.get("cefr_level", "A1"),
             "created": str(date.today()),
+            **new_card_fields(),
         }))
         stats = self._data.setdefault("stats", {})
         stats["total_vocab"] = len(vocab)
@@ -184,30 +189,23 @@ class LanguageStore:
         return [self._normalize_vocab(dict(v)) for v in self._data.get("vocabulary", [])]
 
     def get_due_vocabulary(self) -> list[dict[str, Any]]:
-        return [v for v in self.get_vocabulary() if is_due(v)]
+        return sort_due([v for v in self.get_vocabulary() if is_due(v)])
 
     def review_vocabulary(self, card_id: str, grade: int) -> dict[str, Any] | None:
+        validate_grade(grade)
         vocab = self._data.setdefault("vocabulary", [])
         for card in vocab:
             if card.get("id") != card_id:
                 continue
             self._normalize_vocab(card)
             result = apply_review(card, grade)
-            card.update({
-                "interval": result.interval,
-                "difficulty": result.difficulty,
-                "stability": result.stability,
-                "reps": result.reps,
-                "lapses": result.lapses,
-                "due": result.due,
-                "last_review": str(date.today()),
-            })
+            card.update(review_fields(result))
             # Track mastered cards
             stats = self._data.setdefault("stats", {})
             if result.reps >= 3 and result.stability >= 10:
                 stats["vocab_mastered"] = sum(
                     1 for v in vocab
-                    if v.get("reps", 0) >= 3 and v.get("stability", 0) >= 10
+                    if (v.get("reps") or 0) >= 3 and (v.get("stability") or 0) >= 10
                 )
             self.add_xp(XP_VOCAB_REVIEW)
             self._save()

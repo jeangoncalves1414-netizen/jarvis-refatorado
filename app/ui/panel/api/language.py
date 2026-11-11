@@ -78,10 +78,10 @@ def handle_language_post(path: str, body: bytes, handler: Any) -> tuple[int, dic
         return 200, {"ok": True, "id": card_id}
 
     if path == "/api/language/vocabulary/review":
-        card = store.review_vocabulary(
-            str(payload.get("card_id", "")),
-            int(payload.get("grade", 2)),
-        )
+        try:
+            card = store.review_vocabulary(str(payload.get("card_id", "")), payload.get("grade"))
+        except ValueError:
+            return 400, {"ok": False, "error": "invalid_grade"}
         if not card:
             return 404, {"ok": False, "error": "card_not_found"}
         return 200, {"ok": True, "card": card}

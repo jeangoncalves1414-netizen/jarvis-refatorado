@@ -76,7 +76,10 @@ def handle_tutor_post(path: str, body: bytes, handler: Any) -> tuple[int, dict[s
         payload = {}
 
     if path == "/api/tutor/flashcards/review":
-        card = store.review_flashcard(str(payload.get("card_id", "")), int(payload.get("grade", 2)))
+        try:
+            card = store.review_flashcard(str(payload.get("card_id", "")), payload.get("grade"))
+        except ValueError:
+            return 400, {"ok": False, "error": "invalid_grade"}
         if not card:
             return 404, {"ok": False, "error": "card_not_found"}
         return 200, {"ok": True, "card": card}
