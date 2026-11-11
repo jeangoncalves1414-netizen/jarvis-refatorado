@@ -23,6 +23,9 @@ from app.storage import memory_facts
     ("minha cidade é Belo Horizonte.", ("city", "Belo Horizonte", None)),
     ("prefiro usar o navegador Firefox", ("app.navegador", "Firefox", None)),
     ("meu editor favorito é o VS Code", ("app.editor", "VS Code", None)),
+    ("Meu nome é Jean", ("name", "Jean", None)),
+    ("me chamo Maria Clara.", ("name", "Maria Clara", None)),
+    ("pode me chamar de Jota", ("name", "Jota", None)),
 ])
 def test_parser_finds_slots(text, expected):
     assert memory_slots.parse(text) == expected
@@ -68,6 +71,30 @@ def test_relevant_orders_by_overlap_and_subject(isolated_lote6_data):
     assert memory_facts.relevant("como está o clima hoje")[0]["value"] == "Curitiba"
     assert memory_facts.relevant("faz um café pra mim")[0]["text"].startswith("gosto de café")
     assert memory_facts.relevant("qual a capital da França") == []
+
+
+def test_essential_orders_pinned_first_and_caps_size(isolated_lote6_data):
+    common = memory_facts.save("gosto de café sem açúcar")
+    city = memory_facts.save("eu moro em Curitiba")
+    name = memory_facts.save("Meu nome é Jean")
+    pinned = memory_facts.save("A usuária tem dois gatos", pinned=True)
+    assert (common["importance"], city["importance"], name["importance"], pinned["importance"]) == (0.5, 0.9, 0.9, 1.0)
+    assert name["slot"] == "name" and pinned["pinned"] is True and common["pinned"] is False
+    ids = [fact["id"] for fact in memory_facts.essential()]
+    assert ids[0] == pinned["id"] and set(ids) == {pinned["id"], name["id"], city["id"]}
+    assert memory_facts.relevant("qual é o meu nome?")[0]["id"] == name["id"]
+    for index in range(6):
+        memory_facts.save(f"Fato central número {index} " + "x" * 90, pinned=True)
+    chosen = memory_facts.essential(500)
+    assert len("\n".join(fact["text"] for fact in chosen)) <= 500 and len(chosen) < 9
+
+
+def test_duplicate_save_keeps_id_and_updates_pinned(isolated_lote6_data):
+    fact = memory_facts.save("gosto de café sem açúcar")
+    again = memory_facts.save("Gosto de cafe sem acucar", pinned=True)
+    assert again["id"] == fact["id"] and again["pinned"] is True and again["importance"] == 1.0
+    untouched = memory_facts.save("gosto de café sem açúcar")
+    assert untouched["pinned"] is True and len(memory_facts.list_facts()) == 1
 
 
 # ------------------------------------------------------------------ Kernel

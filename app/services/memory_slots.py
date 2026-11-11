@@ -10,7 +10,7 @@ import re
 import unicodedata
 
 MAX_VALUE = 80
-SLOTS = ("music", "city", "app.navegador", "app.editor", "app.player")
+SLOTS = ("music", "city", "app.navegador", "app.editor", "app.player", "name")
 APP_CATEGORIES = ("navegador", "editor", "player")
 
 _WHEN = (
@@ -33,6 +33,9 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str | None], ...] = (
     (re.compile(r"\bmeu\s+(?P<cat>navegador|editor|player)\s+(?:preferido|favorito)\s+e\s+o\s+" + _VALUE), None),
     (re.compile(r"\b(?:eu\s+)?mor[oa]\s+em\s+" + _VALUE), "city"),
     (re.compile(r"\bminha\s+cidade\s+e\s+" + _VALUE), "city"),
+    (re.compile(r"\bmeu\s+nome\s+e\s+" + _VALUE), "name"),
+    (re.compile(r"\bme\s+chamo\s+" + _VALUE), "name"),
+    (re.compile(r"\bpode\s+me\s+chamar\s+de\s+" + _VALUE), "name"),
 )
 
 

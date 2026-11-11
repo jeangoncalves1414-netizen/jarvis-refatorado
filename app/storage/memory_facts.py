@@ -41,7 +41,10 @@ _SUBJECTS = (
                 "restaurante", "farmacia", "mercado", "onde", "proximo", "proxima"}), ("city",)),
     (frozenset({"abrir", "abre", "abra", "app", "aplicativo", "programa", "navegador", "editor", "player"}),
      ("app.navegador", "app.editor", "app.player")),
+    (frozenset({"nome", "chamo", "chama"}), ("name",)),
 )
+ESSENTIAL_SLOTS = ("name", "city")
+ESSENTIAL_IMPORTANCE = 0.7
 
 
 def facts_path() -> Path:
@@ -122,9 +125,18 @@ def get(fact_id: str) -> dict[str, Any] | None:
     return next((fact for fact in _read() if fact.get("id") == fact_id), None)
 
 
+def _clamp(value: Any) -> float:
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return 0.5
+
+
 def save(text: str, *, source: dict[str, Any] | None = None, slot: str | None = None,
-         value: str | None = None, when: str | None = None) -> dict[str, Any]:
-    """Grava um fato; duplicata viva (mesmo texto sem acento) só atualiza ``updated_at``."""
+         value: str | None = None, when: str | None = None,
+         pinned: bool | None = None, importance: float | None = None) -> dict[str, Any]:
+    """Grava um fato; duplicata viva (mesmo texto sem acento) só atualiza ``updated_at``
+    e, quando passados, ``pinned``/``importance``."""
     clean = _clean_text(text)
     now = time.time()
     with _lock:
@@ -133,11 +145,24 @@ def save(text: str, *, source: dict[str, Any] | None = None, slot: str | None = 
         for fact in _live(facts):
             if _norm(fact.get("text", "")) == key:
                 fact["updated_at"] = now
+                if pinned is not None:
+                    fact["pinned"] = bool(pinned)
+                if importance is not None:
+                    fact["importance"] = _clamp(importance)
+                elif pinned:
+                    fact["importance"] = 1.0
                 _write(facts)
                 return dict(fact)
         fact: dict[str, Any] = {"id": f"mem_{uuid.uuid4().hex[:12]}", "text": clean}
         _apply_slot(fact, slot, value, when)
-        fact.update(source=_clean_source(source, now), updated_at=now, deleted_at=None)
+        if importance is not None:
+            weight = _clamp(importance)
+        elif pinned:
+            weight = 1.0
+        else:
+            weight = 0.9 if fact["slot"] in ESSENTIAL_SLOTS else 0.5
+        fact.update(pinned=bool(pinned), importance=weight,
+                    source=_clean_source(source, now), updated_at=now, deleted_at=None)
         facts.append(fact)
         live = sorted(_live(facts), key=lambda item: float(item.get("updated_at") or 0))
         for old in live[: max(0, len(live) - MAX_LIVE)]:
@@ -171,6 +196,27 @@ def delete(fact_id: str) -> dict[str, Any]:
         fact["deleted_at"] = fact["updated_at"] = time.time()
         _write(facts)
         return dict(fact)
+
+
+def _is_essential(fact: dict[str, Any]) -> bool:
+    return (bool(fact.get("pinned")) or fact.get("slot") in ESSENTIAL_SLOTS
+            or _clamp(fact.get("importance", 0.5)) >= ESSENTIAL_IMPORTANCE)
+
+
+def essential(max_chars: int = 500) -> list[dict[str, Any]]:
+    """Perfil essencial: fatos fixados, importantes (>= 0.7) ou de nome/cidade, até ``max_chars``."""
+    chosen = [fact for fact in list_facts() if _is_essential(fact)]
+    chosen.sort(key=lambda fact: (bool(fact.get("pinned")), _clamp(fact.get("importance", 0.5)),
+                                  float(fact.get("updated_at") or 0)), reverse=True)
+    out: list[dict[str, Any]] = []
+    used = 0
+    for fact in chosen:
+        size = len(str(fact.get("text", ""))) + (1 if out else 0)
+        if used + size > max_chars:
+            break
+        out.append(fact)
+        used += size
+    return out
 
 
 def _words(text: str) -> set[str]:
