@@ -35,7 +35,8 @@ def test_invalid_provider_raises(isolated_runtime_settings: str) -> None:
         runtime_settings.set_llm_provider("openai")
 
 
-def test_llm_service_active_provider(isolated_runtime_settings: str) -> None:
+def test_llm_service_active_provider(isolated_runtime_settings: str, monkeypatch) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq")
     settings = load_settings()
     llm = LLMService(settings=settings)
     runtime_settings.set_llm_provider("groq")

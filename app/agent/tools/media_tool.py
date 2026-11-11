@@ -211,7 +211,7 @@ class MediaTool(BaseTool):
         }
 
         marker = f"__MEDIA_VIEW__{json.dumps(payload, ensure_ascii=False)}"
-        message = f"Reproduzindo vídeo motivacional: {title}\n{marker}"
+        message = f"Vídeo preparado no player: {title}. A reprodução ainda não foi confirmada.\n{marker}"
 
         return ToolResult(
             ok=True,

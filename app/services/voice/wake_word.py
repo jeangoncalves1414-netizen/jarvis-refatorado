@@ -199,9 +199,6 @@ class WakeWordDetector:
             )
 
         try:
-            stream = open_stream()
-            logger.info(f"🎤 Wake word ativo — ouvindo por: {self.wake_words}")
-
             while self._running:
                 if self._mic_paused:
                     # Ligação por voz no backend usa o microfone: solta o dispositivo até retomar.
@@ -215,6 +212,7 @@ class WakeWordDetector:
                     try:
                         stream = open_stream()
                         recognizer.Reset()
+                        logger.info(f"Wake word ativo — ouvindo por: {self.wake_words}")
                     except Exception:
                         import time; time.sleep(0.5)
                         continue
@@ -248,6 +246,7 @@ class WakeWordDetector:
                             except Exception as e:
                                 logger.error(f"Erro no callback de wake word: {e}")
         finally:
+            self._running = False
             if stream is not None:
                 stream.stop_stream()
                 stream.close()

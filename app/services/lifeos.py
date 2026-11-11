@@ -9,6 +9,7 @@ import json
 import os
 import random
 import threading
+from functools import wraps
 from datetime import datetime, date
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,14 @@ from typing import Any
 _DOCUMENTS_DB = Path(os.path.expanduser("~")) / "Documents" / "Evolute" / "data" / "lifeos_db.json"
 _LOCAL_DB = Path(__file__).resolve().parents[2] / "data" / "lifeos_db.json"
 
-_DB_LOCK = threading.Lock()
+_DB_LOCK = threading.RLock()
+def _serialized(method):
+    @wraps(method)
+    def wrapped(*args, **kwargs):
+        with _DB_LOCK:
+            return method(*args, **kwargs)
+    return wrapped
+
 
 # Catálogo de citações e falas motivacionais do Jarvis (Estóica + Alta Performance + Stark)
 MOTIVATIONAL_SPEECHES = [
@@ -114,7 +122,7 @@ class LifeOSService:
     @classmethod
     def save_data_bucket(cls, data_bucket: dict[str, Any]) -> bool:
         """Salva o dicionário 'data' atualizado com timestamp."""
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = max(int(datetime.now().timestamp() * 1000), int(cls.load_db().get("updatedAt") or 0) + 1)
         payload = {
             "data": data_bucket,
             "updatedAt": now_ms
@@ -143,35 +151,16 @@ class LifeOSService:
         hlog_key = f"lifeos_hlog_{today}"
         hlog = bucket.get(hlog_key) or {}
 
-        habits_summary = []
-        completed_count = 0
-        water_target = 3000
-
-        for h in habits_list:
-            h_id = h.get("id", "")
-            title = h.get("title", "")
-            streak = h.get("streak", 0)
-            best_streak = h.get("bestStreak", streak)
-            connected = h.get("connectedTo")
-            is_done = bool(hlog.get(h_id, {}).get("completed", False))
-
-            is_priority = bool(h.get("isPriority", False))
-
-            if connected == "agua" and h.get("targetValue"):
-                water_target = int(h.get("targetValue"))
-
-            if is_done:
-                completed_count += 1
-
-            habits_summary.append({
-                "id": h_id,
-                "title": title,
-                "streak": streak,
-                "bestStreak": best_streak,
-                "connectedTo": connected,
-                "completed_today": is_done,
-                "isPriority": is_priority
-            })
+        from app.services.personal_habits import PersonalHabits
+        rows = PersonalHabits.list_habits(day=today, scheduled=True)
+        habits_summary = [
+            {"id": h["id"], "title": h["name"], "streak": h["current_streak"], "bestStreak": h["best_streak"],
+             "connectedTo": h.get("connectedTo"), "completed_today": h["completed_today"], "isPriority": h["isPriority"]}
+            for h in rows
+        ]
+        completed_count = sum(h["completed_today"] for h in habits_summary)
+        water_target = next((int(h["targetValue"]) for h in habits_list
+                             if h.get("connectedTo") == "agua" and h.get("targetValue")), 3000)
 
         total_habits = len(habits_summary)
         habits_rate = round((completed_count / total_habits * 100) if total_habits > 0 else 0)
@@ -200,7 +189,8 @@ class LifeOSService:
 
         workouts_all = bucket.get("lifeos_workouts") or []
         today_workouts = [w for w in workouts_all if w.get("date") == today]
-        workout_done = len(today_workouts) > 0 or bool(hlog.get("h1", {}).get("completed", False))
+        sessions = bucket.get('lifeos_workout_sessions') or []
+        workout_done = any(w.get('completed', True) for w in today_workouts) or any(w.get('date') == today and w.get('completed') for w in sessions)
 
         # 4. Estudos
         study_logs = bucket.get("lifeos_study_logs") or []
@@ -246,6 +236,7 @@ class LifeOSService:
         }
 
     @classmethod
+    @_serialized
     def add_water(cls, amount_ml: int, date_str: str | None = None) -> dict[str, Any]:
         """Adiciona consumo de água ao dia de hoje e atualiza hábito correspondente."""
         today = date_str or cls.get_today_str()
@@ -296,6 +287,7 @@ class LifeOSService:
         }
 
     @classmethod
+    @_serialized
     def set_water(cls, total_ml: int, date_str: str | None = None) -> dict[str, Any]:
         """Define o total de água do dia ("bebi 3 L hoje"); reutiliza ``add_water`` com a diferença."""
         today = date_str or cls.get_today_str()
@@ -308,144 +300,49 @@ class LifeOSService:
     def toggle_habit(cls, habit_name_or_id: str, completed: bool = True, date_str: str | None = None) -> dict[str, Any]:
         """Marca ou desmarca um hábito pelo ID ou por busca de nome/termo."""
         today = date_str or cls.get_today_str()
-        bucket = cls.get_data_bucket()
-        habits = bucket.get("lifeos_habits") or []
-
-        query = habit_name_or_id.lower().strip()
-        target_habit = None
-
-        # 1. Match exato por ID
-        for h in habits:
-            if h.get("id", "").lower() == query:
-                target_habit = h
-                break
-
-        # 2. Match por connectedTo (ex: 'treino', 'agua', 'estudo', 'leitura')
-        if not target_habit:
-            for h in habits:
-                if h.get("connectedTo", "").lower() == query:
-                    target_habit = h
-                    break
-
-        # 3. Match por substring no título
-        if not target_habit:
-            for h in habits:
-                title = h.get("title", "").lower()
-                if query in title or title in query:
-                    target_habit = h
-                    break
-
-        if not target_habit:
-            return {
-                "ok": False,
-                "error": f"Hábito '{habit_name_or_id}' não encontrado no Life OS.",
-                "available": [h.get("title") for h in habits]
-            }
-
-        h_id = target_habit["id"]
-        hlog_key = f"lifeos_hlog_{today}"
-        hlog = bucket.get(hlog_key) or {}
-        already_completed = bool(hlog.get(h_id, {}).get("completed", False))
-
-        hlog[h_id] = {
-            "completed": completed,
-            "manuallyUnchecked": not completed
-        }
-        bucket[hlog_key] = hlog
-
-        # Ajusta streak
-        if completed and not already_completed:
-            target_habit["streak"] = int(target_habit.get("streak") or 0) + 1
-            if target_habit["streak"] > int(target_habit.get("bestStreak") or 0):
-                target_habit["bestStreak"] = target_habit["streak"]
-        elif not completed and already_completed:
-            target_habit["streak"] = max(0, int(target_habit.get("streak") or 1) - 1)
-
-        cls.save_data_bucket(bucket)
-
-        return {
-            "ok": True,
-            "id": h_id,
-            "title": target_habit.get("title"),
-            "completed": completed,
-            "streak": target_habit.get("streak", 0),
-            "bestStreak": target_habit.get("bestStreak", 0)
-        }
+        from app.services.personal_habits import PersonalHabits
+        target = cls._resolve_habit(habit_name_or_id)
+        if "error" in target:
+            return target
+        row = PersonalHabits.check_in(target["id"], today) if completed else PersonalHabits.uncheck_in(target["id"], today)
+        return {"ok": True, "id": target["id"], "title": target["name"], "completed": completed,
+                "changed": row["changed"], "streak": row["current_streak"], "bestStreak": row["best_streak"]}
 
     @classmethod
+    def _resolve_habit(cls, reference: str) -> dict[str, Any]:
+        from app.services.personal_habits import PersonalHabits, public_evolute_id
+        from app.agent.tools.lifestyle_tools import resolve_by_name, normalize_name
+        rows = PersonalHabits.list_habits()
+        for key in (reference, public_evolute_id(reference)):
+            direct = next((h for h in rows if h["id"] == key), None)
+            if direct:
+                return direct
+        linked = [h for h in rows if h.get("connectedTo") and normalize_name(h["connectedTo"]) == normalize_name(reference)]
+        if len(linked) == 1:
+            return linked[0]
+        try:
+            return resolve_by_name(rows, reference, "name", kind="o hábito", allow_partial=True)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    @classmethod
+    @_serialized
     def toggle_habit_priority(cls, habit_name_or_id: str) -> dict[str, Any]:
         """Alterna o status de inegociável/prioridade de um hábito (ícone de coroa)."""
-        bucket = cls.get_data_bucket()
-        habits = bucket.get("lifeos_habits") or []
-
-        query = habit_name_or_id.lower().strip()
-        target_habit = None
-
-        # 1. Match por ID
-        for h in habits:
-            if h.get("id", "").lower() == query:
-                target_habit = h
-                break
-
-        # 2. Match por substring de título
-        if not target_habit:
-            for h in habits:
-                title = h.get("title", "").lower()
-                if query in title or title in query:
-                    target_habit = h
-                    break
-
-        if not target_habit:
-            return {"ok": False, "error": f"Hábito '{habit_name_or_id}' não encontrado."}
-
-        current_priority = bool(target_habit.get("isPriority", False))
-        target_habit["isPriority"] = not current_priority
-
-        cls.save_data_bucket(bucket)
-
-        return {
-            "ok": True,
-            "id": target_habit.get("id"),
-            "title": target_habit.get("title"),
-            "isPriority": target_habit["isPriority"]
-        }
+        from app.services.personal_habits import PersonalHabits
+        target = cls._resolve_habit(habit_name_or_id)
+        if "error" in target:
+            return target
+        row = PersonalHabits.update_habit(target["id"], isPriority=not target["isPriority"])
+        return {"ok": True, "id": row["id"], "title": row["name"], "isPriority": row["isPriority"]}
 
     @classmethod
+    @_serialized
     def log_workout(cls, workout_name: str, exercises: list | None = None, date_str: str | None = None) -> dict[str, Any]:
-        """Registra uma sessão de treino no Life OS e marca o hábito de treino."""
-        today = date_str or cls.get_today_str()
-        bucket = cls.get_data_bucket()
-
-        workouts = bucket.get("lifeos_workouts") or []
-        workout_entry = {
-            "id": f"w_{int(datetime.now().timestamp())}",
-            "date": today,
-            "name": workout_name,
-            "exercises": exercises or [],
-            "timestamp": datetime.now().isoformat()
-        }
-        workouts.append(workout_entry)
-        bucket["lifeos_workouts"] = workouts
-
-        # Marca hábito de treino se existir
-        habits = bucket.get("lifeos_habits") or []
-        workout_habit = next((h for h in habits if h.get("connectedTo") == "treino"), None)
-        if workout_habit:
-            h_id = workout_habit.get("id")
-            if h_id:
-                hlog_key = f"lifeos_hlog_{today}"
-                hlog = bucket.get(hlog_key) or {}
-                hlog[h_id] = {"completed": True}
-                bucket[hlog_key] = hlog
-                workout_habit["streak"] = int(workout_habit.get("streak") or 0) + 1
-
-        cls.save_data_bucket(bucket)
-        return {
-            "ok": True,
-            "workout_id": workout_entry["id"],
-            "workout_name": workout_name,
-            "date": today
-        }
+        """Registra uma sessão e aplica apenas relações explicitamente configuradas."""
+        from app.services.personal_records import mutate
+        result = mutate('workout', 'create', {'title': workout_name, 'exercises': exercises or [], 'date': date_str or cls.get_today_str()})
+        return {'ok': result.ok, 'workout_id': result.data['record_id'], 'workout_name': workout_name, 'date': date_str or cls.get_today_str()}
 
     @classmethod
     def generate_motivational_speech(cls, context: dict[str, Any] | None = None) -> dict[str, str]:

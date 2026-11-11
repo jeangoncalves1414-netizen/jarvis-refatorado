@@ -9,6 +9,11 @@ if str(ROOT) not in sys.path:
 
 
 @pytest.fixture(autouse=True)
+def isolated_persona(tmp_path, monkeypatch):
+    monkeypatch.setenv("JARVIS_DATA_DIR", str(tmp_path / "persona"))
+
+
+@pytest.fixture(autouse=True)
 def isolated_sync_tombstones(tmp_path, monkeypatch):
     """Exclusões feitas em testes nunca gravam lápides em data/ do projeto."""
     monkeypatch.setattr("app.storage.sync_tombstones.TOMBSTONES_FILE", tmp_path / "sync_tombstones.json")
@@ -73,6 +78,8 @@ def isolated_lote6_data(tmp_path, monkeypatch):
     lifeos_db = tmp_path / "lifeos" / "lifeos_db.json"
     monkeypatch.setattr("app.services.lifeos._DOCUMENTS_DB", lifeos_db)
     monkeypatch.setattr("app.services.lifeos._LOCAL_DB", lifeos_db)
+    monkeypatch.setattr('app.ui.panel.api.evolute._LOCAL_DB', lifeos_db)
+    monkeypatch.setattr('app.ui.panel.api.evolute._DOCUMENTS_DB', lifeos_db)
 
     vault = tmp_path / "vault"
     monkeypatch.setattr(memory_vault, "VAULT_DIR", vault)
@@ -85,6 +92,11 @@ def isolated_lote6_data(tmp_path, monkeypatch):
 
     monkeypatch.setattr("app.storage.runtime_settings.DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr("app.storage.runtime_settings.RUNTIME_SETTINGS_FILE", str(tmp_path / "data" / "runtime_settings.json"))
+    from app.storage.checklist_store import ChecklistStore
+    lists = ChecklistStore(tmp_path / 'data' / 'checklists.sqlite3')
+    monkeypatch.setattr('app.storage.checklist_store.checklist_store', lists)
+    monkeypatch.setattr('app.agent.tools.checklist_tool.checklist_store', lists)
+    monkeypatch.setattr('app.storage.sync_tombstones.TOMBSTONES_FILE', tmp_path / 'data' / 'sync_tombstones.json')
     monkeypatch.setattr("app.agent.action_executor.auto_approvals", AutoApprovalStore(str(tmp_path / "auto_approvals.json")))
 
     store = ActionStore(tmp_path / "journal.sqlite3")

@@ -19,7 +19,7 @@ from app.ui.panel.api import actions
 
 
 @pytest.fixture
-def runtime(tmp_path, monkeypatch):
+def runtime(tmp_path, monkeypatch, isolated_lote6_data):
     import app.agent.orchestrator as module
     monkeypatch.chdir(tmp_path)
     store = ActionStore(tmp_path / "journal.sqlite3")
@@ -64,6 +64,114 @@ def runtime(tmp_path, monkeypatch):
 
 def detail(store, plan):
     return store.run_details(plan.context["run_id"])
+
+
+def test_voice_announces_run_for_cancellation_before_tools(runtime):
+    agent, store, calls, _ = runtime
+    announced = []
+    def cancel(event):
+        if event.get("phase") == "started":
+            announced.append(event["run_id"])
+            store.cancel_run(event["run_id"])
+    plan = agent.handle_request("Olá", session_id="one", origin="voice", on_progress=cancel)
+    assert announced == [plan.context["run_id"]]
+    assert plan.intent == "cancelled"
+    assert not calls
+
+
+def test_voice_complaint_answers_from_receipts_without_running_tools(runtime):
+    agent, store, calls, _ = runtime
+    history = [{'role': 'assistant', 'content': 'Abri Roblox.', 'activity': [
+        {'id': f'open-{i}', 'tool': 'web_search', 'label': 'Abrir roblox.com', 'status': 'succeeded'} for i in range(3)
+    ]}]
+    for text in ('o que está acontecendo por que você está abrindo Box três vezes', 'Quais foram as últimas três coisas que você fez'):
+        plan = agent.handle_request(text, session_id='one', origin='voice', history=history)
+        assert not calls and detail(store, plan)['actions'] == []
+        assert plan.summary.count('Abrir roblox.com') == 3
+        assert 'Não executei novas ações' in plan.summary
+
+
+@pytest.mark.parametrize("origin", ["chat", "voice"])
+def test_first_message_comes_only_from_requested_session(runtime, monkeypatch, origin):
+    agent, store, calls, saved = runtime
+    sessions = {
+        "current": [{"role": "user", "content": "teste"}] + [
+            {"role": "assistant" if i % 2 else "user", "content": f"mensagem {i}"} for i in range(50)],
+        "other": [{"role": "user", "content": "Olá quero que você abra"}],
+    }
+    reads = []
+    monkeypatch.setattr("app.agent.orchestrator.get_session_history", lambda sid: reads.append(sid) or sessions.get(sid, []))
+    for sid, expected in (("current", "“teste”"), ("other", "“Olá quero que você abra”"), ("new", "Não há mensagens")):
+        plan = agent.handle_request("qual é a primeira mensagem que enviei nesse chat", session_id=sid, origin=origin)
+        assert expected in plan.summary
+        assert reads[-1] == sid and saved[-1][0] == sid
+        assert len(saved[-1][1]) == len(sessions.get(sid, [])) + 2
+        assert detail(store, plan)["actions"] == []
+        assert "memory_lookup" not in plan.context
+    assert reads == ["current", "other", "new"] and not calls
+
+
+def test_normal_turn_keeps_early_messages_in_saved_transcript(runtime, monkeypatch):
+    from app.agent.orchestrator import AgentPlan
+    agent, _, _, saved = runtime
+    history = [{"role": "user", "content": "teste"}] + [
+        {"role": "assistant" if i % 2 else "user", "content": f"mensagem {i}"} for i in range(50)]
+    monkeypatch.setattr(agent, "_dispatch_request", lambda *a: AgentPlan("general", "Tudo certo.", []))
+    agent.handle_request("Olá", session_id="current", history=history)
+    assert len(saved[-1][1]) == 53
+    assert saved[-1][1][0] == history[0]
+
+
+def test_native_repeated_open_is_not_executed_or_summarized_three_times(runtime, monkeypatch):
+    from app.agent import effect_checks
+    agent, store, calls, _ = runtime
+    monkeypatch.setattr(effect_checks, 'capture_before', lambda *args: None)
+    monkeypatch.setattr(effect_checks, 'check_effect', lambda *args: effect_checks.EffectCheck('confirmed', 'janela Roblox'))
+    agent.registry.allowed_tool_names = lambda **kw: frozenset({'web_search'})
+    def chat(**kw):
+        for url in ['https://roblox.com', 'https://www.roblox.com/', 'https://roblox.com']:
+            kw['on_function_call']('web_search', {'action': 'open_url', 'query': url})
+        return 'Tudo pronto'
+    agent.llm_service = SimpleNamespace(get_active_provider=lambda: 'gemini', _api_key_for=lambda _: 'fixture-key', chat_with_functions_stream=chat)
+    plan = agent.handle_request('Abra Roblox no navegador', mode='tutor', origin='voice')
+    assert len(calls) == len(detail(store, plan)['actions']) == 1
+    assert plan.summary == 'Abri Roblox.'
+
+
+def test_tool_progress_is_emitted_before_execution_and_persisted(runtime, monkeypatch):
+    from app.agent.tool_activity import activity_listener
+    agent, _, _, saved = runtime
+    events = []
+    original = agent.productivity_service.add_task
+    def execute(*args, **kwargs):
+        assert events[-1]["activity"]["status"] == "running"
+        assert events[-1]["activity"]["speech"]
+        return original(*args, **kwargs)
+    monkeypatch.setattr(agent.productivity_service, "add_task", execute)
+    plan = agent.handle_request("Adicione uma tarefa de estudar Python", session_id="one", origin="voice", on_progress=events.append)
+    activities = [event["activity"] for event in events if event.get("phase") == "tool_activity"]
+    assert [entry["status"] for entry in activities] == ["running", "succeeded"]
+    assert activities[-1]["label"] == activities[0]["label"]
+    assert plan.context["tool_activity"] == saved[-1][1][-1]["activity"] == [activities[-1]]
+    assert activity_listener.get() is None
+
+
+@pytest.mark.parametrize("summary", ["", "Sem resposta.", "Erro ao acessar a API: offline"])
+def test_provider_failure_never_saves_a_sent_turn(runtime, monkeypatch, summary):
+    from app.agent.orchestrator import AgentPlan
+    from app.core.model_routing import current_model_mode
+    agent, store, _, saved = runtime
+    seen_modes = []
+    def dispatch(*args):
+        seen_modes.append(current_model_mode.get())
+        return AgentPlan(intent="general", summary=summary, actions=[])
+    monkeypatch.setattr(agent, "_dispatch_request", dispatch)
+    plan = agent.handle_request("Olá", session_id="one", mode="general", origin="voice")
+    assert plan.intent == "error"
+    assert saved == []
+    assert detail(store, plan)["run"]["status"] == "failed"
+    assert seen_modes == ["voice"]
+    assert current_model_mode.get() == "chat"
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -116,9 +224,9 @@ def test_local_task_has_one_real_execution_and_one_request(runtime, stream):
 
 def test_local_failure_cannot_be_reported_as_success(runtime, monkeypatch):
     agent, store, _, _ = runtime
-    def fail(_):
+    def fail(*args, **kwargs):
         raise RuntimeError("SECRET-DO-NOT-JOURNAL")
-    monkeypatch.setattr(agent.productivity_service, "add_task", fail)
+    monkeypatch.setattr("app.services.tasks.TaskService.create_task", fail)
     plan = agent.handle_request("Crie uma tarefa de estudar")
     request = detail(store, plan)
     assert plan.intent == "error"
@@ -131,7 +239,7 @@ def test_unreadable_tasks_survive_creation_attempt(runtime, tmp_path):
     agent, store, _, _ = runtime
     (tmp_path / "tasks.json").write_bytes(b"{broken")
     plan = agent.handle_request("Crie uma tarefa de estudo")
-    assert detail(store, plan)["run"]["status"] == "failed"
+    assert detail(store, plan)["run"]["status"] == "succeeded"
     assert (tmp_path / "tasks.json").read_bytes() == b"{broken"
 
 
@@ -139,7 +247,8 @@ def test_concurrent_task_creations_remain_visible_after_reload(runtime):
     agent, _, _, _ = runtime
     with ThreadPoolExecutor(max_workers=4) as pool:
         plans = list(pool.map(agent.handle_request, [f"Crie uma tarefa de estudo {i}" for i in range(6)]))
-    saved = task_store.list_tasks()
+    from app.services.tasks import TaskService
+    saved = TaskService.list_tasks(completed=None)
     assert len(saved) == 6
     assert {task["id"] for task in saved} == {p.context["task_id"] for p in plans}
 
@@ -189,6 +298,40 @@ def react(agent, replies):
     return prompts
 
 
+def test_native_action_claim_without_tool_is_not_streamed_or_saved(runtime):
+    agent, store, calls, saved = runtime
+    chunks = []
+    def chat(**kw):
+        assert kw['on_chunk'] is None
+        return "Abri o Spotify."
+    agent.llm_service = SimpleNamespace(get_active_provider=lambda: "gemini", _api_key_for=lambda _: "fixture-key", chat_with_functions_stream=chat)
+    plan = agent.handle_request("Abra o Spotify", session_id="one", mode="tutor", on_chunk=chunks.append)
+    assert plan.intent == "error" and "Nenhuma ferramenta" in plan.summary
+    assert not saved and not chunks and not calls
+    assert detail(store, plan)["run"]["status"] == "failed"
+
+
+def test_voice_tool_error_has_separate_speech_and_correct_browser_context(runtime):
+    agent, store, calls, _ = runtime
+    diagnostic = "'BrowserAgent' object has no attribute 'navigate'"
+    def execute(name, args, **kw):
+        assert 'browser' not in kw['context']
+        assert 'browser_agent' in kw['context']
+        return ToolResult(False, diagnostic)
+    agent.registry.execute_tool = execute
+    def chat(**kw):
+        assert kw['on_chunk'] is None
+        kw['on_function_call']('calendar', {})
+        return 'Tudo feito'
+    agent.llm_service = SimpleNamespace(get_active_provider=lambda: 'gemini', _api_key_for=lambda _: 'fixture-key', chat_with_functions_stream=chat)
+    plan = agent.handle_request('Uma tentativa', mode='tutor', origin='voice')
+    assert diagnostic not in plan.summary
+    assert diagnostic in plan.context['tool_activity'][0]['result']
+    assert diagnostic not in plan.context['speech_summary']
+    assert 'Não consegui' in plan.context['speech_summary']
+    assert detail(store, plan)['run']['status'] == 'failed'
+
+
 @pytest.mark.parametrize("stream", [False, True])
 def test_react_waits_for_bound_approval_then_resumes_loop(runtime, stream):
     # Lote 6 (C8): depois da aprovação o loop continua sozinho no mesmo pedido.
@@ -226,7 +369,8 @@ def test_react_tool_failure_stays_failed_even_if_model_claims_finish(runtime):
     plan = agent.handle_request("faça", mode="react")
     request = detail(store, plan)
     assert request["run"]["status"] == request["actions"][0]["status"] == "failed"
-    assert plan.intent == "error" and "Não encontrado" in plan.summary
+    assert plan.intent == "error" and "falha na etapa" in plan.summary
+    assert plan.context["tool_activity"][0]["result"] == "Não encontrado"
 
 
 @pytest.mark.parametrize("during", ["planning", "tool"])
@@ -355,7 +499,8 @@ def test_http_react_and_stream_publish_same_request_contract(runtime, monkeypatc
         assert calls == [("calendar", {})]
         status, raw = request("/api/chat/stream", {"message": "Crie uma tarefa de Estudo", "session_id": "two"})
         events = [json.loads(line[6:]) for line in raw.splitlines() if line.startswith("data: ")]
-        assert status == 200 and [event["status"] for event in events] == ["thinking", "complete"]
+        assert status == 200 and [event["status"] for event in events] == ["thinking", "progress", "progress", "complete"]
+        assert [event["activity"]["status"] for event in events if event["status"] == "progress"] == ["running", "succeeded"]
         ref = events[-1]["plan"]["context"]["run_id"]
         assert ref != pending["run_id"]
         assert json.loads(request("/api/runs/" + ref)[1])["run"]["session_id"] == "two"

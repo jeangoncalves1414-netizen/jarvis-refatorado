@@ -64,6 +64,13 @@ _TOOLS = [{"name": "notes", "description": "anota", "parameters": {"type": "obje
 _MESSAGES = [{"role": "user", "content": "anote comprar pão"}]
 
 
+def test_registry_selected_tools_survive_provider_adapter(groq_script):
+    completions = groq_script([[_text_chunk("ok")]])
+    selected = [{"name": name, "parameters": {"type": "object", "properties": {}}} for name in ("web_search", "video_analyst", "media_tool", "persona_tool")]
+    _service()._chat_groq_stream("sys", [{"role": "user", "content": "reproduza um vídeo motivacional"}], tools=selected, on_function_call=lambda *_: "ok")
+    assert {item['function']['name'] for item in completions.calls[0]['tools']} == {item['name'] for item in selected}
+
+
 def test_tool_exception_is_reported_as_failure(groq_script) -> None:
     completions = groq_script([[_tool_chunk("notes")], [_text_chunk("Não consegui anotar.")]])
 
@@ -112,7 +119,29 @@ def test_fallback_summary_has_no_pronto_when_tool_failed(groq_script) -> None:
     chunks: list[str] = []
     reply = _service()._chat_groq_stream("sys", _MESSAGES, tools=_TOOLS, on_function_call=boom, on_chunk=chunks.append)
 
-    assert reply.startswith("Resultados das ferramentas:")
-    assert "A ferramenta notes falhou; nada foi confirmado." in reply
+    assert reply == "A ferramenta notes falhou; nada foi confirmado."
+    assert not reply.startswith("Resultados das ferramentas:")
     assert "Pronto" not in reply
     assert chunks == [reply]
+
+
+def test_final_quota_error_never_reexecutes_tools(groq_script, monkeypatch):
+    from app.services import llm
+    monkeypatch.setattr(llm, '_key_rotator', llm.KeyRotator())
+    completions = groq_script([[_tool_chunk("notes")], RuntimeError("429 tokens per day. Please try again in 10m3s.")])
+    calls = []
+    service = LLMService(SimpleNamespace(groq_api_keys=['chave-falsa']))
+    reply = service._chat_groq_stream('sys', _MESSAGES, tools=_TOOLS, on_function_call=lambda *args: calls.append(args) or 'Nota registrada.')
+    assert len(calls) == 1 and len(completions.calls) == 2
+    assert 'Nota registrada.' in reply and 'sem repetir' in reply and '604 segundos' in reply
+
+
+def test_oversize_retry_is_bounded_and_preserves_rules_and_latest_request(groq_script):
+    completions = groq_script([RuntimeError('413 too large'), RuntimeError('413 too large')])
+    messages = [{'role': 'user', 'content': 'antigo'}] * 6 + [{'role': 'user', 'content': 'x' * 4000}]
+    with pytest.raises(RuntimeError, match='413'):
+        _service()._chat_groq_stream('regras' * 500, messages, tools=_TOOLS)
+    assert len(completions.calls) == 2
+    assert completions.calls[1]['messages'][0]['content'] == 'regras' * 500
+    assert completions.calls[1]['messages'][-1]['content'] == 'x' * 4000
+    assert completions.calls[1]['tools']

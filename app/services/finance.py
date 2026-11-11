@@ -51,6 +51,35 @@ class FinanceService:
     """Service to handle personal finances, expenses, and budgets."""
 
     @staticmethod
+    def record_with_receipt(entries: list[dict[str, Any]]) -> dict[str, Any]:
+        """Record a whole agent request and capture both balances in one SQLite transaction."""
+        with get_db_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            ids = [entry["id"] for entry in entries]
+            placeholders = ",".join("?" for _ in ids)
+            previous_dates = conn.execute(
+                f"SELECT date_str FROM finance_transactions WHERE id IN ({placeholders})", ids,
+            )
+            months = {entry["date_str"][:7] for entry in entries}
+            months.update(row["date_str"][:7] for row in previous_dates)
+            period = next(iter(months)) if len(months) == 1 else "all"
+            balance_sql = "SELECT ROUND(COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE -amount END),0),2) FROM finance_transactions"
+            params = ()
+            if period != "all":
+                balance_sql += " WHERE date_str LIKE ?"
+                params = (period + "-%",)
+            before = conn.execute(balance_sql, params).fetchone()[0]
+            conn.executemany(
+                """INSERT OR REPLACE INTO finance_transactions
+                   (id, type, amount, category, description, date_str, timestamp)
+                   VALUES (:id, :type, :amount, :category, :description, :date_str, :timestamp)""",
+                [{**entry, "timestamp": time.time()} for entry in entries],
+            )
+            after = conn.execute(balance_sql, params).fetchone()[0]
+            summary = FinanceService._summary(conn, date.today().strftime("%Y-%m"))
+        return {"finance_receipt": {"period": period, "before": before, "after": after, "entries": entries}, "summary": summary}
+
+    @staticmethod
     def add_transaction(
         trans_id: str,
         type_: str,
@@ -97,7 +126,7 @@ class FinanceService:
             value = float(amount)
         except (TypeError, ValueError):
             raise ValueError("Informe um valor numérico.") from None
-        if not math.isfinite(value) or value <= 0:
+        if isinstance(amount, bool) or not math.isfinite(value) or round(value, 2) <= 0:
             raise ValueError("Informe um valor maior que zero.")
         if value > MAX_AMOUNT:
             raise ValueError("Valor acima do limite permitido.")
@@ -109,6 +138,11 @@ class FinanceService:
         except ValueError:
             raise ValueError("Data inválida: use o formato AAAA-MM-DD.") from None
         return {"type": kind, "amount": round(value, 2), "category": text_category, "description": text_description, "date_str": day}
+
+    @staticmethod
+    def find_by_description(description: str) -> list[dict[str, Any]]:
+        with get_db_connection() as conn:
+            return [dict(row) for row in conn.execute("SELECT * FROM finance_transactions WHERE description = ? COLLATE NOCASE LIMIT 2", (description.strip(),))]
 
     @staticmethod
     def get_transaction(trans_id: str) -> dict[str, Any] | None:
@@ -187,18 +221,26 @@ class FinanceService:
         category: Any = "",
         description: Any = "",
         date_str: Any = "",
+        *, with_receipt: bool = False,
     ) -> dict[str, Any] | None:
         """Edita um lançamento existente (valida os campos). Retorna None se o id não existir."""
         entry = FinanceService.normalize_entry(type_, amount, category, description, date_str)
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            conn.execute("BEGIN IMMEDIATE")
+            balance_sql = "SELECT ROUND(COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE -amount END),0),2) FROM finance_transactions"
+            before = conn.execute(balance_sql).fetchone()[0] if with_receipt else None
             cursor.execute(
                 "UPDATE finance_transactions SET type = ?, amount = ?, category = ?, description = ?, date_str = ?, timestamp = ? WHERE id = ?",
                 (entry["type"], entry["amount"], entry["category"], entry["description"], entry["date_str"], time.time(), trans_id),
             )
-            conn.commit()
             if cursor.rowcount == 0:
                 return None
+            updated = dict(conn.execute("SELECT * FROM finance_transactions WHERE id = ?", (trans_id,)).fetchone())
+            after = conn.execute(balance_sql).fetchone()[0] if with_receipt else None
+            conn.commit()
+        if with_receipt:
+            return {"transaction": updated, "finance_receipt": {"period": "all", "before": before, "after": after, "entries": [updated]}}
         return FinanceService.get_transaction(trans_id)
 
     @staticmethod
@@ -217,39 +259,43 @@ class FinanceService:
         if not month_str:
             month_str = date.today().strftime("%Y-%m")
         with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT type, SUM(amount) as total FROM finance_transactions WHERE date_str LIKE ? GROUP BY type",
-                (f"{month_str}%",),
-            )
-            rows = cursor.fetchall()
-            income = 0.0
-            expense = 0.0
-            for r in rows:
-                if r["type"] == "income":
-                    income = float(r["total"] or 0.0)
-                elif r["type"] == "expense":
-                    expense = float(r["total"] or 0.0)
+            return FinanceService._summary(conn, month_str)
 
-            # Calculate total historical balance
-            cursor.execute(
-                "SELECT SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END) as net_balance FROM finance_transactions"
-            )
-            net_row = cursor.fetchone()
-            total_balance = float((net_row and net_row["net_balance"]) or 0.0)
+    @staticmethod
+    def _summary(conn: sqlite3.Connection, month_str: str) -> dict[str, Any]:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT type, SUM(amount) as total FROM finance_transactions WHERE date_str LIKE ? GROUP BY type",
+            (f"{month_str}%",),
+        )
+        rows = cursor.fetchall()
+        income = 0.0
+        expense = 0.0
+        for r in rows:
+            if r["type"] == "income":
+                income = float(r["total"] or 0.0)
+            elif r["type"] == "expense":
+                expense = float(r["total"] or 0.0)
 
-            # Category breakdown for current month
-            cursor.execute(
-                "SELECT category, SUM(amount) as total FROM finance_transactions WHERE date_str LIKE ? AND type = 'expense' GROUP BY category ORDER BY total DESC",
-                (f"{month_str}%",),
-            )
-            categories = [dict(c) for c in cursor.fetchall()]
+        # Calculate total historical balance
+        cursor.execute(
+            "SELECT SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END) as net_balance FROM finance_transactions"
+        )
+        net_row = cursor.fetchone()
+        total_balance = float((net_row and net_row["net_balance"]) or 0.0)
 
-            return {
-                "month": month_str,
-                "income": round(income, 2),
-                "expense": round(expense, 2),
-                "month_net": round(income - expense, 2),
-                "total_balance": round(total_balance, 2),
-                "categories": categories,
-            }
+        # Category breakdown for current month
+        cursor.execute(
+            "SELECT category, SUM(amount) as total FROM finance_transactions WHERE date_str LIKE ? AND type = 'expense' GROUP BY category ORDER BY total DESC",
+            (f"{month_str}%",),
+        )
+        categories = [dict(c) for c in cursor.fetchall()]
+
+        return {
+            "month": month_str,
+            "income": round(income, 2),
+            "expense": round(expense, 2),
+            "month_net": round(income - expense, 2),
+            "total_balance": round(total_balance, 2),
+            "categories": categories,
+        }

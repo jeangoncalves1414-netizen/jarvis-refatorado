@@ -92,16 +92,16 @@ def resolve_active_mode(
     """
     Resolve o modo ativo do agente.
 
-    Se explicit_mode for diferente de "auto" e "general" (ex: "planning", "thinking",
+    Se explicit_mode for diferente de "auto" (ex: "general", "planning", "thinking",
     "research", "coder", "lifeos", "tutor", "react", "swarm"), respeita a escolha explícita.
 
-    Caso contrário ("auto" ou "general"), infere inteligentemente através de análise
+    Caso contrário ("auto"), infere inteligentemente através de análise
     léxica, sintática e heurística de alta precisão baseada na mensagem atual e histórico.
     """
     raw_mode = (explicit_mode or "").strip().lower()
 
-    # Honra escolha explícita se não for genérico/automático
-    if raw_mode and raw_mode not in {"auto", "general"}:
+    # Conversa padrão também é uma escolha explícita de modelo e comportamento.
+    if raw_mode and raw_mode != "auto":
         return raw_mode, {
             "strategy": "explicit",
             "mode": raw_mode,

@@ -170,7 +170,8 @@ def test_app_that_never_appears_stays_succeeded_but_unconfirmed(probes, store, c
     executor = executor_for(store, {"open_windows_app": Fixed(result)})
     message = executor.execute("open_windows_app", {"action": "open", "app_name": "notepad"}, "abre o bloco de notas")
     assert executor.last_action.status == "succeeded"
-    assert "não consegui confirmar" in message and "não consegui confirmar" in executor.last_action.result_summary
+    assert "não consegui confirmar" in message.lower() and "não consegui confirmar" in executor.last_action.result_summary.lower()
+    assert executor.last_action.effect_status == "unconfirmed"
     assert result.data["effect"]["status"] == "unconfirmed"
     assert clock.now >= effect_checks.APP_TIMEOUT
 
@@ -182,7 +183,8 @@ def test_already_running_app_is_confirmed_without_polling(probes):
 
 def test_spotify_search_play_confirmed_by_window_title(probes):
     probes.spotify = ["Spotify Premium", "Spotify Premium", "Lofi Girl - Snowman"]
-    check = effect_checks.check_effect("spotify", {"action": "search_play", "query": "lofi"}, ToolResult(True, "Busquei"))
+    before = effect_checks.capture_before("spotify", {"action": "search_play"})
+    check = effect_checks.check_effect("spotify", {"action": "search_play", "query": "lofi"}, ToolResult(True, "Busquei"), before)
     assert check.status == "confirmed" and "Lofi Girl - Snowman" in check.evidence
     probes.spotify = ["Spotify Premium"]
     assert effect_checks.check_effect("spotify", {"action": "search_play", "query": "x"}, ToolResult(True, "x")).status == "unconfirmed"
@@ -224,8 +226,9 @@ def test_probe_exception_never_breaks_the_action(probes, store, monkeypatch):
     result = ToolResult(True, "Aplicativo 'spotify' aberto com sucesso.")
     executor = executor_for(store, {"open_windows_app": Fixed(result)})
     message = executor.execute("open_windows_app", {"action": "open", "app_name": "spotify"}, "abre")
-    assert executor.last_action.status == "succeeded" and message == "Aplicativo 'spotify' aberto com sucesso."
-    assert "effect" not in result.data
+    assert executor.last_action.status == "succeeded" and "verificação do efeito falhou" in message
+    assert result.data["effect"]["status"] == "unconfirmed"
+    assert store.get(executor.last_action.id).effect_status == "unconfirmed"
 
 
 def test_checks_are_off_by_default_in_tests():

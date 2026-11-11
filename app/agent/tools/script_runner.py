@@ -182,7 +182,9 @@ class ScriptRunnerTool(BaseTool):
 
         # Se o Modo Liberado estiver ativado, executa diretamente sem exigir confirmação manual
         from app.storage.auto_approvals import auto_approvals
-        if auto_approvals.liberated():
+        from app.core.actions import arguments_digest, executing_action
+        liberated = auto_approvals.liberated()
+        if liberated or executing_action.get() == (self.name, arguments_digest(args)):
             import subprocess, sys, tempfile, os
             try:
                 if language == "python":
@@ -213,14 +215,14 @@ class ScriptRunnerTool(BaseTool):
                     output_msg = stdout or "Código executado com sucesso (sem saída no console)."
                     return ToolResult(
                         ok=True,
-                        message=f"Script {language} executado com sucesso (Modo Liberado):\n{output_msg}",
-                        data={"stdout": stdout, "stderr": stderr, "exit_code": 0, "auto_approved": True}
+                        message=f"Script {language} terminou com código de saída 0:\n{output_msg}",
+                        data={"stdout": stdout, "stderr": stderr, "exit_code": 0, "auto_approved": liberated}
                     )
                 else:
                     err_msg = stderr or stdout or f"Código de saída: {res.returncode}"
                     return ToolResult(
                         ok=False,
-                        message=f"Falha na execução do script {language} (Modo Liberado):\n{err_msg}",
+                        message=f"Falha na execução do script {language}:\n{err_msg}",
                         data={"stdout": stdout, "stderr": stderr, "exit_code": res.returncode}
                     )
             except subprocess.TimeoutExpired:

@@ -100,3 +100,26 @@
 .lo-tile small { display: block; font-size: 11px; line-height: 1.5; color: var(--ws-muted); }
 .lo-hint { margin-top: 22px; text-align: center; font-size: 12px; color: var(--ws-muted); }
 .lo-hint kbd { padding: 2px 7px; border: 1px solid var(--ws-border); border-radius: 4px; background: var(--ws-field); color: var(--ws-accent); font-weight: 600; }
+.today-panel { grid-column: 1 / -1; min-width: 0; container-type: inline-size; padding: clamp(14px, 2vw, 24px); border: 1px solid var(--ws-border); border-radius: var(--ws-radius); background: var(--ws-panel); color: var(--ws-text); }
+.today-heading, .today-cell h3, .today-actions { display: flex; align-items: center; gap: 8px; }
+.today-heading { justify-content: space-between; margin-bottom: 16px; }
+.today-heading h2 { margin: 0; font-size: 1.4rem; }
+.today-heading time, .today-cell small, .today-history time { color: var(--ws-muted); font-size: .8rem; }
+.today-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.today-cell { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; overflow-wrap: anywhere; }
+.today-cell + .today-cell { border-inline-start: 1px solid var(--ws-border); padding-inline-start: 16px; }
+.today-cell h3 { margin: 0; color: var(--ws-muted); font-size: .82rem; font-weight: 600; }
+.today-cell h3 svg { color: var(--ws-accent); }
+.today-cell > strong { font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.today-cell .ws-button { min-height: 32px; padding: 4px 10px; }
+.today-cell p, .today-history p { font-size: .85rem; margin: 2px 0; }
+.today-history { margin-top: 14px; border-top: 1px solid var(--ws-border); padding-top: 10px; }
+.today-history summary { width: fit-content; cursor: pointer; font-size: .82rem; color: var(--ws-muted); }
+.today-history ul { list-style: none; margin: 8px 0 0; padding: 0; }
+.today-history li { display: flex; align-items: baseline; gap: 10px; padding-block: 5px; font-size: .86rem; }
+.today-history li span { flex: 1; overflow-wrap: anywhere; }
+.today-history li b { font-weight: 500; white-space: nowrap; }
+@container (max-width: 560px) {
+  .today-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .today-cell + .today-cell { border-inline-start: 0; padding-inline-start: 0; border-top: 1px solid var(--ws-border); padding-top: 12px; }
+}

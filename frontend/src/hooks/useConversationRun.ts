@@ -1,3 +1,4 @@
+import { panelVisible, onPanelVisibility } from '../utils/panelVisibility'
 import { useEffect, useRef, useState } from 'react'
 import { panelRequest } from '../utils/panelApi'
 
@@ -23,7 +24,12 @@ export function useConversationRun(sessionId: string, enabled: boolean, loading:
     let controller = new AbortController()
     let disposed = false
     let timer: ReturnType<typeof setTimeout>
+    let inFlight = false
+    let activeRun = loading
     const refresh = async () => {
+      clearTimeout(timer)
+      if (disposed || inFlight || (!panelVisible() && !activeRun)) return
+      inFlight = true
       controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 10000)
       try {
@@ -35,6 +41,7 @@ export function useConversationRun(sessionId: string, enabled: boolean, loading:
         const runs = [...new Map(pages.flatMap(page => page.runs)
           .filter(run => run.session_id === sessionId && ['running', 'cancel_requested'].includes(run.status))
           .map(run => [run.id, run])).values()]
+        activeRun = loading || runs.length > 0 || !!requested.current
         if (!disposed) setSnapshot({ session: sessionId, runs, error: '' })
         if (!disposed && runs.length === 1 && runs[0].status === 'cancel_requested') {
           requested.current = { session: sessionId, id: runs[0].id }
@@ -56,11 +63,13 @@ export function useConversationRun(sessionId: string, enabled: boolean, loading:
       } finally {
         clearTimeout(timeout)
         controller.abort()
-        if (!disposed) timer = setTimeout(refresh, 2000)
+        inFlight = false
+        if (!disposed && (panelVisible() || activeRun)) timer = setTimeout(refresh, activeRun ? 2000 : 10000)
       }
     }
+    const unsubscribe = onPanelVisibility(() => { clearTimeout(timer); void refresh() })
     void refresh()
-    return () => { disposed = true; clearTimeout(timer); controller.abort() }
+    return () => { disposed = true; unsubscribe(); clearTimeout(timer); controller.abort() }
   }, [sessionId, enabled, loading, revision])
 
   const current = snapshot.session === sessionId ? snapshot : null
@@ -103,6 +112,7 @@ export function useConversationRun(sessionId: string, enabled: boolean, loading:
   }
   return {
     stop,
+    hasActive: enabled && !!current?.runs.length,
     canStop: enabled && !!run && !current?.error && run.status === 'running' && requested.current?.id !== run.id && busy !== sessionId,
     message: busy === sessionId && sessionId ? 'Solicitando cancelamento…'
       : run?.status === 'cancel_requested' ? 'Cancelamento solicitado. Aguardando o encerramento da etapa em andamento.'

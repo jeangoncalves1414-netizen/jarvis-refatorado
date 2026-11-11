@@ -28,14 +28,14 @@ export function HabitListPopup({ popup }: PopupComponentProps<HabitListPopupData
             items={items}
             getId={item => item.id}
             newIds={added}
-            renderItem={item => <HabitRow item={item} checkOrder={checked.indexOf(item.id)} updated={updated.includes(item.id)} isNew={added.includes(item.id)} />}
+            renderItem={item => <HabitRow item={item} eventId={popup.id} checkOrder={checked.indexOf(item.id)} updated={updated.includes(item.id)} isNew={added.includes(item.id)} />}
           />
         )}
     </div>
   )
 }
 
-function HabitRow({ item, checkOrder, updated, isNew }: { item: HabitPopupItem; checkOrder: number; updated: boolean; isNew: boolean }) {
+function HabitRow({ item, eventId, checkOrder, updated, isNew }: { item: HabitPopupItem; eventId: string; checkOrder: number; updated: boolean; isNew: boolean }) {
   const calm = useCalmMotion()
   const done = item.completed_today
   const justChecked = checkOrder >= 0 && done && !calm
@@ -44,6 +44,7 @@ function HabitRow({ item, checkOrder, updated, isNew }: { item: HabitPopupItem; 
     <InsertHighlight active={updated}>
       <div className="ws-popup-habit" data-new={isNew ? 'true' : undefined} data-done={done ? 'true' : 'false'}>
         <motion.span
+          key={justChecked ? eventId : "rest"}
           className={`ws-popup-habit-check${done ? ' done' : ''}`}
           role="img"
           aria-label={done ? 'feito hoje' : 'pendente'}

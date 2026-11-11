@@ -1,3 +1,5 @@
+import { isEvoluteCloudConnected } from './utils/evoluteCloud'
+import { pollVisible } from './utils/panelVisibility'
 import { FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { AppShell } from './components/AppShell'
 import { AgentControls } from './components/AgentControls'
@@ -26,12 +28,14 @@ import { runCommandById, setDynamicCommands, unescapeSlash, WINDOW_CAMERAS, WIND
 import { extractWindowRequest, isManagedWindow } from './windows/registry'
 import { useWindows } from './windows/WindowManager'
 import { usePopups } from './popups/PopupProvider'
+import { NoteViewer } from './components/RecentNotes'
 import { PopupHost } from './popups/PopupHost'
 import { extractPopups } from './popups/registry'
 import { broadcastSyncEvent } from './utils/syncChannel'
 import { addWaterDraft, flushWaterDrafts, loadWaterDrafts, postWater } from './utils/waterDrafts'
 import { requestNotificationPermission } from './utils/notifications'
-import { autoSyncOnOpen } from './utils/jarvisCloud'
+import { CloudSessionStatus } from './components/CloudSessionStatus'
+import { autoSyncOnOpen, pushJarvisVault } from './utils/jarvisCloud'
 import type { AiSettings, BridgeStatus, Climate, Dashboard, Finance, IdentityProfile, LlmSettings, LogEntry, Memory, Metrics, OxyyCatalog, OxyySettings, ProfileMemory, Proactive, SttSettings, Tray, TtsSettings, WakeWord, Weather } from './types'
 
 const AutomationsPage = lazy(() => import('./pages/AutomationsPage').then(module => ({ default: module.AutomationsPage })))
@@ -44,6 +48,7 @@ const StudyPage = lazy(() => import('./pages/StudyPage').then(module => ({ defau
 const IdentityPage = lazy(() => import('./pages/IdentityPage').then(module => ({ default: module.IdentityPage })))
 const EvoluteHubPage = lazy(() => import('./pages/EvoluteHubPage').then(module => ({ default: module.EvoluteHubPage })))
 const MissionControlPage = lazy(() => import('./pages/MissionControlPage').then(module => ({ default: module.MissionControlPage })))
+const HealthPage = lazy(() => import('./pages/HealthPage').then(module => ({ default: module.HealthPage })))
 
 // Heavy modals loaded on demand
 const ToolForgeModal = lazy(() => import('./components/ToolForgeModal').then(module => ({ default: module.ToolForgeModal })))
@@ -101,7 +106,7 @@ export default function App() {
   const [notice, setNotice] = useState('')
   const [logLevel, setLogLevel] = useState('')
   const [logQuery, setLogQuery] = useState('')
-  const { addWhiteboardNote, addWhiteboardText, addWhiteboardImage, addWhiteboardImageData, updateWhiteboardElement, deleteWhiteboardElement, duplicateWhiteboardElement, clearWhiteboard, assessmentCorrect, assessmentTotal, assessments, cardBackVisible, createStudySession, dueCards, studyCategories, trashedStudySessions, renameStudySession, deleteStudySession, restoreStudySession, purgeStudySession, createStudyCategory, assignStudyCategory, enemImage, enemQuestions, enemSubject, enemText, enemYear, feynmanAttempts, feynmanExplanation, feynmanTopic, readEnemImage, reviewCard, saveAssessment, saveEnemQuestion, saveFeynman, selectStudySession, sendStudyMessage, setAssessmentCorrect, setAssessmentTotal, setCardBackVisible, setEnemImage, setEnemSubject, setEnemText, setEnemYear, setFeynmanExplanation, setFeynmanTopic, setStudyQuery, setStudySessionId, setWhiteboardNote, studyCardIndex, studyEnemFromBank, studyEnemFromForm, studyMessages, studyProgress, studyQuery, studySessionId, tutorSessions, whiteboard, whiteboardNote } = useStudy(setNotice)
+  const { addWhiteboardNote, addWhiteboardText, addWhiteboardImage, addWhiteboardImageData, updateWhiteboardElement, deleteWhiteboardElement, duplicateWhiteboardElement, clearWhiteboard, assessmentCorrect, assessmentTotal, assessments, cardBackVisible, createStudySession, dueCards, studyCategories, trashedStudySessions, renameStudySession, deleteStudySession, restoreStudySession, purgeStudySession, createStudyCategory, assignStudyCategory, enemImage, enemQuestions, enemSubject, enemText, enemYear, feynmanAttempts, feynmanExplanation, feynmanTopic, readEnemImage, reviewCard, saveAssessment, saveEnemQuestion, saveFeynman, selectStudySession, sendStudyMessage, sendTutorMessage, setAssessmentCorrect, setAssessmentTotal, setCardBackVisible, setEnemImage, setEnemSubject, setEnemText, setEnemYear, setFeynmanExplanation, setFeynmanTopic, setStudyQuery, setStudySessionId, setWhiteboardNote, studyCardIndex, studyEnemFromBank, studyEnemFromForm, studyMessages, studyProgress, studyQuery, studySessionId, tutorSessions, whiteboard, whiteboardNote } = useStudy(setNotice)
   const [taskTitle, setTaskTitle] = useState('')
   const [memories, setMemories] = useState<Memory[]>([])
   const [memoryCollection, setMemoryCollection] = useState<'cited' | 'conversations' | 'user_memory' | 'profile_memory'>('conversations')
@@ -133,6 +138,25 @@ export default function App() {
 
   // Fase contexto 2: "editar" numa memória citada no chat abre Memórias > Com fonte.
   useEffect(() => {
+    const openOrganizer = () => setActive('Dashboard')
+    window.addEventListener('jarvis:personal-open', openOrganizer)
+    const openFromLifeOS = (event: MessageEvent) => {
+      if (event.origin === window.location.origin && event.data?.type === 'jarvis:open-personal' && event.data.kind === 'workout') {
+        void import('./utils/personalRecords').then(({ openOrganizer }) => openOrganizer({ kind: 'workout', query: typeof event.data.query === 'string' ? event.data.query.slice(0, 100) : '' }))
+      }
+    }
+    window.addEventListener('message', openFromLifeOS)
+    const personalLink = new URLSearchParams(window.location.search)
+    if (personalLink.get('personal') === 'workout') {
+      void import('./utils/personalRecords').then(({ openOrganizer }) => openOrganizer({ kind: 'workout', query: (personalLink.get('query') || '').slice(0, 100) }))
+    }
+    fetch('/api/personal').then(r => r.ok ? r.json() : null).then(data => {
+      if (data?.preferences) document.documentElement.classList.toggle('personal-reduced-motion', data.preferences.reduced_motion === true)
+    }).catch(() => undefined)
+    return () => { window.removeEventListener('jarvis:personal-open', openOrganizer); window.removeEventListener('message', openFromLifeOS) }
+  }, [])
+
+  useEffect(() => {
     const openMemory = () => { setActive('Memórias'); setMemoryCollection('cited') }
     window.addEventListener('jarvis:open-memory', openMemory)
     return () => window.removeEventListener('jarvis:open-memory', openMemory)
@@ -147,11 +171,7 @@ export default function App() {
 
   // Auto-sync on app open (for mobile and PC)
   useEffect(() => {
-    if (isMobileStandalone()) {
-      autoSyncOnOpen().catch(error => {
-        console.error('[App] Auto-sync failed:', error)
-      })
-    }
+    void autoSyncOnOpen().catch(() => setNotice('Não foi possível sincronizar a conta ao abrir. Verifique a conexão nas Configurações.'))
   }, [])
 
   // Request native notification permission on first user interaction
@@ -216,9 +236,16 @@ export default function App() {
         body: JSON.stringify({ keys }),
       })
       const data = await res.json()
-      if (data.ok && data.keys) {
-        setApiKeysState(data.keys)
-        setNotice('Chaves de API salvas com sucesso!')
+      if (!res.ok || !data.ok || !data.keys) throw new Error('Falha ao salvar')
+      setApiKeysState(data.keys)
+      setNotice('Chaves salvas neste computador.')
+      if (isEvoluteCloudConnected()) {
+        try {
+          await pushJarvisVault()
+          setNotice('Chaves salvas e sincronizadas com sua conta.')
+        } catch {
+          setNotice('Chaves salvas neste computador, mas o envio à nuvem falhou. Tente Salvar Chaves novamente quando a conexão voltar.')
+        }
       }
     } catch {
       setNotice('Erro ao salvar chaves de API.')
@@ -245,7 +272,7 @@ export default function App() {
   const { answer, chatError, copySession, createSession, deleteSession, exportSession, loading, liveReasoning, liveSearch, messages, pendingScript, query, runPendingScript, selectSession, sendText, sendVisionQuestion, sessionId, sessions, setAnswer, setChatError, setPendingScript, setQuery, streamingReply } = IS_MOBILE ? mobileChat : pcChat
   const conversationRun = useConversationRun(sessionId, !IS_MOBILE, loading)
   const { captureVision, closeLiveCall, liveCallOpen, liveCallRecording, liveCallStatus, liveAudioDiagnostics, liveUserTranscript, liveJarvisTranscript, liveTurns, liveOrbState, recording, setLiveCallOpen, setSpeakEnabled, setVisionResult, speakEnabled, speakText, toggleLiveCallCapture, toggleVoiceInput, triggerBargeIn, visionResult, pushToTalkMode, togglePushToTalk, startPtt, stopPtt, isPttActive } = useMediaAssistant({ query, sendText, setAnswer, setQuery, sessionId, appendExchange: IS_MOBILE ? undefined : pcChat.appendExchange, onAgentContext: IS_MOBILE ? undefined : context => applyAgentUi(context) })
-  const { availableEpisodes, availableSeasons, cinemaLauncherOpen, setCinemaLauncherOpen, videoUrl, setVideoUrl, cinemaQuery, setCinemaQuery, cinemaResults, cinemaMedia, cinemaStatus, setCinemaStatus, cinemaLibrary, refreshCinemaLibrary, searchCinema, probeCinema, saveCinemaUrl, openCinemaPayload, selectEpisode, selectLibraryItem, selectLibrarySource, selectNextEpisode, selectSeason, selectedEpisode, selectedLibraryItem, selectedLibraryId, selectedLibrarySources, selectedSeason, selectedSourceUrl } = useCinema()
+  const { cinemaSearch, availableEpisodes, availableSeasons, cinemaLauncherOpen, setCinemaLauncherOpen, videoUrl, setVideoUrl, cinemaQuery, setCinemaQuery, cinemaResults, cinemaMedia, cinemaStatus, setCinemaStatus, cinemaLibrary, refreshCinemaLibrary, searchCinema, probeCinema, saveCinemaUrl, openCinemaPayload, selectEpisode, selectLibraryItem, selectLibrarySource, selectNextEpisode, selectSeason, selectedEpisode, selectedLibraryItem, selectedLibraryId, selectedLibrarySources, selectedSeason, selectedSourceUrl } = useCinema()
 
   const setTtsProvider = async (tts_provider: 'fish' | 'gemini' | 'edge' | 'oxyy') => {
     const response = await fetch('/api/settings/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tts_provider }) })
@@ -360,16 +387,15 @@ export default function App() {
   useEffect(() => {
     if (IS_MOBILE) return
     const refreshBridge = () => fetch('/api/bridge').then(response => response.json()).then(setBridge).catch(() => undefined)
-    const interval = window.setInterval(refreshBridge, 5_000)
-    return () => window.clearInterval(interval)
+    return pollVisible(refreshBridge, 5_000)
   }, [])
 
   // O estado "ativo" do detector pode mudar sem a interface saber (modelo ausente, frase nova): reconsulta.
   useEffect(() => {
     if (IS_MOBILE) return
     const refreshWakeWord = () => fetch('/api/wake-word').then(response => response.json()).then(setWakeWord).catch(() => undefined)
-    const interval = window.setInterval(refreshWakeWord, 15_000)
-    return () => { window.clearInterval(interval); if (wakeHeardTimer.current) clearTimeout(wakeHeardTimer.current) }
+    const stopPolling = pollVisible(refreshWakeWord, 15_000)
+    return () => { stopPolling(); if (wakeHeardTimer.current) clearTimeout(wakeHeardTimer.current) }
   }, [])
 
   const refreshAnalytics = async (level = logLevel) => {
@@ -384,10 +410,9 @@ export default function App() {
 
   useEffect(() => {
     if (IS_MOBILE) return
-    refreshAnalytics().catch(() => undefined)
-    const refreshId = window.setInterval(() => refreshAnalytics().catch(() => undefined), 15_000)
-    return () => window.clearInterval(refreshId)
-  }, [logLevel])
+    if (active !== 'Análises') return
+    return pollVisible(() => refreshAnalytics(), 15_000, true)
+  }, [logLevel, active])
 
   const visibleLogs = logs.filter(log => `${log.component || ''} ${log.message || ''}`.toLocaleLowerCase('pt-BR').includes(logQuery.trim().toLocaleLowerCase('pt-BR')))
 
@@ -455,8 +480,7 @@ export default function App() {
       fetch('/api/proactive').then(response => response.json()).then(setProactive).catch(() => undefined)
       fetch('/api/tray').then(response => response.json()).then(setTray).catch(() => undefined)
     }
-    const refreshId = window.setInterval(refreshLive, 25_000)
-    return () => window.clearInterval(refreshId)
+    return pollVisible(refreshLive, 25_000)
   }, [active])
 
   const addTask = async (event: FormEvent) => {
@@ -689,8 +713,12 @@ export default function App() {
 
   const openVideo = (url: string) => {
     const trimmed = url.trim()
-    if (!/^https?:\/\//i.test(trimmed)) return
+    if (!(/^https?:\/\//i.test(trimmed) && (/\.(?:m3u8|mp4|webm|ogv|mov|m4v)(?:$|[?#])/i.test(trimmed) || /\/api\/cinema\/session\/media\//.test(trimmed)))) {
+      setNotice('O player do Jarvis aceita somente mídia MP4/HLS confirmada. Use a sessão isolada para páginas externas.')
+      return false
+    }
     setPlayingUrl(trimmed)
+    return true
   }
 
   const askCameraQuestion = async (prompt?: string) => {
@@ -740,6 +768,7 @@ export default function App() {
     const page = (() => {
       if (active === 'Dashboard') return <WorkspaceHome operational={operational} onNavigate={setActive} />
       if (active === 'Integrações') return <IntegrationsPage operational={operational} onNavigate={setActive} />
+      if (active === 'Saúde') return <HealthPage operational={operational} audio={liveAudioDiagnostics} />
       if (active === 'Painel pessoal') {
         return (
           <DashboardPage
@@ -775,7 +804,11 @@ export default function App() {
       if (active === 'Chat') {
         return (
           <ChatPage
+            onEditMessage={IS_MOBILE ? undefined : pcChat.editMessage}
+            liveActivity={IS_MOBILE ? undefined : pcChat.liveActivity}
             canStopRequest={conversationRun.canStop}
+            hasActiveRequest={conversationRun.hasActive}
+            liveMode={IS_MOBILE ? undefined : pcChat.liveMode}
             runStatus={conversationRun.message}
             commandHandlers={commandHandlers}
             wakeWord={wakeWord}
@@ -878,6 +911,7 @@ export default function App() {
             studyMessages={studyMessages}
             studyQuery={studyQuery}
             sendStudyMessage={sendStudyMessage}
+            sendTutorMessage={sendTutorMessage}
             studyEnemFromForm={studyEnemFromForm}
             studyEnemFromBank={studyEnemFromBank}
             whiteboard={whiteboard}
@@ -916,6 +950,7 @@ export default function App() {
             onSaveApiKeys={saveApiKeys}
             onSetTtsProvider={setTtsProvider}
             onSetProvider={setProvider}
+            onRoutesSaved={() => void refreshAiRoutes()}
             onSetSttProvider={setSttProvider}
             onSaveOxyy={saveOxyy}
             onRefreshOxyy={refreshOxyy}
@@ -1004,7 +1039,6 @@ export default function App() {
         onSelectSession={selectSession}
         onNewChat={() => {
           setActive('Chat')
-          setQuery('')
           setChatAttachment(null)
           void Promise.resolve(createSession()).catch(() => setNotice('Não foi possível criar a conversa.'))
         }}
@@ -1037,6 +1071,7 @@ export default function App() {
             open={cinemaLauncherOpen}
             onClose={() => setCinemaLauncherOpen(false)}
             onPlay={openVideo}
+            cinemaSearch={cinemaSearch}
             cinemaQuery={cinemaQuery}
             setCinemaQuery={setCinemaQuery}
             videoUrl={videoUrl}
@@ -1078,15 +1113,36 @@ export default function App() {
           <Suspense fallback={null}>
             <IsolatedVideoPlayer
               src={playingUrl}
+              directMedia={cinemaMedia.find(item => item.url === playingUrl)?.direct}
+              sourceKind={cinemaMedia.find(item => item.url === playingUrl)?.kind}
               onClose={() => setPlayingUrl('')}
-              title={selectedLibraryItem?.title || cinemaQuery || 'Jarvis Cinema'}
-              mediaType={selectedLibraryItem?.type || 'movie'}
-              currentSeason={selectedSeason}
-              currentEpisode={selectedEpisode}
-              episodes={selectedLibraryItem?.episodes || []}
+              title={selectedLibraryItem?.title || cinemaSearch.selection?.title || cinemaQuery || 'Jarvis Cinema'}
+              mediaType={selectedLibraryItem?.type || (cinemaSearch.detectedEpisodes.length ? 'tv' : 'movie')}
+              currentSeason={selectedLibraryItem ? selectedSeason : cinemaSearch.detectedEpisode?.season}
+              currentEpisode={selectedLibraryItem ? selectedEpisode : cinemaSearch.detectedEpisode?.episode}
+              episodes={selectedLibraryItem?.episodes || cinemaSearch.detectedEpisodes}
+              onSelectEpisode={async (season, episode) => {
+                if (selectedLibraryItem) {
+                  const entry = selectedLibraryItem.episodes?.find(item => (item.season || 1) === season && (item.episode || 1) === episode)
+                  const url = entry?.sources?.[0]?.url
+                  if (!url) return false
+                  selectEpisode(episode, season)
+                  return openVideo(url)
+                }
+                const entry = cinemaSearch.detectedEpisodes.find(item => item.season === season && item.episode === episode)
+                if (!entry) return false
+                const url = await cinemaSearch.playDetectedEpisode(entry.url)
+                return Boolean(url && openVideo(url))
+              }}
               onNextEpisode={() => {
+                if (!selectedLibraryItem && cinemaSearch.detectedEpisode) {
+                  const index = cinemaSearch.detectedEpisodes.findIndex(item => item.url === cinemaSearch.detectedEpisode?.url)
+                  const entry = cinemaSearch.detectedEpisodes[index + 1]
+                  if (entry) void cinemaSearch.playDetectedEpisode(entry.url).then(url => { if (url) openVideo(url) })
+                  return
+                }
                 const next = selectNextEpisode()
-                if (next) setPlayingUrl(next)
+                if (next) openVideo(next)
               }}
             />
           </Suspense>
@@ -1110,7 +1166,9 @@ export default function App() {
           />
         </Suspense>
       )}
+      <NoteViewer />
       {!IS_MOBILE && <PopupHost />}
+      <CloudSessionStatus />
       <Toast message={notice} onDismiss={dismissNotice} />
     </>
   )

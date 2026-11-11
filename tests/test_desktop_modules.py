@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+import pytest
 from app.services.memory_vault import memory_vault
 from app.services.stm_filters import stm_filter
 from app.services.tool_forge import tool_forge
@@ -10,6 +14,7 @@ from app.agent.tools.smart_drop_zone import SmartDropZoneTool
 from app.agent.tools.phantom_typer import PhantomTyperTool
 
 
+@pytest.mark.usefixtures("isolated_lote6_data")
 class TestDesktopModules(unittest.TestCase):
 
     def test_memory_vault_engine(self):
@@ -41,7 +46,14 @@ class TestDesktopModules(unittest.TestCase):
 
         hesitation_input = "Eu acho que a resposta correta é 42."
         clean_hesitation = stm_filter.filter_hesitations(hesitation_input)
-        self.assertNotIn("acho que", clean_hesitation.lower())
+        self.assertEqual(hesitation_input, clean_hesitation)
+
+    def test_stm_converts_unsolicited_markdown_tables(self):
+        table = "| Tempo | Assunto |\n| --- | --- |\n| 01:00 | Abertura |\n| 02:00 | Final |"
+        cleaned = stm_filter.avoid_unsolicited_tables(table, "Resuma o vídeo")
+        self.assertNotIn("|", cleaned)
+        self.assertIn("- Tempo: 01:00; Assunto: Abertura", cleaned)
+        self.assertEqual(stm_filter.avoid_unsolicited_tables(table, "Faça uma tabela"), table)
 
     def test_tool_forge_engine(self):
         sample_code = """
@@ -67,9 +79,16 @@ class DummyCustomTool(BaseTool):
         self.assertGreaterEqual(res["count"], 0)
 
     def test_smart_drop_zone_tool(self):
-        tool = SmartDropZoneTool()
-        res = tool.run(target_folder="Downloads")
-        self.assertTrue(res["success"])
+        with tempfile.TemporaryDirectory() as folder:
+            home = Path(folder)
+            downloads = home / "Downloads"
+            downloads.mkdir()
+            (downloads / "teste.txt").write_text("conteúdo de teste", encoding="utf-8")
+            with patch("app.agent.tools.smart_drop_zone.Path.home", return_value=home):
+                res = SmartDropZoneTool().run(target_folder="Downloads")
+            self.assertTrue(res["success"])
+            self.assertEqual(res["moved_count"], 1)
+            self.assertEqual((downloads / "Documentos" / "teste.txt").read_text(encoding="utf-8"), "conteúdo de teste")
 
     def test_phantom_typer_tool(self):
         tool = PhantomTyperTool()

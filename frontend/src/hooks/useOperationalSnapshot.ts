@@ -1,7 +1,8 @@
+import { pollVisible } from '../utils/panelVisibility'
 import { useCallback, useEffect, useState } from 'react'
 import { panelRequest } from '../utils/panelApi'
 
-export type AgentAction = { id: string; tool_name: string; preview: string; risk: string; status: string; result_summary?: string | null; updated_at: number; run_id?: string | null; source?: string }
+export type AgentAction = { id: string; tool_name: string; preview: string; risk: string; status: string; result_summary?: string | null; updated_at: number; run_id?: string | null; source?: string; effect_status?: string | null; effect_evidence?: string | null }
 export type AgentGoal = { id: string; title: string; next_action: string; status: string }
 // Estado real de cada capacidade (O1, O2). "reachable" vem da última chamada real desde que o servidor iniciou.
 export type CapabilityFallback = { from: string; to: string; model?: string | null; reason: string; at: number }
@@ -11,6 +12,14 @@ export type Capability = {
   provider?: string | null; model?: string | null; latency_ms?: number | null; fallback?: CapabilityFallback | null; reason: string; target?: string
 }
 export type OperationalSnapshot = {
+  health?: {
+    error?: string
+    microphone?: { configured_engine: string; configured_device: string; active: boolean; state: string; device: string }
+    tools?: string[]
+    mcp_servers?: { id: string; name: string; status: string; tools_count: number; error: string }[]
+    mcp_error?: string
+    last_verified_action?: AgentAction | null
+  }
   components: { id: string; label: string; status: string; reason: string }[]
   capabilities?: Capability[]; health_since?: number
   summary: { pending_actions: number; awaiting_approvals?: number; running_actions?: number; failed_actions: number; devices: number; active_goals?: number }
@@ -26,7 +35,6 @@ export function useOperationalSnapshot() {
   const refresh = useCallback(() => setRevision(value => value + 1), [])
   useEffect(() => {
     let disposed = false
-    let timer: ReturnType<typeof setTimeout>
     let controller: AbortController
     const poll = async () => {
       controller = new AbortController()
@@ -39,11 +47,10 @@ export function useOperationalSnapshot() {
         if (!disposed) setError(err instanceof Error && err.name !== 'AbortError' ? err.message : 'O servidor não respondeu a tempo.')
       } finally {
         clearTimeout(timeout)
-        if (!disposed) timer = setTimeout(poll, 8000)
       }
     }
-    void poll()
-    return () => { disposed = true; clearTimeout(timer); controller?.abort() }
+    const stopPolling = pollVisible(poll, 8000, true)
+    return () => { disposed = true; stopPolling(); controller?.abort() }
   }, [revision])
   return { snapshot, error, updatedAt, refresh, revision }
 }

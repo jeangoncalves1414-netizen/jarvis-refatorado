@@ -18,7 +18,10 @@ class PanelSnapshot:
         messages = self.chat_session.get_messages() if self.chat_session else []
         task_count = 0
         if hasattr(self.orchestrator, "productivity_service"):
-            task_count = len(self.orchestrator.productivity_service.list_tasks())
+            from app.storage import task_store
+            from app.services.tasks import TaskService
+            service = self.orchestrator.productivity_service
+            task_count = len(TaskService.list_tasks(completed=None) if service is task_store else service.list_tasks())
 
         memory_count = 0
         if hasattr(self.orchestrator, "memory_store") and self.orchestrator.memory_store is not None:

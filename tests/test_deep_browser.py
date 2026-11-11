@@ -323,8 +323,8 @@ def test_stm_filter_removes_robotic_tool_headers():
 
     cleaned = stm_filter.process(robotic_output)
     assert "Resultados das ferramentas:" not in cleaned
-    assert "Link: https://" not in cleaned
-    assert cleaned.startswith("Bluezão é um influenciador")
+    assert "Link: https://www.dicio.com.br/bluezao" in cleaned
+    assert "Bluezão é um influenciador" in cleaned
 
 
 def test_tool_declarations_never_have_duplicates(tmp_path):

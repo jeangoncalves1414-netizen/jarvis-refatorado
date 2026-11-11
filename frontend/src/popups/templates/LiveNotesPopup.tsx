@@ -3,27 +3,16 @@ import { Mic, PencilLine, Save, Square } from 'lucide-react'
 import { useLiveDictation } from '../../hooks/useLiveDictation'
 import { TypewriterText } from '../motion'
 import { NOTE_FORMAT_LABELS, appendPhrase, reformatNote } from '../noteFormat'
+import { DRAFT_PREFIX, DRAFTS_CHANGED, NOTES_CHANGED, readDraft, type Draft } from '../../utils/personalNotes'
 import type { LiveNotesPopupData, NoteFormat, PopupComponentProps } from '../registry'
 
 // Anotação ao vivo (decisões 11 e 12): a fala vira texto com efeito de digitação; Texto, Lista ou
 // Checklist; salva no cofre (05-Notas) pelo Action Kernel ao parar o ditado, ao fechar e em
 // "Salvar". Até o servidor confirmar, o rascunho fica em localStorage. Dá para escrever à mão.
 
-type Draft = { title: string; format: NoteFormat; content: string }
 type SaveState = { state: 'idle' | 'saving' | 'saved' | 'local' | 'error'; message: string }
 
 const FORMATS: NoteFormat[] = ['text', 'bullets', 'checklist']
-const storageKey = (draftId: string) => `lifeos_live_note_${draftId}`
-
-function readDraft(draftId: string): Draft | null {
-  try {
-    const raw = JSON.parse(localStorage.getItem(storageKey(draftId)) || 'null')
-    if (!raw || typeof raw.content !== 'string' || typeof raw.title !== 'string' || !FORMATS.includes(raw.format)) return null
-    return { title: raw.title.slice(0, 80), format: raw.format, content: raw.content.slice(0, 20_000) }
-  } catch {
-    return null
-  }
-}
 
 export function LiveNotesPopup({ popup, setHold }: PopupComponentProps<LiveNotesPopupData>) {
   const draftId = popup.data.draft_id
@@ -45,9 +34,13 @@ export function LiveNotesPopup({ popup, setHold }: PopupComponentProps<LiveNotes
   // Refs com o valor mais recente: a frase de parada salva logo depois da última fala.
   const draftRef = useRef<Draft>(initial.draft)
   const dirtyRef = useRef(initial.restored)
+  const mounted = useRef(false)
 
   const persist = () => {
-    try { localStorage.setItem(storageKey(draftId), JSON.stringify(draftRef.current)) } catch { /* armazenamento cheio */ }
+    try {
+      localStorage.setItem(DRAFT_PREFIX + draftId, JSON.stringify({ ...draftRef.current, modified: Date.now() }))
+      window.dispatchEvent(new Event(DRAFTS_CHANGED))
+    } catch { /* armazenamento cheio */ }
   }
   const update = (patch: Partial<Draft>) => {
     draftRef.current = { ...draftRef.current, ...patch }
@@ -73,13 +66,17 @@ export function LiveNotesPopup({ popup, setHold }: PopupComponentProps<LiveNotes
       const data = await response.json().catch(() => ({}))
       if (!response.ok || !data.ok) throw new Error(typeof data.error === 'string' && data.error ? data.error : `o servidor respondeu ${response.status}.`)
       // Só limpa o rascunho local se nada mudou enquanto salvava.
-      if (draftRef.current === sent) {
+      const stored = readDraft(draftId)
+      const sameContent = !stored || (stored.title === sent.title && stored.format === sent.format && stored.content === sent.content)
+      if (draftRef.current === sent && sameContent) {
         dirtyRef.current = false
-        try { localStorage.removeItem(storageKey(draftId)) } catch { /* ignore */ }
+        try { localStorage.removeItem(DRAFT_PREFIX + draftId) } catch { /* ignore */ }
       }
-      setSave({ state: 'saved', message: `Salvo no cofre${typeof data.path === 'string' ? ` (${data.path})` : ''}.` })
+      window.dispatchEvent(new Event(NOTES_CHANGED))
+      setSave(dirtyRef.current ? { state: 'local', message: 'Há alterações no rascunho que ainda precisam ser salvas.' }
+        : { state: 'saved', message: `Salvo no cofre${typeof data.path === 'string' ? ` (${data.path})` : ''}.` })
     } catch (error) {
-      persist()
+      if (!readDraft(draftId) && mounted.current) persist()
       const reason = error instanceof Error && error.message && error.message !== 'Failed to fetch' ? error.message : 'o backend não respondeu.'
       setSave({ state: 'error', message: `Não foi possível salvar: ${reason} O rascunho continua guardado neste aparelho.` })
     }
@@ -112,7 +109,14 @@ export function LiveNotesPopup({ popup, setHold }: PopupComponentProps<LiveNotes
   useEffect(() => { setHold(dictation.active) }, [dictation.active, setHold])
 
   // Fechar o popup salva o que ainda não foi salvo.
-  useEffect(() => () => { if (dirtyRef.current && draftRef.current.content.trim()) void saveNow(true) }, [saveNow])
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      // StrictMode remonta os efeitos imediatamente. Só salva ao fechar de fato.
+      queueMicrotask(() => { if (!mounted.current && dirtyRef.current && draftRef.current.content.trim()) void saveNow(true) })
+    }
+  }, [saveNow])
 
   const changeFormat = (next: NoteFormat) => {
     if (next === draftRef.current.format) return

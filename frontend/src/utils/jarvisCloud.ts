@@ -996,6 +996,7 @@ export async function pushJarvisVault(incoming = collectJarvisVaultFromThisDevic
   }
 
   try {
+    if (isTokenExpired()) await refreshAccessToken()
     const local = await incoming
     log(`Iniciando envio (versão local ${local.version})`)
 

@@ -148,7 +148,7 @@ def offline_world(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(capabilities, "_has_module", lambda name: False)
     monkeypatch.setattr(capabilities.shutil, "which", lambda name: None)
-    monkeypatch.setattr("app.agent.tools.mcp_tool._load_servers", lambda: {})
+    monkeypatch.setattr("app.mcp.config.load_server_configs", lambda: {})
     monkeypatch.setattr("app.services.device_bridge.DeviceBridgeService", lambda *a, **k: _Bridge())
     routes = {key: {"configured": False, "reason": "sem chave", "effective": None} for key in ("chat", "tts", "stt", "image")}
     monkeypatch.setattr("app.storage.runtime_settings.resolve_ai_routes", lambda *a, **k: routes)

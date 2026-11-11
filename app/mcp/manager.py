@@ -51,7 +51,7 @@ class MCPManager:
         self._lock = threading.Lock()
         self._started = False
 
-    def _get_registry(self) -> Any:
+    def get_registry(self) -> Any:
         if self.registry is not None:
             return self.registry
         try:
@@ -82,7 +82,7 @@ class MCPManager:
             client_items = list(self.clients.items())
             self.clients.clear()
 
-        reg = self._get_registry()
+        reg = self.get_registry()
         for server_id, client in client_items:
             try:
                 client.disconnect()
@@ -121,7 +121,7 @@ class MCPManager:
         return client
 
     def _sync_tools_to_registry(self, server_id: str, tools: list[dict[str, Any]]) -> None:
-        reg = self._get_registry()
+        reg = self.get_registry()
         if reg is None:
             return
 
@@ -209,7 +209,7 @@ class MCPManager:
                     old_client.disconnect()
                 except Exception:
                     pass
-            reg = self._get_registry()
+            reg = self.get_registry()
             if reg:
                 reg.unregister_mcp_tools(cfg.id)
             status = "disabled"
@@ -237,7 +237,7 @@ class MCPManager:
             except Exception:
                 pass
 
-        reg = self._get_registry()
+        reg = self.get_registry()
         if reg:
             reg.unregister_mcp_tools(server_id)
 

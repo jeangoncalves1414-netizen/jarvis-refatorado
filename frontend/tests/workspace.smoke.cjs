@@ -68,7 +68,7 @@ mkdirSync(output, { recursive: true })
           else { agentProfile = { name: body.name, style: body.style || 'Neutro e conciso.', wake_phrase: body.wake_phrase || `ei ${body.name.toLowerCase()}`, wake_phrase_custom: Boolean(body.wake_phrase) }; data = { ok: true, profile: agentProfile, wake_phrase_check: { checked: true, supported: true } } }
         } else data = { ok: true, profile: agentProfile }
       }
-      else if (url.pathname === '/api/chat') { chatCalls++; sent = route.request().postDataJSON(); data = { ok: true, reply: 'Resposta de teste recebida. Podemos organizar o projeto em etapas.', context: { run_id: 'run-linked' } } }
+      else if (url.pathname === '/api/chat') { chatCalls++; sent = route.request().postDataJSON(); data = { ok: true, reply: 'Resposta de teste recebida. Podemos organizar o projeto em etapas.', context: { run_id: 'run-linked', tool_activity: [{ id: 'action-linked', tool: 'planning_workspace', label: 'Plano', status: 'succeeded', result: 'Plano organizado.' }] } } }
       else if (url.pathname.endsWith('/approve')) { approvals++; status = 410; data = { ok: false, error: 'Ação expirou; solicite novamente pela conversa.' } }
       else if (url.pathname === '/api/wake-word') data = { enabled: true, available: true, running: true, active: true, phrase: 'ei assistente' }
       else if (url.pathname === '/api/goals') { status = 500; data = { ok: false, error: 'Não foi possível salvar o objetivo.' } }
@@ -107,6 +107,7 @@ mkdirSync(output, { recursive: true })
     assert.equal(sent.mode, 'react')
     await page.getByRole('button', { name: 'Ver execução' }).waitFor()
     await page.reload()
+    await page.locator('.ws-message.assistant').filter({ hasText: 'Resposta de teste recebida.' }).hover()
     await page.getByRole('button', { name: 'Ver execução' }).click()
     await page.getByText('Resultado deste pedido.', { exact: true }).waitFor()
     await page.getByRole('button', { name: 'Fechar pedido' }).click()

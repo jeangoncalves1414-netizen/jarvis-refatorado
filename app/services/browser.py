@@ -472,6 +472,7 @@ class BrowserService:
                 "headings": result.get("headings", []),
                 "links": result.get("links", []),
                 "text": truncated,
+                "read_status": "read" if truncated else "empty",
                 "total_chars": len(cleaned),
                 "truncated": len(cleaned) > 12000,
                 "message": f"Extraído conteúdo de {page.url} ({len(truncated)} caracteres, {len(result.get('links', []))} links)."
@@ -870,11 +871,14 @@ class BrowserService:
                 }
 
         pages_data: list[dict[str, Any]] = []
+        from app.agent.tool_activity import report_progress
+        report_progress({"sources": search_items}, "Investigando fontes…")
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(search_items), 5)) as executor:
             futures = [executor.submit(_fetch_page, item) for item in search_items[:limit]]
             for future in concurrent.futures.as_completed(futures):
                 try:
                     pages_data.append(future.result())
+                    report_progress({"sources": [{**p, "read_status": "read" if p.get("ok") else "failed"} for p in pages_data]}, "Investigando fontes…")
                 except Exception as exc:
                     logger.warning("Erro no worker de download: %s", exc)
 
@@ -919,7 +923,7 @@ class BrowserService:
             "synthesis": synthesis,
             "sites_read": successful_reads,
             "total_sites": len(pages_data),
-            "sources": [{"title": p["title"], "url": p["url"], "source": p["source"]} for p in pages_data],
+            "sources": [{"title": p["title"], "url": p["url"], "source": p["source"], "read_status": "read" if p.get("ok") else "failed"} for p in pages_data],
             "message": synthesis,
         }
 

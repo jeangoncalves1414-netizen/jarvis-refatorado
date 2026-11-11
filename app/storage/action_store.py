@@ -114,7 +114,7 @@ class ActionStore:
         with self._lock, closing(self._connect()) as db:
             return self._read(db, action_id)
 
-    def transition(self, action_id: str, status: str, *, result_summary: str | None = None, receipt_reference: str | None = None, undo_payload: dict | None = None, expected_status: str | None = None) -> ActionRecord:
+    def transition(self, action_id: str, status: str, *, result_summary: str | None = None, receipt_reference: str | None = None, undo_payload: dict | None = None, expected_status: str | None = None, effect_status: str | None = None, effect_evidence: str | None = None) -> ActionRecord:
         with self._lock, closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             current = self._read(db, action_id)
@@ -131,6 +131,8 @@ class ActionStore:
                 "result_summary": result_summary if result_summary is not None else current.result_summary,
                 "receipt_reference": receipt_reference if receipt_reference is not None else current.receipt_reference,
                 "undo_payload": undo_payload if undo_payload is not None else current.undo_payload,
+                "effect_status": effect_status if effect_status is not None else current.effect_status,
+                "effect_evidence": redact(effect_evidence, limit=500) if effect_evidence is not None else current.effect_evidence,
             })
             db.execute("UPDATE actions SET status = ?, updated_at = ?, payload = ? WHERE id = ?",
                        (status, updated.updated_at, json.dumps(asdict(updated), ensure_ascii=False), action_id))
@@ -141,6 +143,11 @@ class ActionStore:
         with self._lock, closing(self._connect()) as db:
             rows = db.execute("SELECT payload FROM actions WHERE (? IS NULL OR status = ?) ORDER BY updated_at DESC, sequence DESC LIMIT ?", (status, status, max(1, min(limit, 500))))
             return [ActionRecord.from_dict(json.loads(row[0])) for row in rows]
+
+    def last_verified(self) -> ActionRecord | None:
+        with self._lock, closing(self._connect()) as db:
+            row = db.execute("SELECT payload FROM actions WHERE status = 'succeeded' AND json_extract(payload, '$.effect_status') = 'confirmed' ORDER BY updated_at DESC, sequence DESC LIMIT 1").fetchone()
+            return ActionRecord.from_dict(json.loads(row[0])) if row else None
 
     def page(self, *, limit: int = 30, before: int | None = None, status: str | None = None, query: str = "", include_reads: bool = False) -> dict:
         limit = max(1, min(limit, 100))

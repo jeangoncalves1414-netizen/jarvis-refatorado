@@ -22,6 +22,17 @@ const panelVersionTitle = `Versão do painel ${build.version}${build.commit ? `,
 
   export function AppShell({ active, sidebarCollapsed, onToggleSidebar, onNavigate, sessions, sessionId, onSelectSession, onNewChat, onOpenCommands, operational, controls, hero, children, quickActions, openRun }: AppShellProps) {
     const [search, setSearch] = useState('')
+    const [navHeight, setNavHeight] = useState(() => { const n = Number(localStorage.getItem('jarvis-nav-height')); return n >= 100 ? Math.min(500, n) : 250 })
+    const resizeFrame = useRef(0)
+    const pendingHeight = useRef(navHeight)
+    const clampHeight = (height: number) => Math.max(100, Math.min(window.innerHeight - 350, height))
+    const resizeNav = (height: number) => {
+      const n = clampHeight(height)
+      setNavHeight(n)
+      localStorage.setItem('jarvis-nav-height', String(n))
+    }
+    useEffect(() => () => cancelAnimationFrame(resizeFrame.current), [])
+
     const [controlsOpen, setControlsOpen] = useState(true)
     const navDialog = useRef<HTMLDialogElement>(null)
     const controlDialog = useRef<HTMLDialogElement>(null)
@@ -37,8 +48,20 @@ const panelVersionTitle = `Versão do painel ${build.version}${build.commit ? `,
       <div className="ws-brand"><span className="ws-brand-mark"><Sparkles size={19} /></span><strong>Workspace<span>Seu agente pessoal</span></strong><button className="ws-icon-button ws-desktop-toggle" aria-label={sidebarCollapsed ? 'Expandir navegação' : 'Recolher navegação'} onClick={onToggleSidebar}>{sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button><button className="ws-icon-button ws-mobile-close" aria-label="Fechar navegação" onClick={() => navDialog.current?.close()}><X size={19} /></button></div>
       <button className="ws-new-chat" onClick={newChat} aria-label="Nova conversa" title="Nova conversa"><SquarePen size={17} /><span>Nova conversa</span><small aria-hidden="true">＋</small></button>
       <button className="ws-command-search" onClick={() => { navDialog.current?.close(); onOpenCommands() }} title="Buscar comandos"><Search size={16} /><span>Buscar no workspace</span><kbd>Ctrl K</kbd></button>
-      <nav aria-label="Navegação principal" className="ws-navigation">{navigation.filter(item => item.group === 'workspace').map(navButton)}</nav>
+      <div className="ws-nav-resizable" style={{ height: navHeight }}><nav aria-label="Navegação principal" className="ws-navigation">{navigation.filter(item => item.group === 'workspace').map(navButton)}</nav>
       <details className="ws-modules"><summary><span>Módulos pessoais</span><ChevronDown size={14} /></summary><nav aria-label="Módulos pessoais">{navigation.filter(item => item.group === 'modules').map(navButton)}</nav></details>
+      </div>
+      <div className="ws-nav-divider" role="separator" aria-label="Redimensionar navegação e conversas" aria-orientation="horizontal" aria-valuenow={navHeight} tabIndex={0} onKeyDown={e => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); resizeNav(navHeight + (e.key === 'ArrowUp' ? -20 : 20)) } }} onPointerDown={e => { pendingHeight.current = navHeight; e.currentTarget.setPointerCapture(e.pointerId); e.currentTarget.dataset.start = String(e.clientY - navHeight) }} onPointerMove={e => {
+        if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
+        pendingHeight.current = clampHeight(e.clientY - Number(e.currentTarget.dataset.start))
+        const divider = e.currentTarget
+        if (!resizeFrame.current) resizeFrame.current = requestAnimationFrame(() => {
+          resizeFrame.current = 0
+          const nav = divider.previousElementSibling as HTMLElement
+          nav.style.height = `${pendingHeight.current}px`
+          divider.setAttribute('aria-valuenow', String(pendingHeight.current))
+        })
+      }} onLostPointerCapture={() => { cancelAnimationFrame(resizeFrame.current); resizeFrame.current = 0; resizeNav(pendingHeight.current) }} onPointerUp={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId) }} onPointerCancel={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId) }} />
       <div className="ws-history"><div className="ws-section-heading"><span>CONVERSAS RECENTES</span><span>{sessions.length}</span></div><label className="ws-history-search"><Search size={13} /><input aria-label="Buscar conversas" placeholder="Filtrar conversas…" value={search} onChange={event => setSearch(event.target.value)} /></label><div className="ws-history-list">{sessions.filter(item => (item.title || 'Nova conversa').toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR'))).map(item => <button key={item.id} className={active === 'Chat' && item.id === sessionId ? 'selected' : ''} onClick={() => { onSelectSession(item.id); navigate('Chat') }} title={item.title || 'Nova conversa'}>{item.title || 'Nova conversa'}</button>)}{!sessions.length && <p>Suas conversas ficam aqui.</p>}</div></div>
       <div className="ws-sidebar-footer">{navigation.filter(item => item.group === 'settings').map(navButton)}<div className="ws-local-status" title={statusLabel}><span className={`ws-dot ${status}`} /><span>{statusLabel}</span><Command size={13} /></div><p className="ws-build-version" title={panelVersionTitle}>{panelVersion}</p></div>
     </>

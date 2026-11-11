@@ -119,11 +119,11 @@ def test_build_popup_envelope_uses_settings(isolated_lote6_data):
 
 
 def test_popup_settings_validate_before_saving(isolated_lote6_data):
-    assert runtime_settings.get_popup_settings() == {"enabled": True, "auto": True, "ttl_seconds": 8, "max_visible": 3}
+    assert runtime_settings.get_popup_settings() == {"enabled": True, "auto": True, "ttl_seconds": 8, "max_visible": 1}
     for bad in ({"max_visible": 6}, {"ttl_seconds": -1}, {"enabled": "sim"}, {"cor": 1}, {"max_visible": True}):
         with pytest.raises(ValueError):
             runtime_settings.set_popup_settings(bad)
-    assert runtime_settings.get_popup_settings()["max_visible"] == 3
+    assert runtime_settings.get_popup_settings()["max_visible"] == 1
     assert runtime_settings.set_popup_settings({"max_visible": 5, "auto": False})["max_visible"] == 5
 
 
@@ -213,7 +213,7 @@ def test_get_popup_route_builds_without_ai_and_without_run(env, http_server):
     assert http_server("/api/popups/nada")[0] == 400
     assert http_server("/api/popups/info?title=Oi&cor=azul")[0] == 400
     status, raw = http_server("/api/settings/popups")
-    assert status == 200 and json.loads(raw)["settings"]["max_visible"] == 3
+    assert status == 200 and json.loads(raw)["settings"]["max_visible"] == 1
     status, raw = http_server("/api/settings/popups", {"max_visible": 9})
     assert status == 400 and "1 a 5" in json.loads(raw)["error"]
     status, raw = http_server("/api/settings/popups", {"settings": {"max_visible": 2}})

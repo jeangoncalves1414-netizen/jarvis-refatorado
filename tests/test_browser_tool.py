@@ -214,6 +214,17 @@ def test_browser_service_screenshot_mock(tmp_path):
 # Testes de Execução do BrowserTool
 # ---------------------------------------------------------------------------
 
+def test_native_context_keeps_legacy_agent_out_of_browser_service(monkeypatch):
+    from app.services.browser_agent import BrowserAgent
+    service = MagicMock(spec=BrowserService)
+    service.navigate.return_value = {"ok": True, "message": "Página carregada"}
+    monkeypatch.setattr('app.agent.tools.browser_tool.get_browser_service', lambda: service)
+    legacy = MagicMock(spec=BrowserAgent)
+    result = BrowserTool().execute({'action': 'navigate', 'url': 'https://www.youtube.com/'}, {'browser_agent': legacy})
+    assert result.ok
+    service.navigate.assert_called_once_with('https://www.youtube.com/')
+    legacy.goto.assert_not_called()
+
 def test_browser_tool_execute_dispatch():
     mock_service = MagicMock(spec=BrowserService)
     mock_service.navigate.return_value = {"ok": True, "url": "https://example.com", "title": "Test"}

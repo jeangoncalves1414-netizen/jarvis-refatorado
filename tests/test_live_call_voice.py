@@ -109,6 +109,19 @@ class TestLiveCallConversationalVoice(unittest.TestCase):
         cleaned = sanitize_speech_text(raw)
         self.assertEqual(cleaned, "Previsão de chuva para amanhã.")
 
+    def test_speech_hides_browser_receipts_and_bare_domains(self):
+        raw = 'Pedido enviado: https://www.roblox.com Confirmado: abri Roblox (navegador opera.exe, janela "roblox.com/pt/home - Opera").'
+        cleaned = sanitize_speech_text(raw)
+        self.assertIn("abri Roblox", cleaned)
+        for technical in ("https", ".com", "opera", "janela", ".exe"):
+            self.assertNotIn(technical, cleaned.lower())
+        self.assertEqual(sanitize_speech_text('Visite [Roblox](https://roblox.com) ou roblox.com/pt/home'), 'Visite Roblox ou')
+
+    def test_speech_hides_exceptions_and_log_lines(self):
+        for raw in ("AttributeError: no attribute navigate", "HTTP 503 Service Unavailable", "Traceback (most recent call last):\nFile app.py"):
+            self.assertEqual(sanitize_speech_text(raw), 'Não consegui concluir o pedido. Os detalhes estão na tela.')
+        self.assertEqual(sanitize_speech_text('[DEBUG] run_123 tool_result=ok\nPronto.'), 'Pronto.')
+
     def test_sanitize_speech_text_never_spells_urls(self):
         """Garante que URLs brutas (https, http, www) são completamente removidas para não serem soletradas."""
         raw = "Acesse https://noticias.uol.com.br/hoje ou www.globo.com para mais detalhes."

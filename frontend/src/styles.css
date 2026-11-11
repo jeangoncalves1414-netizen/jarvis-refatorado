@@ -1876,6 +1876,21 @@ form button,.source-row button { border:0; border-radius:11px; padding:0 20px; f
 .study-enem-preview { max-height: 160px; overflow: auto; padding: 10px; border-radius: 10px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); }
 .study-enem-preview pre { margin: 6px 0 0; white-space: pre-wrap; font-size: 12px; color: #ccc; }
 .study-enem-preview-img { display: block; max-width: 100%; max-height: 120px; margin-top: 8px; border-radius: 8px; object-fit: contain; }
+.study-chat-message { display:grid; gap:4px; max-width:88%; border-radius:14px; padding:9px; color:#dddde4; background:#1b1b23; font-size:12px; line-height:1.5; }
+.study-chat-message.user { justify-self:end; background:#29351d; }
+.study-chat-message .msg-content { font-size:12px; white-space:pre-wrap; }
+.study-chat-message .msg-content p { display:block; max-width:none; margin:0; padding:0; border-radius:0; color:inherit; background:transparent; }
+.study-chat-message .msg-content > :first-child { margin-top:0; }
+.study-chat-message .msg-content > :last-child { margin-bottom:0; }
+.study-today { top:12px; bottom:auto; width:min(440px,calc(100% - 24px)); }
+.study-today h2 { margin:0; color:#f2f6f8; font-size:19px; }
+.study-today-copy { margin:8px 0 0; color:#aeb5bf; font-size:12px; line-height:1.5; }
+.study-today-stats { display:flex; flex-wrap:wrap; gap:7px; margin:13px 0; }
+.study-today-stats span { padding:7px 9px; border-radius:8px; color:#b5bdc7; background:#ffffff08; font-size:11px; }
+.study-today-stats b { color:var(--jarvis-cyan); }
+.study-today-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.study-today-actions button { min-height:40px; border:1px solid #353b48; border-radius:9px; padding:8px; color:#dce3eb; background:#151821; font-size:11px; cursor:pointer; }
+.study-today-actions button:hover,.study-today-actions button.primary { border-color:rgba(0,218,248,.6); color:var(--jarvis-cyan); background:rgba(0,218,248,.1); }
 
 /* ─── Cinema rich modal ────────────────────────────────────────────── */
 .cinema-modal-rich { max-width: 960px; width: 95vw; }

@@ -50,6 +50,41 @@ class TaskService:
     """Service to handle tasks, checklists, and priorities."""
 
     @staticmethod
+    def import_legacy_tasks() -> None:
+        """Import old IDs once, retaining the JSON as a recovery copy."""
+        import json
+        from app.storage import task_store
+        try:
+            records = task_store._read().get("tasks", [])
+        except (OSError, ValueError, json.JSONDecodeError):
+            return
+        if not records:
+            return
+        with get_db_connection() as conn:
+            conn.execute("CREATE TABLE IF NOT EXISTS imported_legacy_tasks (id TEXT PRIMARY KEY)")
+            for record in records:
+                if not isinstance(record, dict) or not record.get("id") or not record.get("title"):
+                    continue
+                imported = conn.execute("INSERT OR IGNORE INTO imported_legacy_tasks VALUES (?)", (str(record["id"]),))
+                if not imported.rowcount:
+                    continue
+                priority = {"high": 2, "normal": 3, "low": 4}.get(record.get("priority"), 3)
+                try:
+                    created = datetime.fromisoformat(record.get("created_at", "")).timestamp()
+                except (TypeError, ValueError):
+                    created = time.time()
+                conn.execute("INSERT OR IGNORE INTO tasks (id,title,priority,completed,created_at) VALUES (?,?,?,?,?)",
+                             (str(record["id"]), str(record["title"]), priority, int(bool(record.get("completed"))), created))
+
+    @staticmethod
+    def set_completed(task_id: str, completed: bool) -> dict[str, Any] | None:
+        TaskService.import_legacy_tasks()
+        with get_db_connection() as conn:
+            conn.execute("UPDATE tasks SET completed = ?, completed_at = CASE WHEN ? = 0 THEN NULL WHEN completed = 0 THEN ? ELSE completed_at END WHERE id = ?",
+                         (int(completed), int(completed), time.time(), task_id))
+        return TaskService.get_task(task_id)
+
+    @staticmethod
     def create_task(
         task_id: str,
         title: str,
@@ -80,6 +115,7 @@ class TaskService:
 
     @staticmethod
     def get_task(task_id: str) -> dict[str, Any] | None:
+        TaskService.import_legacy_tasks()
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
@@ -93,6 +129,7 @@ class TaskService:
 
     @staticmethod
     def list_tasks(completed: bool | None = False, project: str = "") -> list[dict[str, Any]]:
+        TaskService.import_legacy_tasks()
         with get_db_connection() as conn:
             cursor = conn.cursor()
             query = "SELECT * FROM tasks WHERE 1=1"

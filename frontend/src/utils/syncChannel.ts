@@ -16,22 +16,19 @@ if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
     broadcastChannel = new BroadcastChannel('jarvis-lifeos-sync')
     broadcastChannel.onmessage = (event) => {
       const { type, payload } = event.data || {}
-      if (type && listeners.has(type)) {
-        listeners.get(type)?.forEach(fn => {
-          try { fn(payload) } catch {}
-        })
-      }
+      if (type) notifySyncListeners(type, payload)
     }
   } catch {}
 }
 
+export function notifySyncListeners(type: string, payload?: SyncEventPayload): void {
+  listeners.get(type)?.forEach(fn => {
+    try { fn(payload) } catch {}
+  })
+}
+
 export function broadcastSyncEvent(type: string, payload?: SyncEventPayload): void {
-  // 1. Local window listeners
-  if (listeners.has(type)) {
-    listeners.get(type)?.forEach(fn => {
-      try { fn(payload) } catch {}
-    })
-  }
+  notifySyncListeners(type, payload)
   // 2. Cross-window broadcast
   try {
     broadcastChannel?.postMessage({ type, payload, timestamp: Date.now() })

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from typing import Any, List
 
 DATA_DIR = os.path.join(os.getcwd(), "data")
 SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
+_history_lock = threading.RLock()
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -88,6 +90,11 @@ def add_category(category: dict) -> dict:
 
 
 def update_session(session_id: str, patch: dict) -> dict | None:
+    with _history_lock:
+        return _update_session(session_id, patch)
+
+
+def _update_session(session_id: str, patch: dict) -> dict | None:
     import time
     data = _read()
     session = _find_session(data, session_id)
@@ -103,6 +110,16 @@ def update_session(session_id: str, patch: dict) -> dict | None:
     session["updated_at"] = time.time()
     _write(data)
     return dict(session)
+
+
+def set_generated_title(session_id: str, title: str) -> dict | None:
+    with _history_lock:
+        session = get_session(session_id)
+        if not session or session.get('deleted_at'):
+            return None
+        if session.get('title') not in (None, '', 'Nova conversa', 'Nova sessão', 'Sessão'):
+            return session
+        return _update_session(session_id, {'title': title})
 
 
 def update_category(category_id: str, patch: dict) -> dict | None:
@@ -140,6 +157,11 @@ def add_session(session: dict) -> None:
 
 
 def save_session_history(session_id: str, history: List[dict]) -> None:
+    with _history_lock:
+        _save_history(session_id, history)
+
+
+def _save_history(session_id: str, history: List[dict]) -> None:
     import time
     data = _read()
     session = _find_session(data, session_id)
@@ -149,6 +171,26 @@ def save_session_history(session_id: str, history: List[dict]) -> None:
     else:
         data.setdefault("sessions", []).append({"id": session_id, "history": history, "updated_at": time.time()})
     _write(data)
+
+
+def truncate_session_history(session_id: str, index: int, expected: list[dict]) -> list[dict]:
+    """Cut before the edited user message, rejecting stale views or active runs."""
+    from app.storage.action_store import action_store
+    with _history_lock:
+        for status in ("running", "awaiting_confirmation", "cancel_requested"):
+            if action_store.run_page(session_id=session_id, status=status, limit=1, include_reads=True)["runs"]:
+                raise ValueError("Conclua ou cancele o pedido pendente antes de editar.")
+        history = get_session_history(session_id)
+        if not isinstance(expected, list) or any(not isinstance(m, dict) for m in expected):
+            raise ValueError("Histórico inválido.")
+        signature = lambda rows: [(m.get("role"), m.get("content") or m.get("text") or "") for m in rows]
+        if signature(history) != signature(expected):
+            raise ValueError("A conversa mudou. Recarregue antes de editar.")
+        if type(index) is not int or not 0 <= index < len(history) or history[index].get("role") != "user":
+            raise ValueError("Selecione uma mensagem sua para editar.")
+        kept = history[:index]
+        _save_history(session_id, kept)
+        return kept
 
 
 def get_session(session_id: str) -> dict[str, Any] | None:

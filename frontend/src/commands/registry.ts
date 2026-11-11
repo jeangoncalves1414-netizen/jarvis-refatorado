@@ -78,7 +78,7 @@ const NAV_SLASH: Record<string, { slash: string; aliases: string[] }> = {
   Estudos: { slash: 'estudos', aliases: ['estudo', 'flashcards'] },
   'Evolução': { slash: 'lifeos', aliases: ['evolucao', 'habitos'] },
   'Calendário': { slash: 'calendario', aliases: ['agenda'] },
-  'Painel pessoal': { slash: 'painel', aliases: ['tarefas'] },
+  'Painel pessoal': { slash: 'painel', aliases: ['tarefas', 'hoje'] },
   'Análises': { slash: 'metricas', aliases: ['analises', 'logs'] },
   Identidade: { slash: 'perfis', aliases: ['identidade'] },
   'Configurações': { slash: 'config', aliases: ['configuracoes', 'ajustes'] },

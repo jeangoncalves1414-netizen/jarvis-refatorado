@@ -57,6 +57,11 @@ def _memories(text: str) -> str:
 
 
 def build_turn_sections(text: str, origin: str | None = None) -> TurnSections:
+    from app.agent.context_policy import is_chat_history_request
+    if is_chat_history_request(text):
+        return TurnSections(text="\n\nConsulte somente as mensagens deste chat para responder sobre esta conversa. "
+                            "O histórico enviado pode ser parcial; se a mensagem solicitada não estiver nele, "
+                            "informe essa limitação. Não use memórias nem consulte outros chats para preencher lacunas.")
     situational = _situational()
     memories = _memories(text)
     return TurnSections(text=situational + memories, situational=situational, memories=memories)

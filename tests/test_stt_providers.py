@@ -29,21 +29,22 @@ def test_whisper_local_success(tmp_path, monkeypatch):
     clip.write_bytes(b"RIFFdummywavdata")
     engine = STTEngine(stt_provider="whisper_local")
 
-    monkeypatch.setattr(engine, "_transcribe_whisper_local", lambda _f: ("Olá mundo Jarvis", None))
+    monkeypatch.setattr("app.services.voice.stt.local_whisper.transcribe_file", lambda *_: ("Olá mundo Jarvis", None))
     text, error = engine.transcribe_file(str(clip))
 
     assert text == "Olá mundo Jarvis"
     assert error is None
-    assert engine.last_attempts[0] == {"provider": "whisper_local", "outcome": "success"}
+    assert engine.last_attempts[0] == {"provider": "local", "outcome": "success"}
 
 
 def test_whisper_local_fallback_to_google(tmp_path, monkeypatch):
     clip = tmp_path / "voice.wav"
     clip.write_bytes(b"RIFFdummywavdata")
     engine = STTEngine(stt_provider="whisper_local")
+    engine.groq_api_keys = []
 
     # whisper_local returns error (e.g. package missing)
-    monkeypatch.setattr(engine, "_transcribe_whisper_local", lambda _f: (None, "openai-whisper não instalado"))
+    monkeypatch.setattr("app.services.voice.stt.local_whisper.transcribe_file", lambda *_: (None, "faster-whisper não instalado"))
     # google succeeds
     monkeypatch.setattr(engine, "_transcribe_google", lambda _f: "Transcrição via Google")
 
@@ -51,7 +52,7 @@ def test_whisper_local_fallback_to_google(tmp_path, monkeypatch):
 
     assert text == "Transcrição via Google"
     assert error is None
-    assert {"provider": "whisper_local", "outcome": "failed"} in engine.last_attempts
+    assert {"provider": "local", "outcome": "failed"} in engine.last_attempts
     assert {"provider": "google", "outcome": "success"} in engine.last_attempts
 
 

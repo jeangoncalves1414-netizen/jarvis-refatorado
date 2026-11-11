@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from app.storage.checklist_store import checklist_store
-from app.services.habits import HabitService
+from app.services.personal_habits import PersonalHabits as HabitService
 
 _NOT_FOUND = (404, {"ok": False, "error": "Checklist não encontrada."})
 _ITEM_NOT_FOUND = (404, {"ok": False, "error": "Item da checklist não encontrado."})
@@ -18,9 +18,10 @@ def handle_checklists_get(parts: list[str], _handler: Any) -> tuple[int, dict] |
     if parts[:2] == ["api", "lifeos"] and len(parts) >= 3 and parts[2] == "habits":
         try:
             if len(parts) == 3:
-                return 200, {"ok": True, "habits": HabitService.list_habits()}
+                query = parse_qs(urlsplit(getattr(_handler, "path", "")).query)
+                return 200, {"ok": True, "habits": HabitService.list_habits(scheduled=query.get("today") == ["1"])}
             if len(parts) == 4:
-                habit = HabitService.get_habit(parts[3])
+                habit = HabitService.get_habit(unquote(parts[3]))
                 return (200, {"ok": True, "habit": habit}) if habit else _HABIT_NOT_FOUND
         except Exception as exc:
             return 500, {"ok": False, "error": str(exc)}
@@ -44,12 +45,22 @@ def handle_checklists_get(parts: list[str], _handler: Any) -> tuple[int, dict] |
 
 
 def handle_checklists_post(path: str, body: bytes, _handler: Any) -> tuple[int, dict] | None:
+    if not (path.startswith('/api/lifeos/habits') or path.startswith('/api/checklists')):
+        return None
+    from app.ui.panel.api.personal_journal import journal_response
+    return journal_response('habit_tool' if path.startswith('/api/lifeos') else 'checklist_tool', path, body,
+                            lambda: _handle_checklists_post(path, body, _handler))
+
+
+def _handle_checklists_post(path: str, body: bytes, _handler: Any) -> tuple[int, dict] | None:
     parts = [part for part in urlsplit(path).path.split("/") if part]
 
     # Endpoints de hábitos modulares: /api/lifeos/habits
     if parts[:2] == ["api", "lifeos"] and len(parts) >= 3 and parts[2] == "habits":
         try:
             payload = json.loads(body.decode("utf-8") or "{}")
+            if not isinstance(payload, dict):
+                return 400, {"ok": False, "error": "JSON inválido."}
         except (UnicodeDecodeError, ValueError):
             return 400, {"ok": False, "error": "JSON inválido."}
 
@@ -80,10 +91,12 @@ def handle_checklists_post(path: str, body: bytes, _handler: Any) -> tuple[int, 
                 )
                 return 201, {"ok": True, "habit": created}
 
-            habit_id = parts[3]
+            habit_id = unquote(parts[3])
             # POST /api/lifeos/habits/{id}/toggle
             if len(parts) == 5 and parts[4] == "toggle":
                 completed = payload.get("completed")
+                if completed is not None and not isinstance(completed, bool):
+                    return 400, {"ok": False, "error": "completed deve ser verdadeiro ou falso."}
                 habit = HabitService.get_habit(habit_id)
                 if not habit:
                     return _HABIT_NOT_FOUND

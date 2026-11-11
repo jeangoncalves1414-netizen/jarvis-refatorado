@@ -1,0 +1,62 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "Remover o controle local corta os comandos do PC",
+      "detail": "removeBridgeDevice apaga jarvis-bridge-desktop-token depois de remover 'jarvis-desktop' (App.tsx:465), e sendBridgeCommand usa essa chave como device_token de todo comando (App.tsx:447-448). Depois da remoção, Ligar e Desligar mandam device_token '' e recebem 400. Só registerBridgeDemo ('Adicionar lâmpada de teste') registra o controle de novo, e ainda registra outra lâmpada. O diálogo mostra o mesmo texto para todos os dispositivos e não avisa.",
+      "action": "Dar ao diálogo de jarvis-desktop um texto próprio que avise que os comandos do PC param, ou esconder 'Remover' no controle local."
+    },
+    {
+      "id": 2,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "Credencial velha depois de 'não encontrado'",
+      "detail": "Se outra aba já removeu o desktop, a remoção falha com 'Dispositivo não encontrado na ponte.' e removeItem não roda, porque só roda depois do sucesso. A chave fica com uma credencial inválida, e registerBridgeDemo, ao ver a chave preenchida, não registra o controle de novo.",
+      "action": "Apagar jarvis-bridge-desktop-token também quando a ponte responder 'Dispositivo não encontrado' para jarvis-desktop."
+    },
+    {
+      "id": 3,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "Remover sempre recusa no modo lan",
+      "detail": "No modo lan, todo pedido vira o principal 'lan' (control_plane.py:87-94), então local_owner é falso. O botão Remover aparece em todos os dispositivos, e num painel servido em lan, como o app Android reconstruído, só funciona com a credencial do próprio dispositivo. O comportamento falha fechado, a mensagem explica e a escolha está declarada na evidência.",
+      "action": "Registrar em PENDENCIAS_DO_PAINEL.md, junto com a falta de remoção pelo PC no modo lan."
+    },
+    {
+      "id": 4,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "Docs apontam para o Quest Log apagado",
+      "detail": "docs/PENDENCIAS_DO_PAINEL.md (item 4) linka ../frontend/src/hooks/useQuestLog.ts, apagado neste commit, e docs/PROJECT_CONTINUITY.md ainda descreve o Quest Log como visualização legada.",
+      "action": "Corrigir no passo de documentação."
+    },
+    {
+      "id": 5,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "QuestLogPanel.tsx e tipos órfãos",
+      "detail": "frontend/src/components/QuestLogPanel.tsx e os tipos ProcessQuest, ProcessStepItem e ProcessStepStatus em types.ts não têm mais uso. A evidência declara isso e o pedido citava só o hook e as referências em App.tsx.",
+      "action": "Remover num item futuro."
+    },
+    {
+      "id": 6,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "'Parar pedido' pendente",
+      "detail": "O item foi pulado corretamente: useChat.ts só grava finalRunIdRef quando o turno termina (linhas 314-319, REST, e 495, evento complete), então não há id de run ativo no estado durante o pedido.",
+      "action": "Registrar no item 4 de PENDENCIAS_DO_PAINEL.md a fiação necessária: o backend enviar o run_id no início do turno ou o App consultar /api/runs?status=running."
+    },
+    {
+      "id": 7,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "Falha de rede na remoção sem teste",
+      "detail": "A conversão de TypeError em 'Sem conexão com a ponte. Verifique se o backend está ligado e tente de novo.' em removeBridgeDevice não é exercitada pelo smoke.",
+      "action": "Acrescentar ao workspace.smoke.cjs um passo com route.abort() no POST remove que confira o alerta."
+    }
+  ],
+  "reviewDoc": "c:/Users/maria/Desktop/Jarvis/.agents/tasks/desktop-batch1/review-item3.md"
+}

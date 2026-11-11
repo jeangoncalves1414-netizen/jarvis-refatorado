@@ -121,6 +121,8 @@ def init_db() -> None:
         if "updated_at" not in columns:
             # Data da última alteração; 0 = nunca editado (a sincronização usa created_at nesse caso).
             cursor.execute("ALTER TABLE habits ADD COLUMN updated_at REAL DEFAULT 0")
+        if "is_priority" not in columns:
+            cursor.execute("ALTER TABLE habits ADD COLUMN is_priority INTEGER NOT NULL DEFAULT 0")
 
         conn.commit()
 
@@ -187,7 +189,12 @@ class HabitService:
         streak_info = HabitService.calculate_streak(habit["id"])
         habit["current_streak"] = streak_info["current_streak"]
         habit["best_streak"] = streak_info["best_streak"]
-        habit["completed_today"] = HabitService.is_completed_today(habit["id"])
+        with get_db_connection() as conn:
+            log = conn.execute("SELECT completed, timestamp FROM habit_logs WHERE habit_id = ? AND date_str = ?",
+                               (habit["id"], date.today().isoformat())).fetchone()
+        habit["completed_today"] = bool(log and log["completed"])
+        habit["completed_at"] = log["timestamp"] if habit["completed_today"] else None
+        habit["isPriority"] = bool(habit.get("is_priority"))
         return habit
 
     @staticmethod
@@ -260,6 +267,16 @@ class HabitService:
             return None
 
         fields_to_update = {}
+        if 'target_value' in kwargs:
+            value = float(kwargs['target_value'])
+            import math
+            if not math.isfinite(value) or not 0 < value <= 1e6:
+                raise ValueError('Meta inválida.')
+            fields_to_update['target_value'] = value
+        if 'unit' in kwargs:
+            fields_to_update['unit'] = str(kwargs['unit'])[:40]
+        if isinstance(kwargs.get("isPriority"), bool):
+            fields_to_update["is_priority"] = int(kwargs["isPriority"])
         for key in ("name", "category", "routine_block", "frequency_type", "start_time", "color", "icon"):
             if key in kwargs and kwargs[key] is not None:
                 fields_to_update[key] = str(kwargs[key])
@@ -332,8 +349,9 @@ class HabitService:
         current_slots[norm] = slot_data
         return HabitService.update_habit(habit_id, day_slots=current_slots)
 
-    @staticmethod
+    @classmethod
     def contextual_auto_check(
+        cls,
         text: str = "",
         event_type: str = "dialogue",
         data: dict[str, Any] | None = None,
@@ -357,7 +375,7 @@ class HabitService:
         if not (is_morning or is_water or is_workout or is_finance):
             return []
 
-        active_habits = HabitService.list_habits()
+        active_habits = cls.list_habits()
         today_code = CANONICAL_WEEK_DAYS[date.today().weekday()]
 
         for habit in active_habits:
@@ -385,8 +403,9 @@ class HabitService:
                 notes = "Auto-check contextual: finanças registradas"
 
             if matched:
-                updated = HabitService.check_in(habit["id"], notes=notes)
-                checked_habits.append(updated)
+                updated = cls.check_in(habit["id"], notes=notes)
+                if updated.get("changed"):
+                    checked_habits.append(updated)
 
         return checked_habits
 
@@ -406,11 +425,14 @@ class HabitService:
                     completed = 1,
                     notes = excluded.notes,
                     timestamp = excluded.timestamp
+                WHERE habit_logs.completed = 0
             """,
                 (habit_id, date_str, value, notes, now),
             )
+            changed = cursor.rowcount > 0
             conn.commit()
-        return HabitService.get_habit(habit_id) or {"ok": True, "habit_id": habit_id}
+        result = HabitService.get_habit(habit_id) or {"ok": True, "habit_id": habit_id}
+        return {**result, "changed": changed}
 
     @staticmethod
     def uncheck_in(habit_id: str, date_str: str = "") -> dict[str, Any]:
@@ -423,7 +445,8 @@ class HabitService:
             conn.commit()
         if removed:
             sync_tombstones.record("lifestyle.habit_logs", sync_tombstones.row_key(habit_id, date_str))
-        return HabitService.get_habit(habit_id) or {"ok": True, "habit_id": habit_id}
+        result = HabitService.get_habit(habit_id) or {"ok": True, "habit_id": habit_id}
+        return {**result, "changed": removed}
 
     @staticmethod
     def is_completed_today(habit_id: str) -> bool:

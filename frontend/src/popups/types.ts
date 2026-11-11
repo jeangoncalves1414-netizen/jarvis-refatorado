@@ -21,7 +21,7 @@ export type PopupEnvelope<D = unknown> = {
 
 export type PopupSettings = { enabled: boolean; auto: boolean; ttl_seconds: number; max_visible: number }
 
-export const POPUP_SETTINGS_DEFAULTS: PopupSettings = { enabled: true, auto: true, ttl_seconds: 8, max_visible: 3 }
+export const POPUP_SETTINGS_DEFAULTS: PopupSettings = { enabled: true, auto: true, ttl_seconds: 8, max_visible: 1 }
 
 // Um popup na tela ou na fila. `revision` sobe quando um popup com a mesma chave atualiza este.
 export type PopupEntry = {

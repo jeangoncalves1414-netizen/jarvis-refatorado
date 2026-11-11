@@ -1,0 +1,14 @@
+.recent-personal-notes { min-width: 0; }
+.recent-personal-notes h3, .personal-note-reader header { display: flex; align-items: center; gap: .5rem; }
+.recent-personal-notes h3 { margin: 0 0 .6rem; font-size: .9rem; }
+.recent-note-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .32rem 0; }
+.recent-note-row div { min-width: 0; }
+.recent-note-row strong, .recent-note-row small { display: block; }
+.recent-note-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; }
+.recent-note-row small, .recent-personal-notes p { font-size: .78rem; color: var(--ws-muted, #adbab3); }
+.recent-personal-notes button, .personal-note-reader button { cursor: pointer; font: inherit; font-size: .78rem; background: transparent; color: var(--ws-accent, #b4d9c6); border: 0; padding: .35rem .2rem; }
+.personal-note-reader { width: min(34rem, calc(100vw - 2rem)); max-height: 76dvh; margin: auto; padding: 1.25rem; overflow: auto; border: 1px solid var(--ws-accent-line, #425750); border-radius: 16px; color: var(--ws-text, #edf3ee); background: var(--ws-bg, #182321); }
+.personal-note-reader::backdrop { background: #0008; }
+.personal-note-reader header { justify-content: space-between; }
+.personal-note-reader h2 { font-size: 1.1rem; margin: 0; overflow-wrap: anywhere; }
+.personal-note-reader pre { font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }

@@ -38,6 +38,13 @@ def sanitize_speech_text(text: str) -> str:
 
     t = text
 
+    if re.search(r"Traceback \(most recent call last\)|\b\w*(?:Error|Exception):|object has no attribute|\bHTTP\s+[45]\d\d\b", t, re.IGNORECASE):
+        return "Não consegui concluir o pedido. Os detalhes estão na tela."
+    t = re.sub(r"^.*(?:\[(?:DEBUG|INFO|WARN|ERROR)\]|^\s*at\s+\S+\s*\().*$", "", t, flags=re.MULTILINE)
+    t = re.sub(r"\([^)]*(?:\.exe\b|\b(?:pid|hwnd)\s*[:=])[^)]*\)", "", t, flags=re.IGNORECASE)
+    # Preserve the label before removing its URL.
+    t = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", t)
+
     # Remove tags de ferramentas como [tool:open_windows_app:chrome]
     t = re.sub(r"\[tool:[^\]]+\]", "", t)
 
@@ -54,6 +61,8 @@ def sanitize_speech_text(text: str) -> str:
 
     # Remove URLs restantes (http://, https://, www., etc.) para nunca serem soletradas pelo TTS
     t = re.sub(r"https?://\S+|www\.\S+", "", t)
+    t = re.sub(r"\b(?:[a-z0-9-]+\.)+(?:com|org|net|io|dev|app|gg|br|pt|edu|gov|ai|me|tv|co)(?:\.[a-z]{2})?(?:[/?#][^\s<>\"')]*)?\b", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"\b[a-z0-9_-]+\.exe\b", "", t, flags=re.IGNORECASE)
 
     # Converte links markdown [texto](url) mantendo apenas o texto
     t = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", t)

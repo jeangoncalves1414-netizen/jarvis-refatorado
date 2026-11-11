@@ -698,7 +698,7 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         operation_arguments=("action", "command"), default_operation="list",
         operation_risks=_by_operation(
             observe=("list",),
-            low=("create", "create_many", "update", "toggle", "complete", "done"),
+            low=("create", "create_many", "update", "toggle", "complete", "done", "reopen"),
             high=("delete",),
         ),
         target_arguments=("title", "task_id"), default_target="suas tarefas", target_detail=_task_target_detail,
@@ -708,8 +708,9 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
             ("create_many", "Cria várias tarefas de uma vez; se alguma for inválida, nenhuma é criada."),
             ("update", "Altera título, prioridade, projeto ou vencimento da tarefa."),
             ("toggle", "Conclui a tarefa ou a reabre."),
-            ("complete", "Conclui a tarefa ou a reabre."),
-            ("done", "Conclui a tarefa ou a reabre."),
+            ("reopen", "Reabre a tarefa concluída."),
+            ("complete", "Conclui a tarefa; se já estiver concluída, mantém o estado."),
+            ("done", "Conclui a tarefa; se já estiver concluída, mantém o estado."),
             ("delete", "Exclui a tarefa."),
         ),
         operation_reversibility=(
@@ -920,9 +921,9 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         ("browser", "automation"), "high", requires_confirmation=True,
         operation_arguments=("action", "command", "fast_action"), default_operation="auto",
         operation_risks=_by_operation(
-            observe=("auto", "deep_search", "clean_text", "interactive_snapshot", "dump_dom"),
+            observe=("deep_search", "clean_text", "interactive_snapshot", "dump_dom"),
             low=("click_text", "click_element"),
-            high=("type_input", "type_element"),
+            high=("auto", "type_input", "type_element"),
         ),
         target_arguments=("goal", "query", "url"),
         default_target="navegador automatizado",
@@ -938,7 +939,8 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
             ("type_element", "Digita texto no elemento indicado pelo número do snapshot."),
         ),
         operation_reversibility=(
-            *_same_text("Nada a desfazer: operação de leitura/síntese.", "auto", "deep_search", "clean_text", "interactive_snapshot", "dump_dom"),
+            *_same_text("Nada a desfazer: operação de leitura/síntese.", "deep_search", "clean_text", "interactive_snapshot", "dump_dom"),
+            ("auto", "Não garantida: a automação pode clicar, preencher e enviar dados."),
             *_same_text("Não garantida: cliques em páginas podem disparar ações externas.", "click_text", "click_element"),
             *_same_text("Não garantida: formulários ou dados enviados não são desfeitos.", "type_input", "type_element"),
         ),
@@ -968,8 +970,14 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         operation_effects=(
             ("list", "Lista o conteúdo da pasta; nada é alterado."),
             ("read", "Lê o conteúdo do arquivo; nada é alterado."),
+            ("mkdir", "Cria a pasta indicada, incluindo as pastas-pai que ainda não existirem."),
+            ("create", "Cria um novo arquivo de texto; recusa sobrescrever um arquivo existente."),
         ),
-        operation_reversibility=_same_text("Nada a desfazer.", "list", "read"),
+        operation_reversibility=(
+            *_same_text("Nada a desfazer.", "list", "read"),
+            ("mkdir", "Reversível: apague a pasta criada se ela estiver vazia."),
+            ("create", "Reversível: remova o novo arquivo se não for necessário."),
+        ),
         scope="Só a pasta de trabalho do Jarvis e este caminho.",
     ),
     "script_runner": ToolMetadata(

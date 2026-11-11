@@ -1,4 +1,6 @@
+import { ApiKeyFields } from '../components/ApiKeyFields'
 import { useState, useEffect, type ReactNode } from 'react'
+import { ModeModelSettings } from '../components/ModeModelSettings'
 import { Switch } from '../components/Switch'
 import { AutoApprovalsManager } from '../components/AutoApprovals'
 import { AgentLoopSettings } from '../components/AgentLoopSettings'
@@ -58,6 +60,7 @@ type SettingsPageProps = {
   onSaveApiKeys?: (keys: Record<string, string>) => void | Promise<void>
   onSetTtsProvider: (provider: 'fish' | 'gemini' | 'edge' | 'oxyy') => void
   onSetProvider: (provider: 'gemini' | 'groq' | 'oxyy') => void
+  onRoutesSaved?: () => void
   onSetSttProvider: (provider: 'local' | 'groq' | 'oxyy' | 'google') => void
   onSaveOxyy: (models: OxyySettings['models']) => void
   onRefreshOxyy: () => void
@@ -92,7 +95,7 @@ export function SettingsPage({
   onSetTtsProvider, onSetProvider, onSetSttProvider, onSaveOxyy, onRefreshOxyy,
   onSetWakeWordEnabled, onSetBootEnabled, speakEnabled, onSetSpeakEnabled,
   onSaveBriefing, onBriefingTimeChange, onToggleBriefingTopic, onBriefingInstructionsChange,
-  onNavigate,
+  onNavigate, onRoutesSaved,
 }: SettingsPageProps) {
   const [keyValues, setKeyValues] = useState<Record<string, string>>({
     oxyy: apiKeys.oxyy || '',
@@ -139,13 +142,7 @@ export function SettingsPage({
     if (onSaveApiKeys) {
       await onSaveApiKeys(keyValues)
     }
-    if (!isMobileStandalone() && isEvoluteCloudConnected()) {
-      try {
-        await pushJarvisVault()
-      } catch {
-        /* nuvem opcional */
-      }
-    }
+
   }
 
   const modelFields = [
@@ -248,6 +245,7 @@ export function SettingsPage({
       id: 'providers', label: 'Provedores e rotas', icon: <Route size={16} />, keywords: 'provedores rotas capacidade chaves api oxyy groq gemini openrouter fish modelo fallback catálogo mobile',
       render: () => (<>
         {desktop && (<>
+          <ModeModelSettings onSaved={onRoutesSaved} catalog={oxyyCatalog?.models?.chat?.map(model => model.id) || []} />
           {/* 4. Rotas por Capacidade (Motor Efetivo Status) */}
           <article className="settings-card settings-routes-card">
             <p className="eyebrow">ROTAS POR CAPACIDADE</p>
@@ -466,7 +464,7 @@ export function SettingsPage({
                 <Save size={14} /> Salvar Chaves
               </button>
             </div>
-            <p>Insira ou atualize as chaves de API. Separe múltiplas chaves por vírgula para rotação automática. Use o ícone 👁️ para desocultar os caracteres.</p>
+            <p>Adicione uma chave por campo usando +. Oxyy, Groq e Gemini usam a rotação existente do agente. O ícone de olho mostra ou oculta o texto completo das chaves.</p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, marginTop: 12 }}>
               {/* Oxyy API Key */}
@@ -481,20 +479,16 @@ export function SettingsPage({
                     </span>
                   )}
                 </div>
-                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
+                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Use + para adicionar outra chave à rotação</small>
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  <input
-                    type="password"
-                    value={keyValues.oxyy}
-                    onChange={e => handleKeyChange('oxyy', e.target.value)}
-                    placeholder="sk-oxyy-...,sk-oxyy-..."
-                    style={{ flex: 1 }}
-                  />
+                  <ApiKeyFields visible={visibleKeys.oxyy} provider="oxyy" value={keyValues.oxyy} onChange={value => handleKeyChange('oxyy', value)} />
                   <button
                     type="button"
                     className="outline-button"
                     onClick={() => toggleKeyVisibility('oxyy')}
-                    title={visibleKeys.oxyy ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
+                    aria-label={visibleKeys.oxyy ? 'Ocultar chaves de oxyy' : 'Mostrar chaves de oxyy'}
+                    aria-pressed={!!visibleKeys.oxyy}
+                    title={visibleKeys.oxyy ? 'Ocultar chaves' : 'Mostrar chaves'}
                     style={{ padding: '6px 10px' }}
                   >
                     {visibleKeys.oxyy ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -514,20 +508,16 @@ export function SettingsPage({
                     </span>
                   )}
                 </div>
-                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
+                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Use + para adicionar outra chave à rotação</small>
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  <input
-                    type="password"
-                    value={keyValues.groq}
-                    onChange={e => handleKeyChange('groq', e.target.value)}
-                    placeholder="gsk_...,gsk_..."
-                    style={{ flex: 1 }}
-                  />
+                  <ApiKeyFields visible={visibleKeys.groq} provider="groq" value={keyValues.groq} onChange={value => handleKeyChange('groq', value)} />
                   <button
                     type="button"
                     className="outline-button"
                     onClick={() => toggleKeyVisibility('groq')}
-                    title={visibleKeys.groq ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
+                    aria-label={visibleKeys.groq ? 'Ocultar chaves de groq' : 'Mostrar chaves de groq'}
+                    aria-pressed={!!visibleKeys.groq}
+                    title={visibleKeys.groq ? 'Ocultar chaves' : 'Mostrar chaves'}
                     style={{ padding: '6px 10px' }}
                   >
                     {visibleKeys.groq ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -547,20 +537,16 @@ export function SettingsPage({
                     </span>
                   )}
                 </div>
-                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
+                <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Use + para adicionar outra chave à rotação</small>
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  <input
-                    type="password"
-                    value={keyValues.gemini}
-                    onChange={e => handleKeyChange('gemini', e.target.value)}
-                    placeholder="AIzaSy...,AIzaSy..."
-                    style={{ flex: 1 }}
-                  />
+                  <ApiKeyFields visible={visibleKeys.gemini} provider="gemini" value={keyValues.gemini} onChange={value => handleKeyChange('gemini', value)} />
                   <button
                     type="button"
                     className="outline-button"
                     onClick={() => toggleKeyVisibility('gemini')}
-                    title={visibleKeys.gemini ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
+                    aria-label={visibleKeys.gemini ? 'Ocultar chaves de gemini' : 'Mostrar chaves de gemini'}
+                    aria-pressed={!!visibleKeys.gemini}
+                    title={visibleKeys.gemini ? 'Ocultar chaves' : 'Mostrar chaves'}
                     style={{ padding: '6px 10px' }}
                   >
                     {visibleKeys.gemini ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -583,7 +569,7 @@ export function SettingsPage({
                 <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                   <input
-                    type="password"
+                    type={visibleKeys.openrouter ? 'text' : 'password'}
                     value={keyValues.openrouter}
                     onChange={e => handleKeyChange('openrouter', e.target.value)}
                     placeholder="sk-or-v1-...,sk-or-v1-..."
@@ -593,7 +579,9 @@ export function SettingsPage({
                     type="button"
                     className="outline-button"
                     onClick={() => toggleKeyVisibility('openrouter')}
-                    title={visibleKeys.openrouter ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
+                    aria-label={visibleKeys.openrouter ? 'Ocultar chaves de openrouter' : 'Mostrar chaves de openrouter'}
+                    aria-pressed={!!visibleKeys.openrouter}
+                    title={visibleKeys.openrouter ? 'Ocultar chaves' : 'Mostrar chaves'}
                     style={{ padding: '6px 10px' }}
                   >
                     {visibleKeys.openrouter ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -616,7 +604,7 @@ export function SettingsPage({
                 <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Separe múltiplas chaves por vírgula</small>
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                   <input
-                    type="password"
+                    type={visibleKeys.fish ? 'text' : 'password'}
                     value={keyValues.fish}
                     onChange={e => handleKeyChange('fish', e.target.value)}
                     placeholder="key-...,key-..."
@@ -626,7 +614,9 @@ export function SettingsPage({
                     type="button"
                     className="outline-button"
                     onClick={() => toggleKeyVisibility('fish')}
-                    title={visibleKeys.fish ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
+                    aria-label={visibleKeys.fish ? 'Ocultar chaves de fish' : 'Mostrar chaves de fish'}
+                    aria-pressed={!!visibleKeys.fish}
+                    title={visibleKeys.fish ? 'Ocultar chaves' : 'Mostrar chaves'}
                     style={{ padding: '6px 10px' }}
                   >
                     {visibleKeys.fish ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -649,7 +639,7 @@ export function SettingsPage({
                 <small style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginBottom: 4 }}>Sem chave, a busca de lugares usa o OpenStreetMap (gratuito). Com chave, usa o Google Places e cai no OpenStreetMap se o Google falhar.</small>
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                   <input
-                    type="password"
+                    type={visibleKeys.google_places ? 'text' : 'password'}
                     value={keyValues.google_places}
                     onChange={e => handleKeyChange('google_places', e.target.value)}
                     placeholder="AIza..."
@@ -660,7 +650,9 @@ export function SettingsPage({
                     type="button"
                     className="outline-button"
                     onClick={() => toggleKeyVisibility('google_places')}
-                    title={visibleKeys.google_places ? 'Ocultar finais' : 'Mostrar só os 4 últimos caracteres'}
+                    aria-label={visibleKeys.google_places ? 'Ocultar chaves de google_places' : 'Mostrar chaves de google_places'}
+                    aria-pressed={!!visibleKeys.google_places}
+                    title={visibleKeys.google_places ? 'Ocultar chaves' : 'Mostrar chaves'}
                     style={{ padding: '6px 10px' }}
                   >
                     {visibleKeys.google_places ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -1070,9 +1062,9 @@ function MobileApiConfig() {
 
           {[
             { id: 'oxyy', label: 'Oxyy API Key (Principal)', placeholder: 'sk-oxyy-...' },
-            { id: 'groq', label: 'Groq API Keys (separadas por vírgula para rotação)', placeholder: 'gsk_...,gsk_...' },
-            { id: 'gemini', label: 'Gemini API Keys (separadas por vírgula para rotação)', placeholder: 'AIzaSy...,AIzaSy...' },
-            { id: 'fish', label: 'Fish Audio Keys (separadas por vírgula para rotação)', placeholder: 'key-...,key-...' },
+            { id: 'groq', label: 'Groq · Rotação de chaves', placeholder: 'gsk_...,gsk_...' },
+            { id: 'gemini', label: 'Gemini · Rotação de chaves', placeholder: 'AIzaSy...,AIzaSy...' },
+            { id: 'fish', label: 'Fish Audio Key', placeholder: 'key-...,key-...' },
           ].map(item => (
             <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1084,15 +1076,17 @@ function MobileApiConfig() {
                 )}
               </div>
               <div style={{ position: 'relative' }}>
-                <input
-                  type="password"
+                {item.id !== 'fish' ? <ApiKeyFields visible={!!showKey[item.id]} provider={item.id} value={keys[item.id] || ''} onChange={value => setKeys(prev => ({ ...prev, [item.id]: value }))} /> : (<input
+                  type={showKey[item.id] ? 'text' : 'password'}
                   value={keys[item.id] || ''}
                   onChange={e => setKeys(prev => ({ ...prev, [item.id]: e.target.value }))}
                   placeholder={item.placeholder}
                   style={{ width: '100%', padding: '8px 36px 8px 10px', borderRadius: 8, background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#f1f5f9', fontSize: 12, boxSizing: 'border-box', fontFamily: 'monospace' }}
-                />
+                />)}
                 <button
                   type="button"
+                  aria-label={`${showKey[item.id] ? 'Ocultar' : 'Mostrar'} chaves de ${item.id}`}
+                  aria-pressed={!!showKey[item.id]}
                   onClick={() => setShowKey(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
                   style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
                 >

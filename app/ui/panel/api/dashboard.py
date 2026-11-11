@@ -8,8 +8,21 @@ from app.services.system import SystemMetrics
 from app.storage.activity_store import list_recent, log_activity
 from app.storage.enem_store import EnemStore
 from app.storage.session_store import list_sessions
-from app.storage.task_store import add_task, delete_task, list_tasks, toggle_task
+from app.services.tasks import TaskService
 from app.storage.tutor_store import TutorStore
+
+
+def list_tasks(*, include_completed: bool = True):
+    return TaskService.list_tasks(completed=None if include_completed else False)
+
+
+def add_task(title: str, *, priority: str = "normal"):
+    import uuid
+    return TaskService.create_task(f"task_{uuid.uuid4().hex[:8]}", title, priority={"high": 2, "normal": 3, "low": 4}.get(priority, 3))
+
+
+toggle_task = TaskService.toggle_task
+delete_task = TaskService.delete_task
 
 
 def build_dashboard_snapshot() -> dict[str, Any]:

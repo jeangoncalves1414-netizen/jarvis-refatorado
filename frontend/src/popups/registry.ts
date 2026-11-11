@@ -1,5 +1,5 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
-import { CalendarClock, Droplets, Info, ListChecks, ListTodo, MapPinned, NotebookPen, type LucideIcon } from 'lucide-react'
+import { CalendarClock, Droplets, Info, ListChecks, ListTodo, MapPinned, NotebookPen, Wallet, type LucideIcon } from 'lucide-react'
 import { parseBbox, parsePlace, type PlaceBbox, type PlaceProvider, type PlaceResult } from '../utils/places'
 import type { PopupEnvelope, PopupOrigin } from './types'
 
@@ -8,6 +8,9 @@ import type { PopupEnvelope, PopupOrigin } from './types'
 // popup com dado inválido não abre.
 
 export const POPUP_INFO = 'info'
+export const POPUP_FINANCE_RECEIPT = 'finance_receipt'
+export type FinanceEntry = { id: string; type: 'income' | 'expense'; amount: number; category: string; description: string; date_str: string }
+export type FinanceReceipt = { entries: FinanceEntry[]; period: string; before: number; after: number }
 export const POPUP_HABIT_LIST = 'habit_list'
 export const POPUP_SCHEDULE = 'schedule'
 export const POPUP_WATER = 'water'
@@ -124,6 +127,27 @@ function parseWater(raw: unknown): WaterPopupData | null {
   return { date: raw.date, current_ml, previous_ml, target_ml, percentage }
 }
 
+function parseFinanceReceipt(raw: unknown): FinanceReceipt | null {
+  if (!isRecord(raw) || !isText(raw.period, 7) || (raw.period !== 'all' && !/^\d{4}-(0[1-9]|1[0-2])$/.test(raw.period))) return null
+  if (typeof raw.before !== 'number' || !Number.isFinite(raw.before) || typeof raw.after !== 'number' || !Number.isFinite(raw.after)) return null
+  if (!Array.isArray(raw.entries) || raw.entries.length > 20) return null
+  const entries: FinanceEntry[] = []
+  for (const entry of raw.entries) {
+    if (!isRecord(entry) || !isText(entry.id, 64) || !entry.id || (entry.type !== 'income' && entry.type !== 'expense') ||
+      !isCount(entry.amount) || !isText(entry.category, 60) || !isText(entry.description, 300) || !isText(entry.date_str, 10) || !ISO_DAY.test(entry.date_str)) return null
+    entries.push({ id: entry.id, type: entry.type, amount: entry.amount, category: entry.category, description: entry.description, date_str: entry.date_str })
+  }
+  return { entries, period: raw.period, before: raw.before, after: raw.after }
+}
+
+const financeReceiptDef: PopupDef<FinanceReceipt> = {
+  id: POPUP_FINANCE_RECEIPT,
+  title: 'Finanças',
+  icon: Wallet,
+  parseData: parseFinanceReceipt,
+  component: lazy(() => import('./templates/FinanceReceiptPopup').then(module => ({ default: module.FinanceReceiptPopup }))),
+}
+
 function parseLiveNotes(raw: unknown): LiveNotesPopupData | null {
   if (!isRecord(raw) || !isText(raw.draft_id, 32) || !/^[a-z0-9]{8,32}$/.test(raw.draft_id)) return null
   if (!isText(raw.title, 80) || (raw.format !== 'text' && raw.format !== 'bullets' && raw.format !== 'checklist')) return null
@@ -209,6 +233,18 @@ const placesDef: PopupDef<PlacesPopupData> = {
 }
 
 export const popupRegistry: Record<string, PopupDef<any>> = {
+  personal_receipt: {
+    id: 'personal_receipt', title: 'Registro salvo', icon: ListChecks,
+    parseData: (raw: unknown) => {
+      if (!isRecord(raw) || !Array.isArray(raw.receipts) || raw.receipts.length > 20) return null
+      if (raw.receipts.some(r => !isRecord(r) || typeof r.id !== 'string' || typeof r.message !== 'string' || !Array.isArray(r.changes) || r.changes.some((c: unknown) => !isRecord(c) || typeof c.key !== 'string' || typeof c.store !== 'string'))) return null
+      const preview = isRecord(raw.preview) && ['habit_list', 'task_list', 'water', 'finance_receipt'].includes(String(raw.preview.template)) ? parsePopupEnvelope(raw.preview) : null
+      const bulk = isRecord(raw.bulk) && typeof raw.bulk.kind === 'string' && typeof raw.bulk.query === 'string' && isCount(raw.bulk.count) ? raw.bulk : null
+      return { receipts: raw.receipts, preview, bulk, finance: raw.finance ? parseFinanceReceipt(raw.finance) : null }
+    },
+    component: lazy(() => import('./templates/PersonalReceiptPopup').then(m => ({ default: m.PersonalReceiptPopup }))),
+  },
+  [POPUP_FINANCE_RECEIPT]: financeReceiptDef,
   [POPUP_INFO]: infoDef,
   [POPUP_HABIT_LIST]: habitListDef,
   [POPUP_SCHEDULE]: scheduleDef,

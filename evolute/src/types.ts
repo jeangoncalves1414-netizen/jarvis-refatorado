@@ -83,6 +83,7 @@ export interface ExerciseSet {
 }
 
 export interface WorkoutExercise {
+  jarvis_session_id?: string;
   id: string;
   date: string;
   exerciseName: string;

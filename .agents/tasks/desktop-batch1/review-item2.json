@@ -1,0 +1,30 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "open de open_windows_app vai ao shell sem aprovação",
+      "detail": "Com um app_name não reconhecido, AppManager.open_app executa o nome com subprocess.Popen(..., shell=True) (app/services/app_manager.py:197-199 e 246-251) e faz os.startfile em qualquer arquivo existente (linha 232). O mapa novo classifica open como low sem olhar o alvo: risk_for({'action': 'open', 'app_name': 'cmd /c echo x'}) == 'low' (spot-check), então a chamada executa sem aprovação. O comportamento já existia na base (a ferramenta inteira era low) e fica fora do pedido do item, mas a evidência afirma que low 'corresponde ao que a ferramenta executa', o que só vale para apps conhecidos. system_control.open_app tem o mesmo risco low com lista fixa e shell=False.",
+      "action": "Levar à usuária como próximo item: classificar open pelo alvo (low só quando o nome resolve por alias, registro, _SYSTEM_COMMANDS ou URI, high nos demais) ou remover o fallback com shell de AppManager.open_app. Corrigir a frase da evidência."
+    },
+    {
+      "id": 2,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "close aprovado sem ver o alvo, com casamento por substring",
+      "detail": "A proposta mostra só 'Executar open windows app. Parâmetros registrados de forma protegida.', sem operação, app_name ou processos. is_app_running casa processos com 'target_stem in pstem or pstem in target_stem' (app_manager.py:274), e close_app faz terminate e kill em todos os que casarem, então o efeito pode ser maior que o nome pedido. A proposta com alvo e efeito foi adiada de forma declarada para outro item.",
+      "action": "No item de alvo e efeito na proposta, mostrar operação, app_name e os processos casados, e avaliar casamento exato em is_app_running."
+    },
+    {
+      "id": 3,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "Caminho de marcadores sem teste de ponta a ponta",
+      "detail": "A leitura da chave command em system_control só é testada em risk_for. Nenhum teste passa por ActionExecutor com legacy_execute chamando registry.run_by_marker, então uma mudança no formato dos argumentos de marcador no orquestrador não seria percebida.",
+      "action": "Acrescentar um teste com ActionExecutor e legacy_execute = registry.run_by_marker, com {\"command\": \"volume_up\"} executando como low e {\"command\": \"kill_process\"} parando em critical/awaiting_confirmation."
+    }
+  ],
+  "reviewDoc": "c:/Users/maria/Desktop/Jarvis/.agents/tasks/desktop-batch1/review-item2.md"
+}

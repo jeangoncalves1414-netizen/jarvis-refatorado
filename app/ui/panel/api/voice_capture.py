@@ -140,7 +140,7 @@ def handle_capture_post(path: str, body: bytes, handler: Any) -> tuple[int, dict
             kwargs = _start_kwargs(payload)
         except (TypeError, ValueError):
             return 400, {"ok": False, "error": "Parâmetros inválidos."}
-        result = capture.start(**kwargs, transcribe=_transcriber(handler))
+        result = capture.start(**kwargs, transcribe=_transcriber(handler), semantic_turns=payload.get("semantic_turns") is True)
         diagnostic_record("voice.capture", "start" if result.get("ok") else "start_failed", "INFO" if result.get("ok") else "WARN", error=result.get("error"))
         return 200, result
     if action == "stop":

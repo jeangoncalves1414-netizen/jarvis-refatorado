@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Check,
   CheckSquare,
@@ -19,6 +19,7 @@ import {
   Info,
 } from 'lucide-react'
 import { panelRequest } from '../utils/panelApi'
+import { broadcastSyncEvent, onSyncEvent } from '../utils/syncChannel'
 import type { LifeOSWindowParams, WindowComponentProps } from './registry'
 
 // Tipos para Checklists
@@ -94,6 +95,7 @@ export function LifeOSWindow({ params }: WindowComponentProps<LifeOSWindowParams
   // ── ESTADO DE HÁBITOS ──────────────────────────────────────────────────
   const [habits, setHabits] = useState<Habit[]>([])
   const [habitsLoading, setHabitsLoading] = useState(false)
+  const pendingHabits = useRef(new Set<string>())
   const todayDayIndex = (new Date().getDay() + 6) % 7 // 0 = seg, 6 = dom
   const todayCode = WEEK_DAYS[todayDayIndex].code
   const [selectedDayCode, setSelectedDayCode] = useState<string>(todayCode)
@@ -269,7 +271,21 @@ export function LifeOSWindow({ params }: WindowComponentProps<LifeOSWindowParams
     }
   }, [activeTab, fetchHabits])
 
+  useEffect(() => {
+    const refresh = () => { if (activeTab === 'habitos') void fetchHabits() }
+    const off = onSyncEvent('HABIT_UPDATED', refresh)
+    window.addEventListener('focus', refresh)
+    window.addEventListener('jarvis-sync-applied', refresh)
+    return () => {
+      off()
+      window.removeEventListener('focus', refresh)
+      window.removeEventListener('jarvis-sync-applied', refresh)
+    }
+  }, [activeTab, fetchHabits])
+
   const handleToggleHabitToday = async (habitId: string) => {
+    if (pendingHabits.current.has(habitId)) return
+    pendingHabits.current.add(habitId)
     try {
       const target = habits.find((h) => h.id === habitId)
       const nextCompleted = !target?.completed_today
@@ -277,7 +293,7 @@ export function LifeOSWindow({ params }: WindowComponentProps<LifeOSWindowParams
         prev.map((h) => (h.id === habitId ? { ...h, completed_today: nextCompleted } : h))
       )
       const data = await panelRequest<{ ok: boolean; habit: Habit }>(
-        `/api/lifeos/habits/${habitId}/toggle`,
+        `/api/lifeos/habits/${encodeURIComponent(habitId)}/toggle`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -286,10 +302,13 @@ export function LifeOSWindow({ params }: WindowComponentProps<LifeOSWindowParams
       )
       if (data.ok && data.habit) {
         setHabits((prev) => prev.map((h) => (h.id === habitId ? data.habit : h)))
+        broadcastSyncEvent('HABIT_UPDATED')
       }
     } catch (err) {
       console.error('Falha ao alternar hábito:', err)
       fetchHabits()
+    } finally {
+      pendingHabits.current.delete(habitId)
     }
   }
 

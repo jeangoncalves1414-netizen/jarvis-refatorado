@@ -37,7 +37,7 @@ dependencies = [
     "vosk>=0.3.45",
     "pystray>=0.19",
     "pywin32>=306; sys_platform == 'win32'",
-    "duckduckgo_search>=6.0",
+    "ddgs>=9.0,<10",
 ]
 
 [project.optional-dependencies]

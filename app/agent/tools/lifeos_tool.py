@@ -132,11 +132,13 @@ class LifeOSTool(BaseTool):
             target = habit_name or "treino"
             res = LifeOSService.toggle_habit(target, completed=True)
             if res.get("ok"):
+                if not res["changed"]:
+                    return {"ok": True, "message": f"'{res['title']}' já estava feito hoje.", "data": res, "habit_ids": []}
                 msg = (
                     f"✅ Hábito '{res['title']}' marcado como concluído no Life OS! "
                     f"Sequência atual: {res['streak']} dias seguidos (Recorde: {res['bestStreak']} dias). Excelente disciplina, Sir!"
                 )
-                return {"ok": True, "message": msg, "data": res}
+                return {"ok": True, "message": msg, "data": res, "habit_ids": [res["id"]], "habit": {"name": res["title"]}}
             return {"ok": False, "error": res.get("error", "Hábito não encontrado.")}
 
         # 4. Desmarcar Hábito
@@ -145,7 +147,8 @@ class LifeOSTool(BaseTool):
             res = LifeOSService.toggle_habit(target, completed=False)
             if res.get("ok"):
                 msg = f"Hábito '{res['title']}' desmarcado no Life OS. Streak ajustado para {res['streak']} dias."
-                return {"ok": True, "message": msg, "data": res}
+                return {"ok": True, "message": msg, "data": res,
+                        "habit_ids": [res["id"]] if res["changed"] else [], "habit": {"name": res["title"]}}
             return {"ok": False, "error": res.get("error", "Hábito não encontrado.")}
 
         # 5. Listar Hábitos
@@ -164,7 +167,7 @@ class LifeOSTool(BaseTool):
             res = LifeOSService.log_workout(name)
             return {
                 "ok": True,
-                "message": f"🏋️ Treino '{name}' registrado com sucesso no Life OS! Hábito de treino diário marcado.",
+                "message": f"🏋️ Treino '{name}' registrado com sucesso no Life OS! Relações configuradas foram aplicadas.",
                 "data": res,
             }
 

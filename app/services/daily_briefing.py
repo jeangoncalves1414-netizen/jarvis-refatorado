@@ -126,7 +126,7 @@ def get_today_calendar_summary() -> str:
 def get_lifestyle_summary() -> str:
     parts = []
     try:
-        from app.services.habits import HabitService
+        from app.services.personal_habits import PersonalHabits as HabitService
         habits = HabitService.list_habits()
         completed = sum(1 for h in habits if h.get("completed_today"))
         if habits:

@@ -648,7 +648,7 @@ def set_agent_loop_settings(values: dict[str, Any]) -> dict[str, Any]:
 
 
 # Popups do painel (lote 6): o agente mostra hábitos, agenda, água e anotações em cartões animados.
-POPUP_DEFAULTS: dict[str, Any] = {"enabled": True, "auto": True, "ttl_seconds": 8, "max_visible": 3}
+POPUP_DEFAULTS: dict[str, Any] = {"enabled": True, "auto": True, "ttl_seconds": 8, "max_visible": 1}
 _POPUP_LIMITS = {"ttl_seconds": (0, 120), "max_visible": (1, 5)}
 _POPUP_LABELS = {
     "enabled": "Mostrar popups", "auto": "Popups automáticos",
@@ -778,6 +778,7 @@ def set_browser_settings(values: dict[str, Any]) -> dict[str, Any]:
 # service reads the same effective route.  A catalog model never changes the
 # selected provider by itself.
 _CAPABILITIES = ("chat", "tts", "stt", "image", "video", "embedding")
+MODEL_MODES = ("thinking", "planning", "research", "coder", "browser", "react", "lifeos", "tutor", "voice", "swarm")
 _CAPABILITY_PROVIDERS = {
     "chat": ("gemini", "groq", "oxyy"),
     "tts": ("fish", "gemini", "edge", "oxyy"),
@@ -908,6 +909,12 @@ def resolve_ai_routes(defaults: dict[str, Any] | None = None) -> dict[str, dict[
         provider = str(saved_route.get("provider", providers[capability])).lower()
         model = saved_route.get("model")
         routes[capability] = _route(capability, provider, primary_model=str(model) if model else None)
+    for mode in MODEL_MODES:
+        entry = saved.get(mode)
+        if isinstance(entry, dict) and entry.get("provider"):
+            routes[mode] = {**_route("chat", entry["provider"], primary_model=entry.get("model")), "capability": mode, "inherited": False}
+        else:
+            routes[mode] = {**routes["chat"], "capability": mode, "inherited": True}
     return routes
 
 
@@ -922,10 +929,13 @@ def set_ai_routes(routes: dict[str, Any]) -> dict[str, Any]:
     data = _read()
     current = data.get("routes") if isinstance(data.get("routes"), dict) else {}
     for capability, value in routes.items():
-        if capability not in _CAPABILITIES or not isinstance(value, dict):
+        if capability not in (*_CAPABILITIES, *MODEL_MODES) or not isinstance(value, dict):
+            continue
+        if capability in MODEL_MODES and value.get("inherit") is True:
+            current.pop(capability, None)
             continue
         provider = str(value.get("provider", "")).lower()
-        if provider not in _CAPABILITY_PROVIDERS[capability]:
+        if provider not in _CAPABILITY_PROVIDERS["chat" if capability in MODEL_MODES else capability]:
             raise ValueError(f"Provider inválido para {capability}: {provider}")
         entry = {"provider": provider}
         if value.get("model"):

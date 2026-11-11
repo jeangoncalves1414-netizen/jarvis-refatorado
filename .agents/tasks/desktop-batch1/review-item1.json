@@ -1,0 +1,22 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "mobile_release sem chamador",
+      "detail": "pyproject.toml descreve o marcador mobile_release como 'rodar com -m mobile_release só ao gerar o APK, depois de npm run build:mobile', mas nenhum script de APK (build_mobile_apk.ps1, .bat, build_mobile_jarvis.ps1) nem workflow o executa. Logo após build:mobile o teste é quase tautológico, porque dist e assets acabaram de ser copiados um do outro.",
+      "action": "Citar `python -m pytest -m mobile_release tests/test_orb_canonical_integrity.py` no passo a passo do APK como conferência manual, ou chamá-lo nos build_mobile_apk.* depois da cópia."
+    },
+    {
+      "id": 2,
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "label": "Entrega sem conferência nos dois destinos",
+      "detail": "O desktop por pywebview (http://127.0.0.1:8000/app/), npm run build:mobile e os scripts de APK alterados não foram executados, o que é coerente com não tocar mobile_app/. O caso sem git foi verificado só carregando a config, sem abrir o dev server.",
+      "action": "Na etapa de empacotar o APK, rodar build:mobile e o script de APK, abrir o desktop pelo caminho normal e conferir a mesma versão nos dois destinos."
+    }
+  ],
+  "reviewDoc": "c:/Users/maria/Desktop/Jarvis/.agents/tasks/desktop-batch1/review-item1.md"
+}

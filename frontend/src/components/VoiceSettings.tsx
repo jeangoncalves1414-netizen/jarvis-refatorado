@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Mic, MicOff, Play, Volume2, AudioLines } from 'lucide-react'
 import type { OxyySettings, SttSettings, TtsSettings } from '../types'
 import { getPreferredMicDevice, micAudioConstraints, setPreferredMicDevice } from '../utils/micPrefs'
+import { createAgentAudio } from '../utils/voiceSpeed'
+import { VoiceSpeedSettings } from './VoiceSpeedSettings'
 
 type Props = {
   ttsSettings: TtsSettings | null
@@ -271,7 +273,7 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
         firstMs = fallback.ms
       }
       const totalMs = Math.round(performance.now() - started)
-      const audio = new Audio(URL.createObjectURL(blob))
+      const audio = createAgentAudio(URL.createObjectURL(blob))
       audio.onended = () => URL.revokeObjectURL(audio.src)
       await audio.play().catch(() => undefined)
       setTtsTest({ busy: false, lines: [`Provedor: ${TTS_LABEL[provider] || provider}`, `Tempo até o primeiro áudio: ${firstMs} ms`, `Síntese completa: ${totalMs} ms`] })
@@ -306,6 +308,7 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
 
   return (
     <div className="st-stack">
+      <VoiceSpeedSettings />
       <article className="settings-card">
         <p className="eyebrow">MICROFONE</p>
         <h2>Detecção de fala</h2>

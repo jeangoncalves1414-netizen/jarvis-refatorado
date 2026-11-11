@@ -127,6 +127,11 @@ function parseBlocks(text: string): Block[] {
     }
     if (paragraphLines.length > 0) {
       blocks.push({ type: 'paragraph', content: paragraphLines.join('\n') })
+    } else {
+      // An incomplete table/heading or "1 text" may look special without
+      // matching a block above. Always consume it, including during streaming.
+      blocks.push({ type: 'paragraph', content: line })
+      i++
     }
   }
 

@@ -492,7 +492,13 @@ export function useDirectChat() {
     setAnswer(hist.at(-1)?.content || 'Sessao carregada.')
   }, [sessionId])
 
-  const createSession = useCallback((title = 'Nova conversa') => {
+  const createSession = useCallback((title = 'Nova conversa', forSend = false) => {
+    if (!forSend) {
+      abortRef.current?.abort(); setLoading(false); setStreamingReply(''); setChatError('')
+      setSessionId(''); setMessages([]); setAnswer(''); setQuery('')
+      localStorage.setItem(ACTIVE_SESSION_KEY, '')
+      return ''
+    }
     const id = crypto.randomUUID()
     const session: ChatSession = { id, title, type: 'chat' }
     const updated = [session, ...loadSessions()]
@@ -559,7 +565,7 @@ export function useDirectChat() {
 
     const userMsg: ChatMessage = { role: 'user', content: message }
     let activeId = sessionId
-    if (!activeId) activeId = createSession(message.slice(0, 40))
+    if (!activeId) activeId = createSession(message.slice(0, 40), true)
 
     const prevMessages = messages
     const newHistory = [...prevMessages, userMsg]

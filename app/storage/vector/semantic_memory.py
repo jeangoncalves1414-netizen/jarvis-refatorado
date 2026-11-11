@@ -8,6 +8,7 @@ from typing import Any, List
 logger = logging.getLogger(__name__)
 
 _TECHNICAL_ERROR_MARKERS = (
+    "sem resposta gerada pelo modelo",
     "erro ao acessar a api",
     "erro de autenticação",
     "limite de taxa",
@@ -24,7 +25,7 @@ _TECHNICAL_ERROR_MARKERS = (
 def is_technical_error_memory(text: str) -> bool:
     """Retorna se um texto descreve uma falha operacional, não uma memória do usuário."""
     normalized = " ".join((text or "").lower().split())
-    return any(marker in normalized for marker in _TECHNICAL_ERROR_MARKERS)
+    return normalized in {"sem resposta.", "sem resposta"} or any(marker in normalized for marker in _TECHNICAL_ERROR_MARKERS)
 
 # Tenta importar ChromaDB, mas lida com falha gracefully
 try:

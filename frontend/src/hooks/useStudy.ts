@@ -248,8 +248,14 @@ export function useStudy(setNotice: SetNotice) {
     setWhiteboard(whiteboardRef.current)
   }
 
+  useEffect(() => {
+    if (!studySessionId && tutorSessions.length) {
+      selectStudySession(tutorSessions[0].id).catch(() => undefined)
+    }
+  }, [studySessionId, tutorSessions])
+
   const createStudySession = async () => {
-    const response = await fetch('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'Sessão ENEM', type: 'tutor' }) })
+    const response = await fetch('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'Plano de Estudos', type: 'tutor' }) })
     const data = await response.json()
     if (!response.ok || !data.id) {
       setNotice(data.error || 'Não foi possível criar a sessão de estudos.')
@@ -266,34 +272,6 @@ export function useStudy(setNotice: SetNotice) {
     event.preventDefault()
     const message = studyQuery.trim()
     if (!message) return
-
-    const n = message.toLowerCase()
-    const openMode = (mode: 'review' | 'feynman' | 'quiz' | 'progress' | 'questions') => {
-      setStudyQuery('')
-      setNotice(`Modo ${mode} aberto.`)
-      return true
-    }
-
-    if (/^(review|revisar|revisar cards|flashcards|cards|meus cards)$/.test(n)) {
-      openMode('review')
-      return
-    }
-    if (/^(feynman|explicar de volta)$/.test(n)) {
-      openMode('feynman')
-      return
-    }
-    if (/^(quiz|teste|test me|testar)$/.test(n)) {
-      openMode('quiz')
-      return
-    }
-    if (/^(progress|progresso|onde estou|dashboard)$/.test(n)) {
-      openMode('progress')
-      return
-    }
-    if (/^(quest(ã|a)o|questões|questions|enem|banco)$/.test(n)) {
-      openMode('questions')
-      return
-    }
 
     await sendTutorMessage(message)
   }
@@ -659,7 +637,7 @@ export function useStudy(setNotice: SetNotice) {
     addWhiteboardNote, addWhiteboardText, addWhiteboardImage, addWhiteboardImageData, updateWhiteboardElement, deleteWhiteboardElement, duplicateWhiteboardElement, clearWhiteboard, assessmentCorrect, assessmentTotal, assessments, cardBackVisible, createStudySession, dueCards,
     studyCategories, trashedStudySessions, renameStudySession, deleteStudySession, restoreStudySession, purgeStudySession, createStudyCategory, assignStudyCategory,
     enemImage, enemQuestions, enemSubject, enemText, enemYear, feynmanAttempts, feynmanExplanation, feynmanTopic,
-    readEnemImage, reviewCard, saveAssessment, saveEnemQuestion, saveFeynman, selectStudySession, sendStudyMessage,
+    readEnemImage, reviewCard, saveAssessment, saveEnemQuestion, saveFeynman, selectStudySession, sendStudyMessage, sendTutorMessage,
     setAssessmentCorrect, setAssessmentTotal, setCardBackVisible, setEnemImage, setEnemSubject, setEnemText, setEnemYear,
     setFeynmanExplanation, setFeynmanTopic, setStudyQuery, setStudySessionId, setWhiteboardNote, studyCardIndex, studyMessages,
     studyEnemFromBank, studyEnemFromForm, studyProgress, studyQuery, studySessionId, tutorSessions, whiteboard, whiteboardNote,

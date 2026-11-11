@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -12,7 +11,7 @@ import urllib.error
 # Local preferencial do banco do Evolute (mantém compatibilidade total)
 _DOCUMENTS_DB = Path(os.path.expanduser("~")) / "Documents" / "Evolute" / "data" / "lifeos_db.json"
 _LOCAL_DB = Path(__file__).resolve().parents[4] / "data" / "lifeos_db.json"
-_SYNC_LOCK = threading.Lock()
+from app.services.lifeos import _DB_LOCK as _SYNC_LOCK
 
 def _get_db_file() -> Path:
     if _DOCUMENTS_DB.parent.exists():
@@ -63,6 +62,14 @@ def handle_evolute_sync_post(body: dict[str, Any]) -> tuple[int, dict[str, Any]]
                 }
 
             updated_at = max(client_updated_at, int(time.time() * 1000), current_updated_at + 1)
+            current_data = current.get('data') or {}
+            if 'lifeos_workout_sessions' in current_data:
+                # Sessions are edited through the organizer. Older exercise-only
+                # clients must not drop the session or its derived exercise rows.
+                data = dict(data)
+                data['lifeos_workout_sessions'] = current_data['lifeos_workout_sessions']
+                incoming = data.get('lifeos_workouts', current_data.get('lifeos_workouts', []))
+                data['lifeos_workouts'] = [r for r in incoming if not r.get('jarvis_session_id')] + [r for r in current_data.get('lifeos_workouts', []) if r.get('jarvis_session_id')]
             payload = {"data": data, "updatedAt": updated_at}
             db_file.parent.mkdir(parents=True, exist_ok=True)
             temporary = db_file.with_suffix(".tmp")
@@ -164,42 +171,28 @@ def handle_evolute_status_get() -> tuple[int, dict]:
 
     db_file = _get_db_file()
     try:
-        if not db_file.exists():
-            return 200, {"habits": [], "waterMl": 0, "score": 0}
-
-        raw = json.loads(db_file.read_text(encoding="utf-8"))
-        # O banco pode estar na raiz ou em raw["data"]
+        raw = json.loads(db_file.read_text(encoding="utf-8")) if db_file.exists() else {}
         store = raw.get("data") or raw
-
-        habits_raw: list = store.get("habits", [])
         today = datetime.date.today().isoformat()
-
-        result_habits = []
-        for h in habits_raw:
-            if not isinstance(h, dict) or h.get("archived"):
-                continue
-            completions: list = h.get("completions", [])
-            done_today = any(
-                str(c).startswith(today) if isinstance(c, str) else False
-                for c in completions
-            )
-            result_habits.append({
-                "id": h.get("id", ""),
-                "name": h.get("name", ""),
-                "done": done_today,
-                "streak": h.get("streak", 0),
-                "isPriority": bool(h.get("isPriority", False)),
-            })
+        from app.services.personal_habits import PersonalHabits
+        result_habits = [
+            {"id": h["id"], "name": h["name"], "done": h["completed_today"],
+             "streak": h["current_streak"], "isPriority": h["isPriority"]}
+            for h in PersonalHabits.list_habits(scheduled=True)
+        ]
 
         done_count = sum(1 for h in result_habits if h["done"])
         total = len(result_habits)
         score = round((done_count / total) * 100) if total > 0 else 0
 
-        water_ml: int = 0
-        water_log: list = store.get("waterLog", [])
-        for entry in water_log:
-            if isinstance(entry, dict) and str(entry.get("date", "")).startswith(today):
-                water_ml += int(entry.get("ml", 0))
+        water_key = f"lifeos_water_{today}"
+        if water_key in store:
+            water_ml = int(store[water_key] or 0)
+        else:
+            water_ml = sum(
+                int(entry.get("ml", 0)) for entry in store.get("waterLog", [])
+                if isinstance(entry, dict) and str(entry.get("date", "")).startswith(today)
+            )
 
         vices_raw: list = store.get("vices", [])
         result_vices = []

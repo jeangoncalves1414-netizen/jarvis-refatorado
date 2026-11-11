@@ -1,10 +1,32 @@
-import { ArrowUpRight, BookOpen, MessageSquare, Plug, RefreshCw, ShieldCheck, Sparkles, Workflow } from 'lucide-react'
+import { ArrowUpRight, BookOpen, MessageSquare, Plug, RefreshCw, ShieldCheck, Workflow } from 'lucide-react'
+import { TodayPanel } from '../components/TodayPanel'
 import type { Capability, OperationalState } from '../hooks/useOperationalSnapshot'
 
 type Props = { operational: OperationalState; onNavigate: (id: string) => void }
 export function WorkspaceHome({ operational, onNavigate }: Props) {
   const { snapshot, error } = operational
-  return <section className="ws-content-page"><div className="ws-page-heading"><div><span className="ws-overline">SEU ESPAÇO DE TRABALHO</span><h1>Tudo começa com uma ideia.</h1><p>Converse com seu agente, acompanhe o trabalho e mantenha o controle.</p></div></div><div className="ws-home-hero"><Sparkles size={32} /><h2>O próximo passo é seu.</h2><p>Organize um projeto, investigue um assunto ou transforme uma pergunta em um plano.</p><button className="ws-button primary" onClick={() => onNavigate('Chat')}>Abrir conversa <ArrowUpRight size={16} /></button></div><div className="ws-overview-grid">{[{ id: 'Central', icon: ShieldCheck, title: 'Execuções e aprovações', description: snapshot && !error ? `${snapshot.summary.pending_actions} ações em andamento ou aguardando decisão.` : 'Consulte o estado das ações e suas propostas.' }, { id: 'Memórias', icon: BookOpen, title: 'Seu conhecimento', description: 'Consulte as memórias e o contexto salvo do agente.' }, { id: 'Automações', icon: Workflow, title: 'Rotinas e automações', description: 'Gerencie lembretes e os controles já disponíveis.' }, { id: 'Integrações', icon: Plug, title: 'Conexões do workspace', description: 'Veja os estados informados pelo servidor.' }].map(item => <button className="ws-overview-card" key={item.id} onClick={() => onNavigate(item.id)}><item.icon size={21} /><ArrowUpRight size={16} /><h3>{item.title}</h3><p>{item.description}</p></button>)}</div><div className="ws-info-note"><MessageSquare size={17} /><span>O chat, seus módulos pessoais e o controle do agente compartilham este workspace.</span></div></section>
+  const sections = [
+    { id: 'Central', icon: ShieldCheck, title: 'Execuções e aprovações', description: snapshot && !error ? `${snapshot.summary.pending_actions} ações em andamento ou aguardando decisão.` : 'Histórico de ações e propostas.' },
+    { id: 'Memórias', icon: BookOpen, title: 'Seu conhecimento', description: 'Memórias e contexto salvo do agente.' },
+    { id: 'Automações', icon: Workflow, title: 'Rotinas e automações', description: 'Lembretes e controles disponíveis.' },
+    { id: 'Integrações', icon: Plug, title: 'Conexões do workspace', description: 'Estado das integrações.' },
+  ]
+  return (
+    <section className="ws-content-page">
+      <header className="ws-page-heading">
+        <h1>Início</h1>
+        <button className="ws-button primary" onClick={() => onNavigate('Chat')}><MessageSquare size={16} /> Abrir conversa</button>
+      </header>
+      <TodayPanel />
+      <div className="ws-overview-grid">
+        {sections.map(item => (
+          <button className="ws-overview-card" key={item.id} onClick={() => onNavigate(item.id)}>
+            <item.icon size={21} /><ArrowUpRight size={16} /><h3>{item.title}</h3><p>{item.description}</p>
+          </button>
+        ))}
+      </div>
+    </section>
+  )
 }
 
 const capabilityLabels: Record<string, string> = { healthy: 'Funcionando', configured: 'Configurado', degraded: 'Com falha', off: 'Desligado', unknown: 'Não verificado', unavailable: 'Indisponível' }

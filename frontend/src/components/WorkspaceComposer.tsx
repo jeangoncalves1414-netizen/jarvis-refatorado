@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowUp, AudioLines, Film, LoaderCircle, Mic, Monitor, Paperclip, Square, X } from 'lucide-react'
+import { ArrowUp, AudioLines, Film, LoaderCircle, Mic, Monitor, Paperclip, Plus, Square, X } from 'lucide-react'
 import type { ChatMode } from './ChatComposer'
 import { isEscapedSlash, parseSlashInput, runCommand, searchSlashCommands, type CommandDef, type CommandHandlers } from '../commands/registry'
 import type { WakeWord } from '../types'
 
 type Props = {
   canStopRequest: boolean
+  hasActiveRequest?: boolean
   runStatus: string
   supportsRuns: boolean
   commandHandlers: CommandHandlers
@@ -21,6 +22,9 @@ export function WorkspaceComposer(props: Props) {
   const textarea = useRef<HTMLTextAreaElement>(null)
   const file = useRef<HTMLInputElement>(null)
   const menu = useRef<HTMLDivElement>(null)
+  const toolsMenu = useRef<HTMLDivElement>(null)
+  const toolsTrigger = useRef<HTMLButtonElement>(null)
+  const [toolsOpen, setToolsOpen] = useState(false)
   const [menuIndex, setMenuIndex] = useState(0)
   const [menuDismissed, setMenuDismissed] = useState(false)
   const [hint, setHint] = useState('')
@@ -41,6 +45,15 @@ export function WorkspaceComposer(props: Props) {
   useEffect(() => { if (textarea.current) { textarea.current.style.height = 'auto'; textarea.current.style.height = `${Math.min(textarea.current.scrollHeight, 180)}px` } }, [props.value])
   useEffect(() => { setMenuIndex(0); setHint(''); setMenuDismissed(false) }, [props.value])
   useEffect(() => { menu.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }) }, [menuIndex, menuOpen])
+  useEffect(() => {
+    if (!toolsOpen) return
+    const dismiss = (event: PointerEvent) => { if (!toolsMenu.current?.contains(event.target as Node)) setToolsOpen(false) }
+    const escape = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') { setToolsOpen(false); toolsTrigger.current?.focus() } }
+    document.addEventListener('pointerdown', dismiss)
+    document.addEventListener('keydown', escape)
+    return () => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape) }
+  }, [toolsOpen])
+  const chooseTool = (action: () => void) => { setToolsOpen(false); toolsTrigger.current?.focus(); action() }
   // Comando reconhecido roda no navegador e nunca vai ao modelo; "/xyz" desconhecido só mostra uma dica.
   const runSlash = (command: CommandDef, args: string) => {
     props.onChange('')
@@ -66,7 +79,7 @@ export function WorkspaceComposer(props: Props) {
   return <div className="ws-composer-wrap">
     {(props.supportsRuns || props.runStatus) && <div className="ws-composer-caption">
       <span role="status">{props.runStatus}</span>
-      {props.supportsRuns && <button type="button" className="ws-text-button" disabled={!props.canStopRequest} onClick={props.commandHandlers.stopRequest}><Square size={14} /> Parar pedido</button>}
+      {props.supportsRuns && (props.hasActiveRequest || props.canStopRequest) && <button type="button" className="ws-text-button" disabled={!props.canStopRequest} onClick={props.commandHandlers.stopRequest}><Square size={14} /> Parar pedido</button>}
     </div>}
     {menuOpen && <div className="ws-slash-menu" ref={menu} role="listbox" id="ws-slash-menu" aria-label="Comandos" onMouseDown={event => event.preventDefault()}>
       {matches.map((command, index) => <div key={command.id} role="option" id={`ws-slash-${command.id}`} aria-selected={index === menuIndex} className={`ws-slash-item${index === menuIndex ? ' selected' : ''}`} onMouseMove={() => { if (index !== menuIndex) setMenuIndex(index) }} onClick={() => runSlash(command, '')}>
@@ -78,9 +91,15 @@ export function WorkspaceComposer(props: Props) {
       <textarea ref={textarea} aria-label="Mensagem para o agente" aria-autocomplete="list" aria-expanded={menuOpen} aria-controls={menuOpen ? 'ws-slash-menu' : undefined} aria-activedescendant={menuOpen && matches[menuIndex] ? `ws-slash-${matches[menuIndex].id}` : undefined} placeholder="Pergunte, explore uma ideia ou descreva uma tarefa…" rows={2} value={props.value} onChange={event => props.onChange(event.target.value)} onFocus={() => setMenuDismissed(false)} onKeyDown={onKeyDown} />
       <div className="ws-composer-toolbar"><div className="ws-composer-tools">
         <input ref={file} type="file" accept="image/*" hidden onChange={event => { const selected = event.target.files?.[0]; if (selected) props.onAttachment(selected); event.target.value = '' }} />
-        <button type="button" className="ws-icon-button" aria-label="Anexar imagem" title="Anexar imagem (até 8 MB)" onClick={() => file.current?.click()}><Paperclip size={18} /></button>
-        <select aria-label="Modo de conversa" value={props.mode} onChange={event => props.onModeChange(event.target.value as ChatMode)}><option value="auto">✨ Automático</option><option value="general">Conversa</option><option value="planning">Planejamento</option><option value="research">Pesquisa</option><option value="coder">Código</option><option value="browser">Navegação</option>{props.supportsRuns && <option value="react">Execução por etapas</option>}</select>
-        <details className="ws-composer-more"><summary aria-label="Mais ferramentas">•••</summary><div><button type="button" onClick={props.onScreen}><Monitor size={15} /> Analisar tela</button><button type="button" onClick={props.onCinema}><Film size={15} /> Cinema</button></div></details>
+        <div className="ws-composer-more" ref={toolsMenu} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setToolsOpen(false) }}>
+          <button ref={toolsTrigger} type="button" className="ws-icon-button" aria-label="Adicionar arquivo ou ferramenta" title="Adicionar arquivo ou ferramenta" aria-expanded={toolsOpen} aria-controls={toolsOpen ? 'ws-composer-add' : undefined} onClick={() => setToolsOpen(open => !open)}><Plus size={19} /></button>
+          {toolsOpen && <div id="ws-composer-add" role="group" aria-label="Arquivos e ferramentas">
+            <button type="button" title="Anexar imagem (até 8 MB)" onClick={() => chooseTool(() => file.current?.click())}><Paperclip size={15} /> Adicionar arquivo</button>
+            <button type="button" onClick={() => chooseTool(props.onScreen)}><Monitor size={15} /> Analisar tela</button>
+            <button type="button" onClick={() => chooseTool(props.onCinema)}><Film size={15} /> Cinema</button>
+          </div>}
+        </div>
+        <select aria-label="Modo de conversa" value={props.mode} onChange={event => props.onModeChange(event.target.value as ChatMode)}><option value="auto">✨ Automático</option><option value="general">Conversa</option><option value="thinking">Thinking</option><option value="planning">Planejamento</option><option value="research">Pesquisa</option><option value="coder">Código</option><option value="browser">Navegação</option>{props.supportsRuns && <option value="react">Execução por etapas</option>}</select>
       </div><div className="ws-composer-tools"><button type="button" className={`ws-icon-button ${props.recording ? 'recording' : ''}`} aria-label={props.recording ? 'Parar gravação' : 'Ditar mensagem'} aria-pressed={props.recording} onClick={props.onVoice}><Mic size={18} /></button><button type="button" className="ws-icon-button" aria-label="Abrir conversa por voz" title="Conversa por voz" onClick={props.onOpenLiveCall}><AudioLines size={19} /></button><button className="ws-send" disabled={!canSend} aria-label={props.loading ? 'Aguardando resposta' : 'Enviar mensagem'}>{props.loading ? <LoaderCircle size={19} className="ws-spin" /> : <ArrowUp size={20} />}</button></div></div>
     </form>
     <div className="ws-composer-caption">{hint ? <span className="ws-slash-hint" role="status">{hint}</span> : escaped ? <span className="ws-slash-hint" role="status">Começa com //: será enviado como texto, sem a primeira barra.</span> : <span>{props.recording ? 'Microfone em gravação' : props.loading ? 'Resposta em andamento · as ações podem ser acompanhadas em Execuções' : 'Você conduz. O agente ajuda a realizar.'}</span>}{wakeLabel && <span className={`ws-wake-indicator${props.wakeWord?.active ? ' active' : ''}${props.wakeHeard ? ' heard' : ''}`} title="Palavra de ativação por voz (detector local)">{wakeLabel}</span>}<span>Shift + Enter para nova linha · / para comandos</span></div>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { createAgentAudio, currentVoiceRate } from '../utils/voiceSpeed'
 import { Switch } from './Switch'
 import { Save, Volume2, Sparkles, RefreshCw, Bot, Dumbbell } from 'lucide-react'
 import { playSuccess } from '../utils/sfx'
@@ -126,7 +127,7 @@ export function PersonaBriefingSettings() {
       if (res.ok) {
         const blob = await res.blob()
         const url = URL.createObjectURL(blob)
-        const audio = new Audio(url)
+        const audio = createAgentAudio(url)
         audio.onended = () => {
           setPlayingAudio(false)
           URL.revokeObjectURL(url)
@@ -148,7 +149,7 @@ export function PersonaBriefingSettings() {
       window.speechSynthesis.cancel()
       const utterance = new SpeechSynthesisUtterance(text)
       utterance.lang = 'pt-BR'
-      utterance.rate = 1.05
+      utterance.rate = currentVoiceRate()
       utterance.onend = () => setPlayingAudio(false)
       utterance.onerror = () => setPlayingAudio(false)
       window.speechSynthesis.speak(utterance)

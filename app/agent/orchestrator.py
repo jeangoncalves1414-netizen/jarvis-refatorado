@@ -20,6 +20,7 @@ from app.agent.action_executor import ActionExecutor
 from app.agent.run_tracking import background_run, in_background, record_run_step, track_run
 from app.agent import turn_meta
 from app.agent.turn_context import build_turn_sections
+from app.agent.context_policy import chat_history_reply, context_preferences, explicit_preference, is_chat_history_request, requests_saved_memory
 from app.core.runs import REQUEST_ORIGINS, RunCancelled, check_run_cancelled, current_origin, current_run
 from app.core.actions import ToolMetadata
 from app.agent.tools.base import ToolResult
@@ -86,7 +87,7 @@ def _build_search_marker(tool_results: dict[str, dict[str, Any]]) -> str:
 
 # Frases que justificam gastar uma chamada ao modelo para extrair memória (comparadas sem acento).
 _MEMORY_TRIGGERS = (
-    "prefiro", "prefer", "me lembre", "lembra que", "lembre que", "lembre-se", "quero que voce",
+    "prefiro", "prefer", "me lembre", "lembra que", "lembre que", "lembre-se",
     "meu nome e", "me chamo", "eu moro", "moro em", "eu trabalho", "eu estudo", "eu sou",
     "minha idade", "meu aniversario", "nao esqueca", "anota que", "guarda que", "sempre que",
 )
@@ -165,6 +166,7 @@ class AgentOrchestrator:
         agent_manager: Any | None = None,
         semantic_memory: Any | None = None,
         profile_memory: Any | None = None,
+        plugin_manager: Any | None = None,
     ) -> None:
         self.settings = settings
         self.llm_service = llm_service
@@ -182,6 +184,7 @@ class AgentOrchestrator:
             base_folder=base_folder,
             tutor_store=self.tutor_store,
             enem_store=self.enem_store,
+            plugin_manager=plugin_manager,
         )
 
         # Motores God Mode Avançados
@@ -355,24 +358,9 @@ class AgentOrchestrator:
         return any(trigger in value for trigger in _MEMORY_TRIGGERS)
 
     def _remember_preferences(self, text: str, normalized: str, session_id: str | None = None) -> None:
-        # Detecta preferências explícitas em linguagem natural e salva no memory_store (síncrono)
-        _preference_triggers = ("prefiro", "prefer", "me lembre", "lembra que", "quero que voce", "quero que você")
-        _style_keywords = {
-            "curto": "short", "curta": "short", "curtos": "short", "curtas": "short",
-            "breve": "short", "breves": "short", "resumido": "short", "resumida": "short",
-            "detalhado": "detailed", "detalhada": "detailed", "detalhados": "detailed", "detalhadas": "detailed",
-            "longo": "long", "longa": "long", "longos": "long", "longas": "long",
-            "completo": "detailed", "completa": "detailed",
-            "formal": "formal", "informal": "informal", "direto": "direct", "direta": "direct",
-        }
-        if self.memory_store and any(trigger in normalized for trigger in _preference_triggers):
-            for kw, style in _style_keywords.items():
-                if kw in normalized:
-                    self.memory_store.add_preference("preferred_response_style", style)
-                    break
-            else:
-                # Salva a preferência genérica sem categorizar o estilo
-                self.memory_store.add_preference("general_preference", text.strip()[:120])
+        preference = explicit_preference(text)
+        if self.memory_store and preference:
+            self.memory_store.add_preference(*preference)
 
         # Também salva na memória semântica vetorial (assíncrono, quando disponível).
         # A extração custa uma chamada ao modelo: só roda com gatilho na mensagem ou com a opção
@@ -399,7 +387,7 @@ class AgentOrchestrator:
                         line = line.strip().strip("-* 1234567890.")
                         if line and len(line) > 5 and line.lower() != "vazio":
                             # Salva na memória semântica vetorial
-                            self.semantic_memory.add_memory("user_memory", line)
+                            self.semantic_memory.add_memory("user_memory", line, metadata={"session_id": session_id or ""})
                             try:
                                 save_via_kernel(line[:300], kind="extracao", session_id=session_id, origin=turn_origin)
                             except Exception:
@@ -472,10 +460,12 @@ class AgentOrchestrator:
             )
         else:
             evolution_notes = []
+            lookup_memory = requests_saved_memory(text)
+            local_history = is_chat_history_request(text)
+            recalled = []
             
-            # Recuperar memórias semânticas relevantes (RAG)
-            # Recuperar memórias semânticas relevantes (RAG) apenas se a mensagem tiver substância
-            if self.semantic_memory and self.semantic_memory.is_available() and text and len(text.strip().split()) > 2:
+            # Global recall is deliberate; it must not impersonate this chat's transcript.
+            if lookup_memory and self.semantic_memory and self.semantic_memory.is_available():
                 relevant = self.semantic_memory.search_memories("user_memory", text, n_results=3)
                 episodic = self.semantic_memory.search_memories("episodic_memory", text, n_results=1)
             else:
@@ -492,40 +482,48 @@ class AgentOrchestrator:
                     evolution_notes.append(f"[{date_str}] {mem_text}")
                 else:
                     evolution_notes.append(mem_text)
+                recalled.append({"title": "Memória salva fora do histórico deste chat", "text": mem_text[:600]})
                     
             # Adicionar preferências (se houver)
-            if self.memory_store:
-                prefs = self.memory_store.get_preferences()
-                if prefs:
-                    evolution_notes.extend([f"Pref: {p['value']}" if isinstance(p, dict) else f"Pref: {p}" for p in prefs])
+            if self.memory_store and not local_history:
+                evolution_notes.extend(context_preferences(self.memory_store.get_preferences()))
 
             # Memórias privadas só entram no contexto quando uma identidade
             # foi confirmada. Elas nunca são misturadas com user_memory global.
-            if self.profile_memory and profile_id:
+            if lookup_memory and self.profile_memory and profile_id:
                 try:
                     private = self.profile_memory.context(profile_id, text, limit=8)
                     for item in private:
                         kind = item.get("kind", "note")
                         evolution_notes.append(f"[Memória privada · {kind}] {item.get('text', '')}")
+                        recalled.append({"title": f"Memória privada · {kind} (fora deste chat)", "text": str(item.get("text", ""))[:600]})
                 except Exception:
                     pass
 
             # Memory Vault: AI Priming contextual + perfil do usuário (ai-memory-vault)
             try:
                 from app.services.memory_vault import memory_vault
-                priming_notes = memory_vault.get_priming_context(text)
+                priming_notes = memory_vault.get_priming_context(text) if not local_history else ""
                 if priming_notes:
                     evolution_notes.append(f"[Priming Contextual]\n{priming_notes}")
-                user_profile = memory_vault.get_user_profile()
+                user_profile = memory_vault.get_user_profile() if not local_history else ""
                 if user_profile:
                     # Inclui apenas as primeiras 600 chars do perfil para não inflar o contexto
                     evolution_notes.append(f"[Perfil do Usuário]\n{user_profile[:600]}")
             except Exception:
                 pass
+
+            if lookup_memory:
+                turn_meta.record("memory_lookup", {
+                    "tool": "saved_memory",
+                    "summary": "Consulta solicitada às memórias salvas; elas não pertencem necessariamente a este chat.",
+                    "items": recalled[:10],
+                })
             
             # Para Gemini e Groq (function calling nativo) usa prompt sem marcadores de texto
             active_provider = self.llm_service.get_active_provider() if self.llm_service else "gemini"
-            runtime_chat_route = resolve_ai_routes().get("chat")
+            from app.core.model_routing import current_model_mode
+            runtime_chat_route = resolve_ai_routes().get(current_model_mode.get())
             if active_provider in {"gemini", "groq", "oxyy"}:
                 system = build_function_calling_system_prompt(
                     base_persona="",
@@ -596,14 +594,18 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
         tool_context = {
             "session_id": session_id,
             "vision": self.vision_service,
-            "browser": self.browser_agent,
+            "browser_agent": self.browser_agent,
             "settings": self.settings,
         }
+        system += "\nPara abrir um link na tela do usuário, use web_search com action=open_url; browser navega numa sessão isolada de automação. Pesquisar um link não significa abri-lo. Quando o usuário pedir algo aleatório, escolha um resultado relevante sem exigir que ele forneça a URL.\n"
+        system += "\nPara dados pessoais, listar não é concluir nem excluir. Use os IDs nos resultados e execute a mutação solicitada. Após sucesso, não repita a mesma criação. Ao editar, envie somente os campos que o usuário pediu para mudar. Para criar uma checklist com itens, inclua text ou items na mesma chamada create_list.\n"
         
         # Garantir que a mensagem atual do usuário está incluída na lista de mensagens
-        full_messages = [{k: v for k, v in msg.items() if k != "run_id"} for msg in history]
+        from app.agent.context_budget import conversation_messages
+        full_messages = conversation_messages(history)
         if text and (not full_messages or full_messages[-1].get("content") != text):
             full_messages.append({"role": "user", "content": text})
+        full_messages = conversation_messages(full_messages)
 
         if active_provider in {"gemini", "groq", "oxyy"}:
             executed_actions: list[str] = []
@@ -611,6 +613,11 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             # Todas as chamadas do turno em ordem; o dicionário acima guarda só a última por nome.
             executed_tool_calls: list[dict[str, Any]] = []
             native_tool_results: dict[str, Any] = {}
+            action_receipts: list[str] = []
+            recorded_action_ids: set[str] = set()
+            completion_steps: list[dict[str, Any]] = []
+            uncertain_action = False
+            effect_receipt = False
 
             def native_legacy_execute(name: str, args: dict, _user_line: str) -> ToolResult:
                 tool_result = self.registry.execute_tool(name, args or {}, context=tool_context)
@@ -627,6 +634,7 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
 
             # Function calling nativo
             def on_function_call(name: str, args: dict) -> str:
+                nonlocal uncertain_action, effect_receipt
                 # All native function calls use the same proposal/audit boundary
                 # as marker-based calls. The model never receives an ability to
                 # elevate risk or fabricate approval state.
@@ -638,9 +646,29 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                 except Exception:
                     tr = None
                     message = "Não foi possível preparar a ação solicitada."
+                # A repeated opening can reuse a confirmed receipt without another action.
+                action = native_executor.last_action
+                if action is not None and action.id in recorded_action_ids:
+                    return message
+                if action is not None:
+                    recorded_action_ids.add(action.id)
                 # Record pattern and action
                 self.pattern_learner.record_action(name, args)
                 executed_actions.append(name)
+                action = native_executor.last_action
+                from app.agent.tool_activity import action_description
+                if action is not None and action.status == 'succeeded':
+                    action_receipts.append("Enviei a solicitação, mas o efeito não foi confirmado." if action.effect_status == 'unconfirmed'
+                                           else action_description(name, args or {})['completion'])
+                elif action is not None and action.status == 'awaiting_confirmation':
+                    action_receipts.append("A ação aguarda sua aprovação no painel.")
+                else:
+                    action_receipts.append("Não consegui concluir a ação. Veja os detalhes nas ferramentas usadas.")
+                completion_steps.append({'name': name, 'args': args or {}, 'status': action.status if action else 'failed', 'message': message, 'effect_status': getattr(action, 'effect_status', '')})
+                if action is not None and getattr(action, 'effect_status', '') in {'confirmed', 'unconfirmed'}:
+                    effect_receipt = True
+                if action is None or action.status != 'succeeded' or getattr(action, 'effect_status', '') == 'unconfirmed':
+                    uncertain_action = True
 
                 # Store rich result if available
                 try:
@@ -662,28 +690,68 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                                 on_search(payload)
                             except Exception:
                                 pass
-                        return message
+                        return tr.model_observation() if tr.ok else message
                 except Exception:
                     pass
 
                 return message
             
+            from app.agent.loop_policy import requires_tool_action, missing_requested_steps
+            needs_action = requires_tool_action(text)
             result = self.llm_service.chat_with_functions_stream(
                 system_instruction=system,
                 messages=full_messages,
                 tools=tools_decl,
                 on_function_call=on_function_call,
-                on_chunk=on_chunk,
+                # Voice must receive the validated reply, never raw tool errors or promises.
+                on_chunk=None if needs_action or current_origin.get() == "voice" else on_chunk,
                 on_reasoning=on_reasoning,
                 force_tool=False,
                 mode=mode,
             )
             raw = result or "Sem resposta."
+            missing = missing_requested_steps(text, completion_steps)
+            if missing and executed_actions:
+                retry_messages = full_messages + [{"role": "assistant", "content": raw}, {"role": "user", "content": "Ainda faltam estas ações do meu pedido: " + ", ".join(missing) + ". Execute somente as pendências; não repita criações já confirmadas. Use os IDs dos resultados anteriores ou consulte para localizá-los."}]
+                result = self.llm_service.chat_with_functions_stream(
+                    system_instruction=system, messages=retry_messages, tools=tools_decl,
+                    on_function_call=on_function_call, on_chunk=None, on_reasoning=on_reasoning,
+                    force_tool=False, mode=mode,
+                )
+                raw = result or raw
             summary, _ = parse_tool_markers(raw)
+            unresolved = []
+            for index, step in enumerate(completion_steps):
+                if step['status'] == 'succeeded':
+                    continue
+                recovered = any(later['status'] == 'succeeded' and later['name'] == step['name'] and
+                                all(later['args'].get(key) == value for key, value in step['args'].items())
+                                for later in completion_steps[index + 1:])
+                if not recovered:
+                    unresolved.append(step)
+            had_failure = any(step['status'] != 'succeeded' for step in completion_steps)
+            uncertain_action = bool(unresolved) or any(step['effect_status'] == 'unconfirmed' for step in completion_steps)
+            if had_failure and not uncertain_action:
+                summary = "\n".join(dict.fromkeys(step['message'] for step in completion_steps if step['status'] == 'succeeded'))
+            if needs_action and not executed_actions:
+                return AgentPlan(intent="error", summary="Não executei a ação solicitada. Nenhuma ferramenta foi chamada; não posso confirmar o resultado.", actions=[], context={"success": False})
+            if uncertain_action or effect_receipt:
+                summary = "\n".join(action_receipts)
+            personal_calls = [call for call in executed_tool_calls if call['name'] in {'task_tool', 'habit_tool', 'finance_tool', 'checklist_tool', 'personal_records'}]
+            if personal_calls and len(personal_calls) == len(executed_tool_calls):
+                summary = "\n".join(dict.fromkeys(call['message'] for call in personal_calls))
+            search_result = executed_tool_results.get('web_search', {})
+            if executed_actions and set(executed_actions) == {'web_search'} and (search_result.get('data') or {}).get('evidence_status') == 'insufficient':
+                summary = search_result['message']
+            missing = missing_requested_steps(text, completion_steps)
+            if missing:
+                summary = "Pedido incompleto. Etapas não executadas na sequência solicitada: " + ", ".join(missing) + "."
+                uncertain_action = True
             # Aplicar filtros STM para remover preâmbulos robóticos e hesitações
             try:
                 from app.services.stm_filters import stm_filter
                 summary = stm_filter.process(summary)
+                summary = stm_filter.avoid_unsolicited_tables(summary, text)
             except Exception:
                 pass
             search_marker = _build_search_marker(executed_tool_results)
@@ -702,7 +770,11 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                 intent="tool_execution" if executed_actions else ("tutor" if mode == "tutor" else "general"),
                 summary=summary,
                 actions=executed_actions,
-                context={'tool_results': executed_tool_results, 'tool_calls': executed_tool_calls} if executed_tool_results else {},
+                context={
+                    'tool_results': executed_tool_results, 'tool_calls': executed_tool_calls,
+                    **({'success': False} if missing else {}),
+                    **({'speech_summary': 'Não consegui concluir o pedido. Os detalhes estão na tela.'} if uncertain_action else {}),
+                } if executed_tool_results else {},
                 whiteboard_updated=False,
             )
 
@@ -727,14 +799,11 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             if tool_steps:
                 # Criar executor com proteções
                 legacy_tool_results: dict[str, dict[str, Any]] = {}
+                marker_results: dict[str, ToolResult] = {}
 
                 def legacy_execute(name: str, args: dict, user_line: str) -> ToolResult:
-                    tool_result = self.registry.run_by_marker(name, args.get("command") if args else None, user_line)
-                    legacy_tool_results[name] = {
-                        "ok": getattr(tool_result, "ok", False),
-                        "message": getattr(tool_result, "message", ""),
-                        "data": getattr(tool_result, "data", None),
-                    }
+                    tool_result = self.registry.execute_tool(name, args, context={"user_line": user_line})
+                    marker_results[name] = tool_result
                     return tool_result
 
                 executor = ActionExecutor(
@@ -746,16 +815,25 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                 )
                 
                 for step in tool_steps:
-                    tool_name = step.kind
                     tool_arg = step.arg
+                    tool_name, tool_args = ToolRegistry.resolve_marker(step.kind, tool_arg, text)
                     
                     try:
-                        self.pattern_learner.record_action(tool_name, {"command": tool_arg} if tool_arg else {})
-                        res = executor.execute(tool_name, {"command": tool_arg} if tool_arg else {}, text)
+                        self.pattern_learner.record_action(tool_name, tool_args)
+                        res = executor.execute(tool_name, tool_args, text)
                         actions.append(f"executar_{tool_name}")
                         context_data[tool_name] = {"arg": tool_arg, "result": res}
-                        if not executor.last_action or executor.last_action.status != "succeeded":
-                            action_feedback.append(f"{tool_name}: {res}")
+                        record = executor.last_action
+                        if record:
+                            context_data[tool_name]["receipt"] = record.public_dict()
+                        tr = marker_results.pop(tool_name, None)
+                        legacy_tool_results[tool_name] = {
+                            "ok": bool(record and record.status == "succeeded"),
+                            "message": res,
+                            "data": getattr(tr, "data", None),
+                        }
+                        # O texto prévio do modelo não prova execução; devolva o recibo real.
+                        action_feedback.append(res)
                         try:
                             from app.core.logger import logger
                             logger.record_tool_execution(tool_name)
@@ -764,11 +842,6 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                             pass
                         if tool_name.startswith("whiteboard_") and executor.last_action and executor.last_action.status == "succeeded":
                             whiteboard_updated = True
-                        # Para ferramentas informativas, anexar o resultado ao speakable se houver retorno
-                        if tool_name in {"system_control", "web_search", "video_analyst", "vision"} and res:
-                            if speakable and not speakable.endswith("."):
-                                speakable += ". "
-                            speakable += res
                     except RunCancelled:
                         raise
                     except Exception:
@@ -782,6 +855,7 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             try:
                 from app.services.stm_filters import stm_filter
                 final_summary = stm_filter.process(final_summary)
+                final_summary = stm_filter.avoid_unsolicited_tables(final_summary, text)
             except Exception:
                 pass
             search_marker = _build_search_marker(legacy_tool_results) if tool_steps else ""
@@ -835,9 +909,12 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
         )
 
     def _run_local_shortcut(self, text: str, mode: str, session_id: str | None) -> AgentPlan | None:
-        if mode not in {"general", "chat", "files"}:
+        if mode not in {"general", "chat", "files", "lifeos"}:
             return None
         task = re.fullmatch(r"(?:adicione|adicionar|crie|criar)\s+(?:uma\s+)?tarefa\s+(?:de\s+)?(.+)", text.strip(), re.I)
+        # Complex requests need the structured tool parser, not a title-only shortcut.
+        if task and re.search(r"\b(?:prioridade|titulo|título|prazo|depois|projeto)\b|[,;]", task[1], re.I):
+            return None
         if not task and FileActionService.listing_target(text) is None:
             return None
         name = "create_local_task" if task else "list_local_directory"
@@ -847,7 +924,12 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             if task:
                 if self.productivity_service is None:
                     return ToolResult(False, "O serviço de tarefas não está disponível.")
-                task_record = self.productivity_service.add_task(args["title"])
+                if self.productivity_service is task_store:
+                    from app.services.tasks import TaskService
+                    import uuid
+                    task_record = TaskService.create_task(f"task_{uuid.uuid4().hex[:8]}", args["title"])
+                else:
+                    task_record = self.productivity_service.add_task(args["title"])
                 if task_record is None:
                     return ToolResult(False, "O serviço de tarefas não confirmou a criação.")
                 if isinstance(task_record, dict) and task_record.get("id"):
@@ -920,7 +1002,7 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             # Resposta da retomada: entra no histórico da conversa e vai ao chat aberto.
             if session_id and reply and not is_technical_error_memory(reply):
                 updated = [*get_session_history(session_id), {"role": "assistant", "content": reply, "run_id": run_id}]
-                save_session_history(session_id, updated[-40:])
+                save_session_history(session_id, updated)
             ui_events.publish({"type": "agent_reply", "session_id": session_id, "run_id": run_id, "reply": reply})
 
         try:
@@ -968,10 +1050,17 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
         on_popup: Any = None,
     ) -> AgentPlan:
         from app.core import ui_events
+        import time
+        requested_at = time.time() * 1000
 
         if history is None:
             history = get_session_history(session_id) if session_id else []
         resolved_mode, mode_meta = resolve_active_mode(text, explicit_mode=mode, history=history)
+        from app.core.model_routing import current_model_mode, route_key
+        model_token = current_model_mode.set(route_key(resolved_mode, origin or current_origin.get()))
+        run_context = current_run.get()
+        ui_events.publish({"type": "agent_mode", "session_id": session_id,
+                           "run_id": run_context[1] if run_context else None, "mode": resolved_mode})
         # Toda ação deste turno registra a origem (voz ou chat) no Action Kernel;
         # sem origem explícita, uma chamada aninhada herda a do pedido que a contém.
         origin_token = current_origin.set(origin) if origin in REQUEST_ORIGINS else None
@@ -986,6 +1075,8 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                 (ui_events.current_popup_listener, ui_events.current_popup_listener.set(on_popup)),
             ]
         meta_token = turn_meta.start()  # contexto usado / memórias citadas do turno
+        from app.agent.tool_activity import activity_listener
+        activity_token = activity_listener.set(on_progress)
         turn_extra: dict = {}
         try:
             plan = self._dispatch_request(
@@ -994,6 +1085,8 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                 on_progress,
             )
         finally:
+            activity_listener.reset(activity_token)
+            current_model_mode.reset(model_token)
             if meta_token is not None:
                 turn_extra = turn_meta.snapshot()
                 turn_meta.reset(meta_token)
@@ -1009,11 +1102,19 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             plan.context = {}
         plan.context["active_mode"] = resolved_mode
         plan.context["mode_resolution"] = mode_meta
+        if not (plan.summary or "").strip() or is_technical_error_memory(plan.summary):
+            plan.intent = "error"
+            plan.context["success"] = False
+            plan.summary = plan.summary or "O provedor não retornou resposta."
         check_run_cancelled()
-        if session_id and plan.intent != "error" and not is_technical_error_memory(plan.summary):
-            assistant_message = {"role": "assistant", "content": plan.summary, "run_id": current_run.get()[1]}
-            updated = [*history, {"role": "user", "content": text}, assistant_message]
-            save_session_history(session_id, updated[-40:])
+        if session_id and plan.summary and plan.summary.strip() and plan.intent != "error" and not is_technical_error_memory(plan.summary):
+            import time
+            assistant_message = {"role": "assistant", "content": plan.summary, "run_id": current_run.get()[1], "timestamp": time.time() * 1000, "activity": turn_extra.get("tool_activity", [])}
+            if turn_extra.get("memory_lookup"):
+                assistant_message["meta"] = {"memory_lookup": turn_extra["memory_lookup"]}
+            updated = [*history, {"role": "user", "content": text, "timestamp": requested_at}, assistant_message]
+            # Retain the transcript on disk; model context is bounded separately.
+            save_session_history(session_id, updated)
         return plan
 
     def _dispatch_request(
@@ -1028,9 +1129,31 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
         except Exception:
             pass
 
+        history_answer = chat_history_reply(text, history)
+        if history_answer is not None:
+            return AgentPlan(intent="general", summary=history_answer, actions=[])
+
         # Se o modo ReAct estiver ativado ("Execução por etapas": ferramentas do modo, REACT_TOOLS)
+        from app.agent.loop_policy import is_action_discussion
+        if is_action_discussion(text):
+            receipts = {}
+            for message in history:
+                if message.get("role") == "assistant":
+                    for entry in message.get("activity") or []:
+                        if isinstance(entry, dict) and entry.get("id") and entry.get("status") in {"succeeded", "failed", "cancelled"}:
+                            receipts[entry["id"]] = entry
+            recent = list(receipts.values())[-3:]
+            states = {"succeeded": "concluída pela ferramenta", "failed": "falhou", "cancelled": "cancelada"}
+            lines = [f"- {entry.get('label') or entry.get('tool', 'Ação')}: {states[entry['status']]}" for entry in recent]
+            summary = ("Os registros mais recentes desta conversa mostram:\n" + "\n".join(lines)
+                       if lines else "Não encontrei recibos de execução no histórico disponível desta conversa.")
+            summary += "\n\nNão executei novas ações ao receber sua pergunta."
+            return AgentPlan(intent="general", summary=summary, actions=[])
+
         if mode == "react":
-            plan = self._run_agent_loop(text, mode, session_id, history, react_max_steps, on_progress, allowed_tools=None)
+            from app.agent.react_loop import REACT_TOOLS
+            allowed = self.registry.allowed_tool_names(mode="general", user_text=text, narrow=True) | REACT_TOOLS
+            plan = self._run_agent_loop(text, mode, session_id, history, react_max_steps, on_progress, allowed_tools=allowed)
             self.last_plan = plan
             return plan
 
@@ -1109,14 +1232,16 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             provider = self.llm_service.get_active_provider()
             api_key = self.llm_service._api_key_for(provider)
             if not api_key:
-                key_name = "GROQ_API_KEY" if provider == "groq" else "GEMINI_API_KEY"
+                key_name = f"{provider.upper()}_API_KEY"
+                availability = getattr(self.llm_service, "unavailable_reason", None)
+                reason = availability(provider) if callable(availability) else None
                 plan = AgentPlan(
-                    intent="general",
+                    intent="error" if reason else "general",
                     summary=(
-                        f"Chave {key_name} não encontrada no .env. "
+                        reason or f"Chave {key_name} não encontrada no .env. "
                         f"Configure-a ou altere o provedor LLM em Configurações."
                     ),
-                    actions=["configurar api key"],
+                    actions=[] if reason else ["configurar api key"],
                     context={"success": False},
                 )
                 self.last_plan = plan
@@ -1164,7 +1289,8 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                 if "API key" in str(e).lower() or "401" in str(e) or "403" in str(e):
                     error_msg = "Erro de autenticação com a API. Verifique as chaves no .env."
                 elif "429" in str(e):
-                    error_msg = "Limite de taxa da API excedido. Tente novamente em alguns instantes."
+                    from app.services.rate_limits import ProviderRateLimit
+                    error_msg = str(e) if isinstance(e, ProviderRateLimit) else "Limite de taxa da API excedido. Tente novamente em alguns instantes."
                 elif "timeout" in str(e).lower():
                     error_msg = "Timeout na conexão com a API. Verifique sua internet."
                 elif "connection" in str(e).lower():

@@ -28,13 +28,13 @@ class DesktopAPI:
             self._recognizer = sr.Recognizer()
             self._microphone = sr.Microphone()
             self._has_sr = True
-        except ImportError:
+        except (ImportError, OSError, AttributeError):
             self._has_sr = False
-            print("AVISO: speech_recognition não instalado. Microfone não funcionará nativamente.")
+            print("AVISO: microfone nativo indisponível. A interface continua disponível.")
 
     def startRecording(self):
         if not self._has_sr:
-            return "Started (Mock)"
+            return "Erro: microfone nativo indisponível."
             
         self._is_recording = True
         self._recorded_text = ""
@@ -53,7 +53,9 @@ class DesktopAPI:
         try:
             self._stop_listening_fn = self._recognizer.listen_in_background(self._microphone, callback)
         except Exception as e:
+            self._is_recording = False
             print(f"Erro ao iniciar gravação nativa: {e}")
+            return "Erro: não foi possível iniciar a gravação."
         return "Started"
 
     def stopRecording(self):
@@ -237,8 +239,27 @@ def start_desktop(settings: Any, panel_server: Any = None) -> None:
         
     window.events.loaded += on_loaded
 
+    panel_standby = False
+
+    def set_panel_standby(value: bool) -> None:
+        nonlocal panel_standby
+        panel_standby = value
+        try:
+            window.evaluate_js(
+                f"window.__jarvisStandby = {'true' if value else 'false'};"
+                "window.dispatchEvent(new Event('jarvis:visibility'));"
+            )
+        except Exception:
+            pass  # Página ainda carregando; o evento loaded sincroniza o próximo estado.
+
+    window.events.minimized += lambda: set_panel_standby(True)
+    window.events.restored += lambda: set_panel_standby(False)
+    window.events.shown += lambda: set_panel_standby(False)
+    window.events.loaded += lambda: set_panel_standby(panel_standby)
+
     # Intercepta o X: esconde a janela em vez de encerrar o processo
     def on_closing():
+        set_panel_standby(True)
         window.hide()
         return False  # cancela o fechamento real
 
@@ -279,4 +300,6 @@ def start_desktop(settings: Any, panel_server: Any = None) -> None:
             
     threading.Thread(target=register_hotkeys, daemon=True).start()
 
-    webview.start(debug=False)
+    profile_path = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "Jarvis", "WebView")
+    os.makedirs(profile_path, exist_ok=True)
+    webview.start(debug=False, private_mode=False, storage_path=profile_path)

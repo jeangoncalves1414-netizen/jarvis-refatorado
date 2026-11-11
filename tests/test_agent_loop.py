@@ -90,6 +90,40 @@ def approve(action_id):
 BATCH3 = 'ACOES: [{"ferramenta": "timer", "args": {"n": 1}}, {"ferramenta": "calendar", "args": {"n": 2}}, {"ferramenta": "timer", "args": {"n": 3}}]'
 
 
+def test_empty_finish_retries_once_then_fails_without_inventing_effects(env):
+    prompts = script(env, ["FINISH: Abri o Spotify e esperei 10 segundos."] * 2)
+    plan = env.agent.handle_request("Abra o spotify, aguarde 10 segundos e abra um video no youtube", session_id="s1")
+    assert len(prompts) == 2
+    assert not env.agent.registry.calls
+    assert plan.intent == "error" and plan.context["stopped_reason"] == "no_actions"
+    assert "Não executei nenhuma ação" in plan.summary
+    assert detail(env, plan)["run"]["status"] == "failed"
+
+
+def test_empty_finish_can_recover_with_real_action(env):
+    prompts = script(env, ["FINISH: Pronto.", 'FERRAMENTA: calendar\nARGS: {}', "FINISH: Etapa concluída."])
+    plan = env.agent.handle_request(MULTI, session_id="s1")
+    assert len(prompts) == 3 and env.agent.registry.calls == [("calendar", {})]
+    assert plan.context["success"] is True
+
+
+def test_missing_wait_cannot_be_reported_as_completed(env):
+    script(env, ['FERRAMENTA: calendar\nARGS: {}', "FINISH: Esperei 10 segundos.", "FINISH: Esperei 10 segundos."])
+    plan = env.agent.handle_request("Abra a agenda, aguarde 10 segundos e abra a agenda", session_id="s1")
+    assert plan.intent == "error" and plan.context["stopped_reason"] == "incomplete"
+    assert "esperar 10 segundos" in plan.summary
+
+
+def test_search_cannot_finish_a_media_open_request(env):
+    env.agent.registry = FakeRegistry(names=('web_search',))
+    script(env, ['FERRAMENTA: web_search\nARGS: {"query":"youtube", "action":"search"}', 'FINISH: Abri o YouTube.', 'FINISH: Abri o YouTube.'])
+    plan = env.agent.handle_request('Abra o YouTube', session_id='s1', mode='react')
+    assert plan.intent == 'error'
+    assert 'abrir youtube' in plan.summary
+    assert detail(env, plan)['run']['status'] == 'failed'
+    assert "Esperei 10 segundos" not in plan.summary
+
+
 def test_batch_of_three_actions_costs_two_model_calls_and_one_run(env):
     prompts = script(env, [BATCH3, "FINISH: Tudo pronto."])
     plan = env.agent.handle_request(MULTI, session_id="s1")
@@ -249,10 +283,10 @@ def test_tool_outside_turn_list_is_blocked(env):
 def test_orchestrator_uses_loop_for_multi_part_and_native_for_simple(env):
     native = []
     env.agent._run_llm_with_tools = lambda text, *a, **k: native.append(text) or AgentPlan(intent="general", summary="nativo", actions=[])
-    prompts = script(env, ["FINISH: loop"])
+    prompts = script(env, [BATCH3, "FINISH: loop"])
     assert env.agent.handle_request(MULTI, session_id="s1").intent == "agent_loop"
     assert env.agent.handle_request("abre minhas finanças", session_id="s1").summary == "nativo"
-    assert native == ["abre minhas finanças"] and len(prompts) == 1
+    assert native == ["abre minhas finanças"] and len(prompts) == 2
     runtime_settings.set_agent_loop_settings({"mode": "off"})
     assert env.agent.handle_request(MULTI, session_id="s1").summary == "nativo"
 
@@ -380,7 +414,8 @@ def test_failure_without_a_later_success_still_fails_with_the_failed_step(env):
     script(env, ['ACOES: [{"ferramenta": "timer", "args": {"n": 1}}]', "FINISH: Tudo certo."])
     plan = env.agent.handle_request(MULTI, session_id="s1")
     assert plan.intent == "error"
-    assert plan.summary.startswith("Execução encerrada com falha na etapa 1.") and "timer 1 indisponível" in plan.summary
+    assert plan.summary.startswith("Execução encerrada com falha na etapa 1.")
+    assert "timer 1 indisponível" in plan.context["tool_activity"][0]["result"]
 
 
 def test_success_on_a_different_target_does_not_hide_the_failure(env):
@@ -498,13 +533,32 @@ def test_unconfirmed_effect_replaces_the_model_claim(env, wait_env, monkeypatch)
     script(env, [WAIT_PLAN, "FINISH: Pronto, tocando!"])
     plan = env.agent.handle_request(WAIT_REQUEST, session_id="s1")
     assert "Pronto, tocando" not in plan.summary
-    assert "não consegui confirmar" in plan.summary and "Etapa 1 (spotify): confirmado" in plan.summary
-    assert "Esperei 50 s" in plan.summary
+    assert "efeito não foi confirmado" in plan.summary and "Abri Spotify." in plan.summary
+    assert "Aguardei 50 segundos." in plan.summary
+    assert "web_search" not in plan.summary and "spotify.exe" not in plan.summary
 
 
-def test_all_confirmed_keeps_model_text_with_evidence(env, wait_env, monkeypatch):
+def test_all_confirmed_uses_only_evidence(env, wait_env, monkeypatch):
     effects_on(monkeypatch, {"spotify.exe", "chrome.exe"}, ["Spotify Premium", "Lofi - YouTube - Google Chrome"])
     script(env, [WAIT_PLAN, "FINISH: Abri tudo."])
     plan = env.agent.handle_request(WAIT_REQUEST, session_id="s1")
-    assert plan.summary.startswith("Abri tudo.") and "Confirmado:" in plan.summary
-    assert "abri o vídeo no YouTube" in plan.summary
+    assert plan.summary == "Abri Spotify. Aguardei 50 segundos. Abri YouTube."
+    assert "tocando" not in plan.summary
+    assert len(plan.context["tool_activity"]) == 3
+    assert any("chrome.exe" in entry.get("result", "") for entry in plan.context["tool_activity"])
+
+
+def test_spoken_parallel_request_skips_duplicate_openings_and_completes_missing_app(env, wait_env, monkeypatch):
+    import json
+    from app.agent import effect_checks
+    monkeypatch.setattr(effect_checks, 'capture_before', lambda *args: None)
+    monkeypatch.setattr(effect_checks, 'check_effect', lambda *args: effect_checks.EffectCheck('confirmed', 'janela observada'))
+    openings = [{'ferramenta': 'web_search', 'args': {'action': 'open_url', 'query': url}}
+                for url in ['https://roblox.com', 'https://www.roblox.com/', 'https://roblox.com']]
+    prompts = script(env, ['ACOES: ' + json.dumps(openings), 'FINISH: pronto',
+                           'ACOES: [{"ferramenta":"spotify","args":{"action":"open"}}]', 'FINISH: pronto'])
+    plan = env.agent.handle_request('tá quero que você abra o navegador no roblox.com e ao mesmo tempo abrir Spotify', session_id='s1')
+    assert [name for name, _ in wait_env.stamps] == ['web_search', 'spotify']
+    assert 'abrir spotify' in prompts[2]
+    assert plan.summary == 'Abri Roblox. Abri Spotify.'
+    assert len(detail(env, plan)['actions']) == 2

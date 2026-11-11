@@ -45,6 +45,14 @@ class CinemaTool(BaseTool):
                     "type": "string",
                     "description": "URL pública de uma página que o usuário quer analisar para detectar mídia exposta normalmente.",
                 },
+                "scope": {
+                    "type": "string", "enum": ["approved", "web"],
+                    "description": "Em discover: approved consulta fontes de cinema; web pesquisa sites em toda a web.",
+                },
+                "source": {
+                    "type": "string",
+                    "description": "Filtro opcional em discover: animesonlinecc, flixlat, 123pelicula, archive, youtube, plex, pluto ou domain:dominio.com. Por padrão pesquisa toda a web, excluindo Netflix e Amazon.",
+                },
                 "media_type": {
                     "type": "string",
                     "enum": ["auto", "movie", "tv"],
@@ -82,7 +90,7 @@ class CinemaTool(BaseTool):
                 return ToolResult(ok=False, message=res.get("error", "Nenhum resultado encontrado."))
 
             items = res.get("results", [])
-            lines = [f"Resultados encontrados para '{query}':"]
+            lines = [f"Resultados encontrados para '{query}':" if items else f"Nenhum título encontrado para '{query}'. Tente pesquisar sites com discover."]
             for idx, item in enumerate(items, 1):
                 type_label = "Filme" if item["type"] == "movie" else "Série"
                 lines.append(f"{idx}. {item['title']} ({item['year']}) [{type_label}] - ID: {item['id']}")
@@ -98,14 +106,17 @@ class CinemaTool(BaseTool):
         if action == "discover":
             if not query:
                 return ToolResult(ok=False, message="Informe o título para pesquisar nas fontes aprovadas.")
-            res = CinemaDiscoveryService().search(query)
+            scope = str(args.get("scope") or "web")
+            source_id = str(args.get("source") or "")
+            res = CinemaDiscoveryService().search(query, scope=scope, source_id=source_id)
             if not res.get("ok"):
                 return ToolResult(ok=False, message=res.get("error", "Não foi possível pesquisar fontes."))
-            payload = {"ok": True, "title": query, "type": "movie", "discovery_results": res.get("results", [])}
+            payload = {"ok": True, "title": query, "type": "movie", "scope": scope, "source_id": source_id,
+                       "discovery_results": res.get("results", []), "warnings": res.get("warnings", [])}
             import json as _json
             return ToolResult(
                 ok=True,
-                message=f"Resultados de fontes aprovadas para **{query}**.\n__CINEMA_PLAY__{_json.dumps(payload, ensure_ascii=False)}",
+                message=f"Pesquisa de páginas para **{query}**: {len(payload['discovery_results'])} resultados. A disponibilidade de vídeo ainda não foi verificada.\n__CINEMA_PLAY__{_json.dumps(payload, ensure_ascii=False)}",
                 data=payload,
             )
 

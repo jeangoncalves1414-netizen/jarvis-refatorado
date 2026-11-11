@@ -120,7 +120,7 @@ MAX_POPUP_ITEMS = 50
 
 def _habit_list_builder(params: dict[str, Any], _context: dict[str, Any]) -> dict[str, Any]:
     from app.agent.tools.lifestyle_tools import WEEK_DAYS, normalize_name
-    from app.services.habits import HabitService
+    from app.services.personal_habits import PersonalHabits as HabitService
 
     scope = params.get("filter", "today")
     wanted = {normalize_name(name) for name in params.get("highlight", [])}
@@ -205,6 +205,16 @@ def _water_builder(_params: dict[str, Any], context: dict[str, Any]) -> dict[str
     }
 
 
+def _finance_builder(_params: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    receipt = context["animate"].pop("receipt", None)
+    if receipt:
+        return receipt
+    # Uma consulta explícita mostra o saldo atual, sem simular um lançamento.
+    from app.services.finance import FinanceService
+    summary = FinanceService.get_summary()
+    return {"period": summary["month"], "before": summary["month_net"], "after": summary["month_net"], "entries": []}
+
+
 def _animated_ids(context: dict[str, Any], *names: str) -> set[str]:
     animate = context.get("animate") or {}
     found: set[str] = set()
@@ -284,6 +294,17 @@ def _live_notes_builder(params: dict[str, Any], _context: dict[str, Any]) -> dic
 
 
 POPUP_TEMPLATES: dict[str, PopupSpec] = {
+    "personal_receipt": PopupSpec(
+        title="Registro salvo", params={},
+        builder=lambda _params, context: context['animate'].pop('personal', {'receipts': []}),
+        key=lambda _params, _data: "personal-receipt",
+        description="alterações pessoais confirmadas, com histórico e desfazer",
+    ),
+    "finance_receipt": PopupSpec(
+        title="Finanças", params={}, builder=_finance_builder,
+        key=lambda _params, _data: "finance-receipt",
+        description="saldo do mês; recibo automático ao registrar receita ou despesa",
+    ),
     "info": PopupSpec(
         title="Aviso",
         params={"title": _text(60), "lines": _text_list(6, 120), "tone": _choice("info", "ok", "warn")},
@@ -414,6 +435,17 @@ def _auto_tasks(kind: str) -> AutoPopup:
     return make
 
 
+def _auto_note(_args: dict[str, Any], result: Any) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+    data = _result_data(result)
+    path = data.get("path")
+    if not isinstance(path, str) or not path:
+        return []
+    daily = "entry" in data
+    title = "Entrada no diário" if daily else "Nota salva"
+    line = str((data.get("entry") if daily else data.get("title")) or "Anotação")[:120]
+    return [("info", {"title": title, "lines": [line], "tone": "ok"}, {"saved_note_path": path})]
+
+
 def _auto_places(_args: dict[str, Any], result: Any) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
     data = _result_data(result)
     query = data.get("query")
@@ -442,20 +474,41 @@ def _auto_routine(title: str) -> AutoPopup:
     return make
 
 
+def _auto_finance(_args: dict[str, Any], result: Any) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+    receipt = _result_data(result).get("finance_receipt")
+    return [("finance_receipt", {}, {"receipt": receipt})] if receipt else []
+
+
 AUTO_POPUPS: dict[tuple[str, str], AutoPopup] = {
+    ("finance_tool", "add"): _auto_finance,
+    ("finance_tool", "create"): _auto_finance,
+    ("finance_tool", "add_many"): _auto_finance,
+    ("finance_tool", "update"): _auto_finance,
     ("routine", "create"): _auto_routine("Rotina criada"),
     ("routine", "update"): _auto_routine("Rotina atualizada"),
     ("task_tool", "create"): _auto_tasks("added_ids"),
     ("task_tool", "create_many"): _auto_tasks("added_ids"),
     ("task_tool", "toggle"): _auto_tasks("toggled_ids"),
     ("task_tool", "complete"): _auto_tasks("toggled_ids"),
+    ("task_tool", "reopen"): _auto_tasks("toggled_ids"),
     ("task_tool", "done"): _auto_tasks("toggled_ids"),
     ("task_tool", "update"): _auto_tasks("updated_ids"),
     # places_search não tem "action": a operação é vazia.
     ("places_search", ""): _auto_places,
+    ("vault_save_note", ""): _auto_note,
+    ("vault_daily_log", ""): _auto_note,
     ("habit_tool", "create"): _auto_habits("added_ids"),
     ("habit_tool", "create_many"): _auto_habits("added_ids"),
     ("habit_tool", "check"): _auto_habits("checked_ids"),
+    ("habit_tool", "complete"): _auto_habits("checked_ids"),
+    ("habit_tool", "done"): _auto_habits("checked_ids"),
+    ("habit_tool", "uncheck"): _auto_habits("updated_ids"),
+    ("habit_tool", "undo"): _auto_habits("updated_ids"),
+    ("lifeos_tool", "uncheck_habit"): _auto_habits("updated_ids"),
+    ("lifeos_tool", "uncheck"): _auto_habits("updated_ids"),
+    ("habit_tool", "auto_check"): _auto_habits("checked_ids"),
+    ("lifeos_tool", "check_habit"): _auto_habits("checked_ids"),
+    ("lifeos_tool", "check"): _auto_habits("checked_ids"),
     ("habit_tool", "check_many"): _auto_habits("checked_ids"),
     ("habit_tool", "update"): _auto_habits("updated_ids"),
     ("calendar", "create_reminder"): _auto_schedule,
@@ -520,7 +573,7 @@ def build_popup(
         "ttl_ms": 0 if spec.sticky else int(settings["ttl_seconds"]) * 1000,
         "pinned": False,
         "data": data,
-        "animate": dict(animate or {}),
+        "animate": context["animate"],
     }
 
 
@@ -573,7 +626,30 @@ def after_tool_success(tool_name: str, args: dict[str, Any], result: Any) -> lis
         if isinstance(request, dict):
             requests.append((request.get("template"), request.get("params") or {}, {}))
     elif settings["auto"]:
-        requests.extend(popups_for_result(tool_name, args, result))
+        receipt = _result_data(result).get('personal_receipt')
+        bulk = _result_data(result).get('bulk_preview')
+        if bulk:
+            requests.append(('personal_receipt', {}, {'personal': {'receipts': [], 'bulk': bulk}}))
+        elif receipt:
+            previous = []
+            for popup in ui_events.current_popups.get() or []:
+                if popup.get('template') == 'personal_receipt':
+                    previous = popup.get('data', {}).get('receipts', [])
+            receipts = {r['id']: r for r in previous}
+            receipts[receipt['id']] = receipt
+            preview = None
+            original = popups_for_result(tool_name, args, result)
+            if not original and tool_name == 'personal_records':
+                mapped = {'habit': 'habit_tool', 'task': 'task_tool', 'finance': 'finance_tool'}.get(args.get('kind'))
+                if mapped:
+                    mapped_args = {**args, 'action': 'add' if args.get('kind') == 'finance' and args.get('action') == 'create' else args.get('action')}
+                    original = popups_for_result(mapped, mapped_args, result)
+            if original:
+                template, params, animate = original[0]
+                preview = build_popup(template, params, origin=origin, animate=animate)
+            requests.append(('personal_receipt', {}, {'personal': {'receipts': list(receipts.values())[-20:], 'preview': preview, 'finance': _result_data(result).get('finance_receipt')}}))
+        else:
+            requests.extend(popups_for_result(tool_name, args, result))
     if not requests:
         return []
     run = current_run.get()

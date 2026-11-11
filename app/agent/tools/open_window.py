@@ -67,6 +67,7 @@ WINDOWS: dict[str, WindowSpec] = {
         {
             "type": _choice("expense", "income"),
             "category": _text(60),
+            "edit_id": _text(64),
             "period": _choice("week", "month", "all"),
             "amount": _positive_number,
             "description": _text(),

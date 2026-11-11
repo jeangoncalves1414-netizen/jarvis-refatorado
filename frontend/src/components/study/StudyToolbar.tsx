@@ -1,6 +1,7 @@
-export type StudyMode = 'learn' | 'questions' | 'review' | 'feynman' | 'quiz' | 'progress' | null
+export type StudyMode = 'plan' | 'learn' | 'questions' | 'review' | 'feynman' | 'quiz' | 'progress' | null
 
 const MODES: { id: StudyMode; label: string; icon: string }[] = [
+  { id: 'plan', label: 'Hoje', icon: '☀' },
   { id: 'learn', label: 'Aprender', icon: '◎' },
   { id: 'questions', label: 'Questões', icon: '?' },
   { id: 'review', label: 'Revisar', icon: '↻' },
@@ -22,7 +23,7 @@ export function StudyToolbar({ activeMode, onModeChange }: StudyToolbarProps) {
           key={mode.id}
           type="button"
           className={activeMode === mode.id ? 'study-mode-active' : ''}
-          onClick={() => onModeChange(activeMode === mode.id ? null : mode.id)}
+          onClick={() => onModeChange(activeMode === mode.id && mode.id !== 'plan' ? null : mode.id)}
           title={mode.label}
         >
           <span>{mode.icon}</span>

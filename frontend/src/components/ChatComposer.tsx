@@ -11,7 +11,7 @@ import { Phone } from 'lucide-react'
 import { PromptSuggestions } from './PromptSuggestions'
 import { isMobileStandalone } from '../hooks/useDirectChat'
 
-export type ChatMode = 'auto' | 'general' | 'planning' | 'research' | 'coder' | 'browser' | 'react'
+export type ChatMode = 'auto' | 'thinking' | 'general' | 'planning' | 'research' | 'coder' | 'browser' | 'react'
 
 export type PersonaMode = 'general' | 'dev' | 'analyst' | 'tutor' | 'creative'
 

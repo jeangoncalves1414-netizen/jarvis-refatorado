@@ -228,10 +228,11 @@ def test_web_search_does_not_hijack_youtube_url():
         # Teste com action="open_url"
         res_open = tool.execute({"action": "open_url", "query": yt_url})
         assert res_open.ok is True
-        assert "VideoAnalyst" in res_open.message
-        mock_browser_open.assert_not_called()
-        mock_video_exec.assert_called_once()
+        assert "navegador" in res_open.message
+        mock_browser_open.assert_called_once_with(yt_url)
+        mock_video_exec.assert_not_called()
 
+        mock_browser_open.reset_mock()
         mock_video_exec.reset_mock()
         # Teste com action="search"
         res_search = tool.execute({"action": "search", "query": "https://youtu.be/dQw4w9WgXcQ"})

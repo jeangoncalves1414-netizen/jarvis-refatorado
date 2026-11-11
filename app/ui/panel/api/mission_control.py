@@ -4,6 +4,30 @@ from __future__ import annotations
 from typing import Any
 
 from app.storage.action_store import action_store
+from app.core.actions import redact
+
+
+def build_health_details() -> dict[str, Any]:
+    from app.storage.runtime_settings import get_mic_settings
+    from app.services.voice import mic_capture
+    from app.mcp.manager import mcp_manager
+
+    mic = get_mic_settings()
+    capture = mic_capture.capture.status()
+    try:
+        # Nunca enviar command, args ou env: podem conter credenciais MCP.
+        servers = [{"id": s["id"], "name": s["name"], "status": s["status"], "tools_count": s["tools_count"],
+                    "error": "Falha na conexão MCP." if s.get("error") else ""} for s in mcp_manager.list_servers()]
+        mcp_error = ""
+    except Exception:
+        servers, mcp_error = [], "Não foi possível consultar os servidores MCP."
+    verified = action_store.last_verified()
+    return {
+        "microphone": {"configured_engine": mic["engine"], "configured_device": mic["device_name"],
+                       "active": capture["active"], "state": capture["state"], "device": capture.get("device", "")},
+        "tools": sorted(mcp_manager.get_registry().tools), "mcp_servers": servers, "mcp_error": mcp_error,
+        "last_verified_action": verified.public_dict() if verified else None,
+    }
 
 
 def build_mission_snapshot() -> dict[str, Any]:
@@ -51,8 +75,13 @@ def build_mission_snapshot() -> dict[str, Any]:
         active_goals = [goal for goal in goals if goal.get("status") == "active"]
     except Exception:
         active_goals = []
+    try:
+        health = build_health_details()
+    except Exception:
+        health = {"error": "Não foi possível consultar os detalhes de saúde."}
     return {
         "version": 1,
+        "health": redact(health, limit=500) if health.get("error") else health,
         "components": [
             {"id": "action_kernel", "label": "Ações", "status": "healthy", "reason": f"{awaiting + running} em andamento/aguardando confirmação."},
             {"id": "providers", "label": "IA e voz", "status": provider_status, "reason": provider_reason},

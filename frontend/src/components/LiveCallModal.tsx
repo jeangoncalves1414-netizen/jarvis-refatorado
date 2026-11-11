@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { LiveAudioDiagnostics } from '../hooks/useMediaAssistant'
+import type { ToolActivityEntry } from '../types'
+import { ToolActivity } from './chat/ToolActivity'
 
 type LiveCallModalProps = {
   open: boolean
@@ -9,7 +11,7 @@ type LiveCallModalProps = {
   status: string
   userTranscript?: string
   jarvisTranscript?: string
-  turns?: { id: string; user: string; jarvis: string; pending?: boolean }[]
+  turns?: { id: string; user: string; jarvis: string; pending?: boolean; activity?: ToolActivityEntry[] }[]
   orbState?: 'idle' | 'listening' | 'thinking' | 'speaking'
   emotionLabel?: string
   audioDiagnostics?: LiveAudioDiagnostics | null
@@ -49,6 +51,7 @@ export function LiveCallModal({
 }: LiveCallModalProps) {
   const [isMinimized, setIsMinimized] = useState(false)
   const [durationSec, setDurationSec] = useState(0)
+  const spaceHeld = useRef(false)
 
   useEffect(() => {
     if (!open) {
@@ -61,7 +64,7 @@ export function LiveCallModal({
   }, [open])
 
   useEffect(() => {
-    if (!open) return
+    if (!open || !pushToTalkMode) return
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
@@ -70,28 +73,31 @@ export function LiveCallModal({
         if (isInput) return
         e.preventDefault()
         if (!e.repeat) {
+          spaceHeld.current = true
           onPttStart?.()
         }
       }
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        const target = e.target as HTMLElement | null
-        const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
-        if (isInput) return
+      if (e.code === 'Space' && spaceHeld.current) {
+        spaceHeld.current = false
         e.preventDefault()
         onPttEnd?.()
       }
     }
 
+    const handleWindowBlur = () => { spaceHeld.current = false; onPttEnd?.() }
+
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('keyup', handleKeyUp)
+    window.addEventListener('blur', handleWindowBlur)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
+      window.removeEventListener('blur', handleWindowBlur)
     }
-  }, [open, onPttStart, onPttEnd])
+  }, [open, pushToTalkMode, onPttStart, onPttEnd])
 
   if (!open || typeof document === 'undefined') return null
 
@@ -216,7 +222,7 @@ export function LiveCallModal({
               }}
             >
               <span>DIAGNÓSTICO · {audioDiagnostics.mode === 'backend-sr' ? 'MICROFONE DO PC (SPEECHRECOGNITION)' : audioDiagnostics.mode === 'fallback-vad' ? 'VAD DO NAVEGADOR' : 'RECONHECIMENTO DO NAVEGADOR'}</span>
-              {audioDiagnostics.note && <div>Motor do PC desligado: {audioDiagnostics.note}</div>}
+              {audioDiagnostics.note && <div>{audioDiagnostics.note}</div>}
               {audioDiagnostics.mode === 'backend-sr' && (
                 <div>
                   Entrada {Math.round(audioDiagnostics.rms || 0)} · Limiar {Math.round(audioDiagnostics.threshold || 0)}{audioDiagnostics.sttMs !== undefined ? ` · Transcrição ${audioDiagnostics.sttMs} ms` : ''}
@@ -252,6 +258,7 @@ export function LiveCallModal({
               <div key={turn.id}>
                 <p style={{ color: '#e2e8f0' }}><strong style={{ color: '#00daf8' }}>Você: </strong>{turn.user}</p>
                 <p style={{ color: '#f8fafc' }}><strong style={{ color: '#f59e0b' }}>Jarvis: </strong>{turn.jarvis || (turn.pending ? '…' : '')}</p>
+                <ToolActivity entries={turn.activity} live={turn.pending} />
               </div>
             ))}
             {turns.at(-1)?.user !== userTranscript && userTranscript && (
@@ -284,10 +291,11 @@ export function LiveCallModal({
           ) : pushToTalkMode ? (
             <button
               type="button"
-              onMouseDown={() => onPttStart?.()}
-              onMouseUp={() => onPttEnd?.()}
-              onTouchStart={() => onPttStart?.()}
-              onTouchEnd={() => onPttEnd?.()}
+              onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); onPttStart?.() }}
+              onPointerUp={() => onPttEnd?.()}
+              onPointerCancel={() => onPttEnd?.()}
+              onLostPointerCapture={() => onPttEnd?.()}
+              style={{ touchAction: 'none' }}
               className={`live-call-btn-ptt ${isPttActive ? 'active' : 'idle'}`}
             >
               <span>{isPttActive ? '🔴 Gravando… solte para enviar' : '🎙️ Segure para Falar (Espaço)'}</span>

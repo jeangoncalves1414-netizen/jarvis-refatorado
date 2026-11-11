@@ -13,6 +13,7 @@ import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
+from contextvars import ContextVar
 from typing import Any, Callable, Literal
 
 ActionRisk = Literal["observe", "low", "high", "critical"]
@@ -106,6 +107,10 @@ class PendingActionBroker:
 
 
 pending_action_broker = PendingActionBroker()
+
+# Autorização em memória, definida somente pelo executor depois da política.
+# Não pode ser forjada por argumentos enviados pelo modelo.
+executing_action: ContextVar[tuple[str, str] | None] = ContextVar("executing_action", default=None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,6 +226,8 @@ class ActionRecord:
     undo_payload: dict[str, Any] | None = None
     reversible: bool = False
     run_id: str | None = None
+    effect_status: str | None = None
+    effect_evidence: str | None = None
 
     @classmethod
     def create(cls, *, source: str, tool_name: str, metadata: ToolMetadata, arguments: dict[str, Any], preview: str) -> "ActionRecord":

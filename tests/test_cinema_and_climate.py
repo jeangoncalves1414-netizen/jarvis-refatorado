@@ -55,6 +55,7 @@ def test_cinema_library_keeps_episode_sources(tmp_path) -> None:
 
 def test_cinema_discovery_filters_search_to_approved_sources(tmp_path, monkeypatch) -> None:
     service = CinemaDiscoveryService(tmp_path / "cinema_sources.json")
+    monkeypatch.setattr(service, "_search_internet_archive", lambda *args: [])
     monkeypatch.setattr(service, "_search_web", lambda query, domains, limit: [
         {"title": "Arquivo público", "url": "https://archive.org/details/example", "source": "archive.org", "snippet": ""}
     ])

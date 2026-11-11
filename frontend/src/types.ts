@@ -16,8 +16,9 @@ export type OxyySettings = { models: { chat?: string; tts?: string; tts_voice?: 
 /** Memória citada no turno (fase contexto 2). */
 export type MemoryCitation = { id: string; text: string; date: string; label: string; origin: string; session_id?: string; applied_to?: { tool: string; param: string; value: string }; how: 'preenchido' | 'citado' }
 /** Metadados do turno, só ao vivo (não vão para o histórico salvo). */
-export type TurnMeta = { situational_context?: { text: string; sources: { key: string; label: string }[]; chars: number }; memory_used?: MemoryCitation[] }
-export type ChatMessage = { role: 'user' | 'assistant'; content: string; run_id?: string; meta?: TurnMeta }
+export type ToolActivityEntry = { id: string; tool: string; status: string; label?: string; speech?: string; result?: string; detail?: string; sources?: { url: string; title: string; read?: boolean }[] }
+export type TurnMeta = { tool_activity?: ToolActivityEntry[]; memory_lookup?: { tool: string; summary: string; items: { title: string; text: string }[] }; situational_context?: { text: string; sources: { key: string; label: string }[]; chars: number }; memory_used?: MemoryCitation[] }
+export type ChatMessage = { timestamp?: number; activity?: ToolActivityEntry[]; role: 'user' | 'assistant'; content: string; run_id?: string; meta?: TurnMeta }
 export type ScriptRequest = { language: 'python' | 'powershell'; code: string; description: string }
 export type StudyCategory = { id: string; name: string; color: string; created_at?: number }
 export type ChatSession = { id: string; title?: string; type?: string; updated_at?: number; category_id?: string; category_color?: string; deleted_at?: number }
@@ -60,8 +61,12 @@ export type WhiteboardElement = {
   zIndex?: number
   locked?: boolean
 }
-export type CinemaResult = { title?: string; url: string; source?: string; snippet?: string; media_hint?: string }
-export type CinemaMedia = { url: string; label?: string; kind?: string; source_url?: string; direct?: boolean; embed_url?: string }
+export type CinemaResult = { title?: string; url: string; source?: string; snippet?: string; media_hint?: string; source_priority?: number }
+export type CinemaCatalogItem = { id: string; title: string; original_title?: string; title_language?: string; type: 'movie' | 'tv'; year?: string | number; poster?: string; description?: string; genres?: string[] }
+export type CinemaSearchMode = 'movie' | 'series' | 'anime' | 'sites'
+export type CinemaSearchSource = { id: string; name: string; enabled?: boolean }
+export type CinemaMedia = { url: string; playback_url?: string; label?: string; kind?: string; source_url?: string; session_id?: string; evidence?: 'network' | 'dom'; direct?: boolean; embed_url?: string; quality?: string; audio?: string; suspected_ad?: boolean; compatible?: boolean; verification?: 'confirmed' | 'timeout' | 'cancelled' | 'failed' | 'embedded'; qualities?: string[]; audio_tracks?: string[] }
+export type CinemaDetectedEpisode = { url: string; title: string; season: number; episode: number }
 export type CinemaSource = { label?: string; url: string; kind?: string; quality?: string; episode?: number; season?: number }
 export type CinemaEpisode = { season?: number; episode?: number; title?: string; sources?: CinemaSource[] }
 export type CinemaItem = { id?: string; title?: string; type?: 'movie' | 'tv'; sources?: CinemaSource[]; episodes?: CinemaEpisode[] }

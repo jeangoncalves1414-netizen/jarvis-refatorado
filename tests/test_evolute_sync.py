@@ -1,6 +1,22 @@
 from __future__ import annotations
 
+from datetime import date
+import json
+
 from app.ui.panel.api import evolute
+
+
+def test_status_uses_current_water_value_and_supports_legacy_log(tmp_path, monkeypatch, isolated_lote6_data):
+    db_file = tmp_path / "lifeos_db.json"
+    monkeypatch.setattr(evolute, "_get_db_file", lambda: db_file)
+    today = date.today().isoformat()
+    bucket = {"waterLog": [{"date": today, "ml": 250}]}
+    for current, expected in ((None, 250), (750, 750), (0, 0)):
+        if current is not None:
+            bucket[f"lifeos_water_{today}"] = current
+        db_file.write_text(json.dumps({"data": bucket}), encoding="utf-8")
+        status, data = evolute.handle_evolute_status_get()
+        assert status == 200 and data["waterMl"] == expected
 
 
 def test_sync_writes_atomically_and_advances_revision(tmp_path, monkeypatch):

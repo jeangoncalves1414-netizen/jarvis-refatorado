@@ -4,6 +4,7 @@ import type { StudyMode } from '../components/study/StudyToolbar'
 import { StudyCanvas } from '../components/study/StudyCanvas'
 import { StudySidebar } from '../components/study/StudySidebar'
 import { StudyToolbar } from '../components/study/StudyToolbar'
+import { MessageContent } from '../components/MessageContent'
 
 type StudyPageProps = {
   tutorSessions: { id: string; title?: string }[]
@@ -52,6 +53,7 @@ type StudyPageProps = {
   studyMessages: { role: string; content: string }[]
   studyQuery: string
   sendStudyMessage: (e: FormEvent) => Promise<void>
+  sendTutorMessage: (message: string) => Promise<string | null>
   studyEnemFromForm: () => Promise<boolean>
   studyEnemFromBank: (questionId: string) => Promise<boolean>
   whiteboard: WhiteboardElement[]
@@ -69,7 +71,7 @@ type StudyPageProps = {
 }
 
 export function StudyPage(props: StudyPageProps) {
-  const [activeMode, setActiveMode] = useState<StudyMode>(null)
+  const [activeMode, setActiveMode] = useState<StudyMode>('plan')
   const [selectedEnemId, setSelectedEnemId] = useState('')
   const [pasteText, setPasteText] = useState('')
   const [pasteImage, setPasteImage] = useState('')
@@ -145,6 +147,11 @@ export function StudyPage(props: StudyPageProps) {
     if (props.studySessionId) props.selectStudySession(props.studySessionId).catch(() => undefined)
   }
 
+  const beginGuidedStudy = (message: string, mode: StudyMode = 'learn') => {
+    setActiveMode(mode)
+    props.sendTutorMessage(message).catch(() => undefined)
+  }
+
   return (
     <section className="study-layout">
       <StudySidebar
@@ -179,12 +186,35 @@ export function StudyPage(props: StudyPageProps) {
           onDuplicateElement={props.duplicateWhiteboardElement}
           onClearCanvas={props.clearWhiteboard}
         />
+        {activeMode === 'plan' && (
+          <div className="study-overlay-panel study-today">
+            <p className="eyebrow">PLANO DE HOJE</p>
+            <h2>{props.studyProgress.current_stage || 'Preparação para provas'}</h2>
+            <p className="study-today-copy">Comece pelo diagnóstico ou escolha uma prática. O Jarvis registra lacunas, questões e revisões para o próximo estudo.</p>
+            <div className="study-today-stats">
+              <span><b>{props.dueCards.length}</b> revisões</span>
+              <span><b>{props.enemQuestions.length}</b> questões salvas</span>
+              <span><b>{props.assessments.length}</b> simulados</span>
+            </div>
+            <div className="study-today-actions">
+              <button type="button" className="primary" onClick={() => beginGuidedStudy('diagnostico: quero iniciar meu diagnóstico para provas. Faça uma pergunta curta por vez, comece perguntando minha matéria mais difícil e espere minha resposta antes de corrigir.')}>Fazer diagnóstico</button>
+              <button type="button" onClick={() => beginGuidedStudy('Quero montar uma sessão de estudo para hoje. Pergunte primeiro qual prova, matéria e tempo disponível; depois proponha a primeira atividade.')}>Estudar um tema</button>
+              <button type="button" onClick={() => beginGuidedStudy('simulado: quero um mini simulado de 5 questões. Envie uma questão por vez, espere minha resposta e, no final, dê desempenho, erros e uma revisão indicada.')}>Mini simulado</button>
+              <button type="button" onClick={() => setActiveMode('review')}>Revisar agora</button>
+              <button type="button" onClick={() => setActiveMode('questions')}>Adicionar questão</button>
+              <button type="button" onClick={() => setActiveMode('feynman')}>Explicar de volta</button>
+            </div>
+          </div>
+        )}
         {activeMode === 'learn' && (
           <div className="study-overlay-panel">
             <p className="eyebrow">PROFESSOR JARVIS</p>
             <div className="study-chat-history">
               {props.studyMessages.length ? props.studyMessages.map((m, i) => (
-                <p className={m.role} key={`${m.role}-${i}`}><b>{m.role === 'user' ? 'VOCÊ' : 'PROFESSOR'}</b>{m.content}</p>
+                <div className={`study-chat-message ${m.role}`} key={`${m.role}-${i}`}>
+                  <b>{m.role === 'user' ? 'VOCÊ' : 'PROFESSOR'}</b>
+                  <MessageContent text={m.content} />
+                </div>
               )) : <span>Pergunte ao professor sobre qualquer tópico.</span>}
             </div>
             <form className="study-tutor-form" onSubmit={props.sendStudyMessage}>

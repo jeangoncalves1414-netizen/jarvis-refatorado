@@ -279,7 +279,7 @@ class BrowserAgentTool(BaseTool):
             return ToolResult(ok=False, message="Serviço de Visão não disponível no contexto. Não posso rodar o Browser Agent.")
             
         vision_service = context["vision"]
-        browser_service = context.get("browser")
+        browser_service = context.get("browser_agent") or context.get("browser")
         
         if not browser_service:
             try:
@@ -300,6 +300,7 @@ class BrowserAgentTool(BaseTool):
         try:
             max_steps = 10
             final_filename = ""
+            visited = {}
             for step in range(max_steps):
                 time.sleep(1.5)
                 
@@ -318,6 +319,10 @@ class BrowserAgentTool(BaseTool):
                 print(f"[BrowserAgent] Consultando modelo de visão...")
                 try:
                     vlm_response = vision_service.analyze_bytes(prompt, image_bytes=screenshot_bytes)
+                    if isinstance(page.url, str):
+                        from app.agent.tool_activity import report_progress
+                        visited[page.url] = {"url": page.url, "read_status": "read"}
+                        report_progress({"sources": list(visited.values())}, "Investigando páginas…")
                 except Exception as e:
                     return ToolResult(ok=False, message=f"Erro na consulta de visão: {e}")
                     
@@ -352,7 +357,7 @@ class BrowserAgentTool(BaseTool):
                         except Exception:
                             pass
                         msg = f"[Visão Computacional - Captura: {final_filename}]\n{result}" if final_filename else f"Navegação concluída: {result}"
-                        return ToolResult(ok=True, message=msg, data={"result": result, "capture_filename": final_filename})
+                        return ToolResult(ok=True, message=msg, data={"result": result, "capture_filename": final_filename, "sources": list(visited.values())})
                         
                     elif action == "click":
                         el_id = action_obj.get("element_id")
@@ -396,7 +401,7 @@ class BrowserAgentTool(BaseTool):
             except Exception:
                 pass
             msg = f"[Visão Computacional - Captura: {final_filename}]\nNavegação encerrada após limite de passos." if final_filename else "Navegação interrompida. Máximo de passos atingido."
-            return ToolResult(ok=True, message=msg, data={"capture_filename": final_filename})
+            return ToolResult(ok=True, message=msg, data={"capture_filename": final_filename, "sources": list(visited.values())})
         finally:
-            if not context.get("browser"):
+            if not (context.get("browser_agent") or context.get("browser")):
                 browser_service.stop()

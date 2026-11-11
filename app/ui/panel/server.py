@@ -34,6 +34,8 @@ from app.ui.panel.api.popups import handle_popups_get
 from app.ui.panel.api.places import handle_places_get
 from app.ui.panel.api.notifications import handle_notifications_get, handle_notifications_post
 from app.ui.panel.api.notes_live import handle_notes_live_post
+from app.ui.panel.api.recent_notes import handle_recent_notes_get
+from app.ui.panel.api.personal_records import handle_personal_get, handle_personal_post
 from app.agent.action_gateway import request_origin, run_action
 from app.agent.run_tracking import background_run, in_background
 from app.core.runs import current_run
@@ -676,19 +678,36 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_json(200, {"boot_enabled": False, "error": str(exc)})
                 return
 
+            if len(parts) == 5 and parts[1:4] == ["cinema", "session", "status"]:
+                from app.services.cinema_session import cinema_sessions
+                self._send_json(200, cinema_sessions.snapshot(parts[4]))
+                return
+
+            if len(parts) == 6 and parts[1:4] == ["cinema", "session", "media"]:
+                from app.services.cinema_session import cinema_sessions
+                cinema_sessions.serve(self, parts[4], parts[5])
+                return
+
             # /api/cinema/search?q={query}
             if len(parts) >= 3 and parts[1] == "cinema" and parts[2] == "library":
                 from app.services.cinema_library import CinemaLibraryService
                 self._send_json(200, CinemaLibraryService().list_items())
                 return
 
+            if len(parts) == 4 and parts[1:4] == ["cinema", "discovery", "sources"]:
+                from app.services.cinema_discovery import CinemaDiscoveryService
+                self._send_json(200, {"ok": True, "sources": CinemaDiscoveryService()._sources()})
+                return
+
             if len(parts) >= 4 and parts[1] == "cinema" and parts[2] == "discovery" and parts[3] == "search":
                 try:
                     import urllib.parse
                     query = urllib.parse.urlparse(self.path).query
-                    q = urllib.parse.parse_qs(query).get("q", [""])[0]
+                    params = urllib.parse.parse_qs(query)
+                    q = params.get("q", [""])[0]
                     from app.services.cinema_discovery import CinemaDiscoveryService
-                    result = CinemaDiscoveryService().search(q)
+                    pagination = {key: params[key][0] for key in ("page", "limit") if key in params}
+                    result = CinemaDiscoveryService().search(q, scope=params.get("scope", ["web"])[0], source_id=params.get("source", [""])[0], **pagination)
                     self._send_json(200 if result.get("ok") else 400, result)
                 except Exception as exc:
                     self._send_json(500, {"ok": False, "error": str(exc)})
@@ -743,6 +762,8 @@ class PanelHandler(BaseHTTPRequestHandler):
                 handle_goals_get,
                 handle_popups_get,
                 handle_places_get,
+                handle_recent_notes_get,
+                handle_personal_get,
                 handle_notifications_get,
                 handle_mcp_get,
             ):
@@ -1584,7 +1605,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                     return
                 plan = _orchestrator.handle_request(message, session_id=session_id, mode=mode, profile_id=profile_id, racing_mode=racing_mode, origin=request_origin(payload.get("origin")))
                 prefix = _calendar_conversation_prefix()
-                if prefix:
+                if prefix and getattr(plan, "summary", "").strip() and plan.intent != "error" and not is_technical_error_memory(plan.summary):
                     plan.summary = prefix + getattr(plan, "summary", str(plan))
                 self._send_json(200, {
                     "ok": True,
@@ -1864,11 +1885,28 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"ok": False, "error": "JSON inválido."})
             return
 
+        if path in {"/api/cinema/session/open", "/api/cinema/session/close"}:
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+                from app.services.cinema_session import cinema_sessions
+                field = "url" if path.endswith("/open") else "session_id"
+                if not isinstance(payload, dict) or not isinstance(payload.get(field), str):
+                    self._send_json(400, {"ok": False, "error": "Dados de sessão inválidos."})
+                    return
+                result = cinema_sessions.open(payload[field]) if field == "url" else cinema_sessions.close(payload[field])
+                self._send_json(200 if result.get("ok") else 400, result)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                self._send_json(400, {"ok": False, "error": "JSON inválido."})
+            return
+
         if path == "/api/cinema/discovery/probe":
             try:
                 payload = json.loads(body.decode("utf-8") or "{}")
                 from app.services.cinema_discovery import CinemaDiscoveryService
-                result = CinemaDiscoveryService().probe(payload.get("url", ""))
+                if not isinstance(payload, dict) or not isinstance(payload.get("url", ""), str):
+                    self._send_json(400, {"ok": False, "error": "Informe uma URL válida."})
+                    return
+                result = CinemaDiscoveryService().probe(payload.get("url", ""), fast=bool(payload.get("fast")))
                 self._send_json(200 if result.get("ok") else 400, result)
             except (UnicodeDecodeError, json.JSONDecodeError):
                 self._send_json(400, {"ok": False, "error": "JSON inválido."})
@@ -1988,6 +2026,16 @@ class PanelHandler(BaseHTTPRequestHandler):
             return
 
         # Update persisted title/category without replacing history or whiteboard.
+        if path.startswith('/api/sessions/') and path.endswith('/auto-title'):
+            from app.services.conversation_title import generate_title
+            parts = [p for p in path.split('/') if p]
+            if len(parts) != 4:
+                self._send_json(404, {'ok': False})
+                return
+            status, data = generate_title(parts[2], getattr(_orchestrator, 'llm_service', None))
+            self._send_json(status, data)
+            return
+
         if path.startswith("/api/sessions/") and len([p for p in path.split("/") if p]) == 3:
             try:
                 from app.storage.session_store import update_session
@@ -2027,6 +2075,15 @@ class PanelHandler(BaseHTTPRequestHandler):
                 session_id = parts_p[2] if len(parts_p) >= 4 else None
                 if session_id:
                     payload = json.loads(body.decode("utf-8") or "{}")
+                    if "truncate_to" in payload:
+                        from app.storage.session_store import truncate_session_history
+                        try:
+                            kept = truncate_session_history(session_id, payload["truncate_to"], payload.get("expected_history"))
+                        except ValueError as exc:
+                            self._send_json(409, {"ok": False, "error": str(exc)})
+                            return
+                        self._send_json(200, {"ok": True, "history": kept})
+                        return
                     save_session_history(session_id, payload.get("history", []))
                 self._send_json(200, {"ok": True})
             except Exception as exc:
@@ -2048,6 +2105,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             return
 
         for handler_fn in (
+            handle_personal_post,
             handle_dashboard_post,
             handle_tutor_post,
             handle_contexto_post,
@@ -2107,16 +2165,17 @@ async def _ws_chat_handler(websocket) -> None:
                 await websocket.send(json.dumps({"type": "error", "message": "JSON inválido."}))
                 continue
 
+            request_id = str(data.get("request_id") or "")[:100]
+            session_id = data.get("session_id")
             message = str(data.get("message", "")).strip()
             if not message:
                 continue
 
             if _orchestrator is None:
-                await websocket.send(json.dumps({"type": "error", "message": "Orquestrador não disponível."}))
+                await websocket.send(json.dumps({"type": "error", "request_id": request_id, "session_id": session_id, "message": "Orquestrador não disponível."}))
                 continue
 
-            # Signal thinking
-            await websocket.send(json.dumps({"type": "status", "status": "thinking"}))
+            await websocket.send(json.dumps({"type": "status", "status": "processing", "request_id": request_id, "session_id": session_id}))
 
             try:
                 session_id = data.get("session_id")
@@ -2132,7 +2191,7 @@ async def _ws_chat_handler(websocket) -> None:
                     if chunk_text:
                         try:
                             asyncio.run_coroutine_threadsafe(
-                                websocket.send(json.dumps({"type": "chunk", "text": chunk_text, "session_id": session_id})),
+                                websocket.send(json.dumps({"type": "chunk", "text": chunk_text, "session_id": session_id, "request_id": request_id})),
                                 loop
                             )
                         except Exception:
@@ -2142,7 +2201,7 @@ async def _ws_chat_handler(websocket) -> None:
                     if reason_text:
                         try:
                             asyncio.run_coroutine_threadsafe(
-                                websocket.send(json.dumps({"type": "reasoning", "text": reason_text, "session_id": session_id})),
+                                websocket.send(json.dumps({"type": "reasoning", "text": reason_text, "session_id": session_id, "request_id": request_id})),
                                 loop
                             )
                         except Exception:
@@ -2151,7 +2210,7 @@ async def _ws_chat_handler(websocket) -> None:
                 def on_search(payload: dict) -> None:
                     try:
                         asyncio.run_coroutine_threadsafe(
-                            websocket.send(json.dumps({"type": "search", "payload": payload, "session_id": session_id}, ensure_ascii=False)),
+                            websocket.send(json.dumps({"type": "search", "payload": payload, "session_id": session_id, "request_id": request_id}, ensure_ascii=False)),
                             loop,
                         )
                     except Exception:
@@ -2162,10 +2221,11 @@ async def _ws_chat_handler(websocket) -> None:
                     None, lambda: _orchestrator.handle_request(message, session_id=session_id, mode=mode, on_chunk=on_chunk, on_reasoning=on_reasoning, on_search=on_search, profile_id=profile_id, origin=request_origin(data.get("origin")))
                 )
                 prefix = _calendar_conversation_prefix()
-                if prefix:
+                if prefix and getattr(plan, "summary", "").strip() and plan.intent != "error" and not is_technical_error_memory(plan.summary):
                     plan.summary = prefix + getattr(plan, "summary", str(plan))
                 await websocket.send(json.dumps({
                     "type":    "complete",
+                    "request_id": request_id,
                     "session_id": session_id,
                     "summary": getattr(plan, "summary", str(plan)),
                     "intent":  getattr(plan, "intent", ""),
@@ -2196,7 +2256,7 @@ async def _ws_chat_handler(websocket) -> None:
                         pass
 
             except Exception as exc:
-                await websocket.send(json.dumps({"type": "error", "message": str(exc)}))
+                await websocket.send(json.dumps({"type": "error", "message": str(exc), "session_id": session_id, "request_id": request_id}))
     except Exception:
         pass
     finally:

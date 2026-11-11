@@ -88,7 +88,7 @@ export function ContextSettings() {
       <h2>Contexto da situação</h2>
       <p>Antes de cada pedido, o agente recebe um resumo curto do momento (até 600 caracteres), montado no seu PC sem chamada extra ao modelo. Vale para o chat, a ligação de voz e o loop agêntico.</p>
       <Switch label="Usar contexto da situação" description="Desligado, nenhum resumo do momento é enviado ao modelo." checked={config.enabled} disabled={busy} onChange={checked => edit({ enabled: checked })} glowColor="green" />
-      <Switch label="Mostrar 'Contexto usado' no chat" description="Mostra abaixo da resposta um detalhe com o que foi enviado. Some ao recarregar a conversa." checked={config.show_in_chat} disabled={off} onChange={checked => edit({ show_in_chat: checked })} glowColor="green" />
+<p className="settings-muted">No chat, “Contexto usado” aparece somente quando o agente consulta uma memória para atender ao pedido.</p>
       {SOURCES.map(source => (
         <Switch key={source.key} label={source.label} description={source.description} checked={config.sources[source.key]} disabled={off} onChange={checked => edit({ sources: { ...config.sources, [source.key]: checked } })} glowColor="blue" />
       ))}

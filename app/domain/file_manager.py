@@ -46,5 +46,14 @@ class FileManagerService:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def create_file(self, relative_path: str, content: str) -> Path:
+        path = self._validate_path(relative_path)
+        if not isinstance(content, str) or len(content.encode("utf-8")) > 1_000_000:
+            raise ValueError("Informe conteúdo de texto de até 1 MB.")
+        # Exclusive creation preserves existing files, including concurrent writes.
+        with path.open("x", encoding="utf-8") as stream:
+            stream.write(content)
+        return path
+
     def get_supported_directories(self) -> Sequence[str]:
         return [str(self.base_folder)]

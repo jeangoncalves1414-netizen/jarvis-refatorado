@@ -187,7 +187,51 @@ def test_system_prompt_lists_relevant_facts_only(chat):
     system = chat.llm.systems[-1]
     assert "## Preferências salvas (com fonte)" in system
     assert "- prefiro a playlist Foco de manhã (memória de " in system
-    section = system.split("## Preferências salvas (com fonte)")[1]
-    assert len(section.strip()) <= 300
+    from app.agent.turn_context import build_turn_sections, MEMORY_HEADER
+    section = build_turn_sections("toca uma música").memories
+    assert section in system
+    assert len(section.removeprefix(MEMORY_HEADER).strip()) <= 300
     chat.run("qual a capital da França")
     assert "Preferências salvas" not in chat.llm.systems[-1]
+
+
+def test_commands_never_create_preferences_or_trigger_memory_extraction(chat, tmp_path):
+    from app.storage.memory_store import MemoryStore
+    chat.agent.memory_store = MemoryStore(str(tmp_path / "memory.json"))
+    for text in ("Olá quero que você abra", "quero que você abra Spotify"):
+        chat.agent._remember_preferences(text, text.lower(), session_id="s1")
+    assert chat.agent.memory_store.get_preferences() == []
+    assert chat.llm.calls == []
+    assert memory_facts.list_facts() == []
+
+
+def test_global_recall_requires_intent_and_is_disclosed(chat, monkeypatch, tmp_path):
+    from app.storage.memory_store import MemoryStore
+    from app.services.memory_vault import memory_vault
+    calls = []
+    chat.agent.semantic_memory = SimpleNamespace(is_available=lambda: True,
+        search_memories=lambda collection, *a, **k: calls.append(collection) or [{"text": "Mensagem de outro chat", "metadata": {}}])
+    chat.agent.profile_memory = SimpleNamespace(context=lambda *a, **k: calls.append("profile") or [{"text": "Conversa privada antiga", "kind": "conversation"}])
+    chat.agent.memory_store = MemoryStore(str(tmp_path / "memory.json"))
+    chat.agent.memory_store.add_preference("general_preference", "Olá quero que você abra")
+    chat.agent.memory_store.add_preference("general_preference", "prefiro usar Firefox")
+    monkeypatch.setattr(memory_vault, "get_user_profile", lambda: "Perfil duradouro")
+    memory_facts.save("prefiro usar o navegador Firefox")
+
+    plan = chat.run("Olá, tudo bem?", profile_id="jean")
+    assert not calls and "memory_lookup" not in plan.context
+    assert "Olá quero que você abra" not in chat.llm.systems[-1]
+    assert "Firefox" in chat.llm.systems[-1]
+
+    plan = chat.run("Resuma o início deste chat", profile_id="jean")
+    assert not calls and "memory_lookup" not in plan.context
+    system = chat.llm.systems[-1]
+    for foreign in ("Olá quero que você abra", "Firefox", "Perfil duradouro", "Conversa privada antiga"):
+        assert foreign not in system
+    assert "histórico enviado pode ser parcial" in system
+
+    plan = chat.run("Consulte a memória sobre o projeto", profile_id="jean")
+    assert calls == ["user_memory", "episodic_memory", "profile"]
+    assert "Mensagem de outro chat" in chat.llm.systems[-1]
+    assert "Conversa privada antiga" in chat.llm.systems[-1]
+    assert len(plan.context["memory_lookup"]["items"]) == 3

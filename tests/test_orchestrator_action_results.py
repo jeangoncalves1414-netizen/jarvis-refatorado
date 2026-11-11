@@ -45,11 +45,13 @@ def test_orchestrator_keeps_typed_tool_failures(agent, provider):
         generate=lambda *_args, **_kwargs: SimpleNamespace(text="Concluído. [tool:fixture]"),
     )
     result = obj._run_llm_with_tools("leia", "tutor", "session-test", [])
-    assert "Arquivo não encontrado" in result.summary
     assert store.list()[0].status == "failed"
     if provider == "gemini":
         assert result.context["tool_results"]["fixture"]["ok"] is False
+        assert "Arquivo não encontrado" in result.context["tool_results"]["fixture"]["message"]
+        assert "Não consegui" in result.summary
     else:
+        assert "Arquivo não encontrado" in result.summary
         assert "Concluído" not in result.summary
 
 
@@ -72,3 +74,55 @@ def test_two_concurrent_turns_have_independent_guardrails(agent):
     assert len(run_ids) == 2
     assert {store.run_details(run_id)["run"]["session_id"] for run_id in run_ids} == {"one", "two"}
     assert all(len(store.run_details(run_id)["actions"]) == 4 for run_id in run_ids)
+
+
+def test_personal_read_is_retried_before_claiming_deletion(agent):
+    obj, _ = agent
+    obj.registry.allowed_tool_names = lambda **_: frozenset({"task_tool"})
+    calls = []
+    def execute(name, args, **kwargs):
+        calls.append(args["action"])
+        if args["action"] == "list":
+            return ToolResult(True, "1 tarefa", {"tasks": [{"id": "task-proof", "title": "Ler"}]})
+        return ToolResult(True, "Tarefa Ler excluída.")
+    obj.registry.execute_tool = execute
+    turns = []
+    def chat(**kw):
+        turns.append(1)
+        if len(turns) == 1:
+            observation = kw["on_function_call"]("task_tool", {"action": "list"})
+            assert "task-proof" in observation
+        else:
+            kw["on_function_call"]("task_tool", {"action": "delete", "task_id": "task-proof"})
+        return "Já excluí tudo."
+    obj.llm_service = SimpleNamespace(get_active_provider=lambda: "gemini", chat_with_functions_stream=chat)
+    result = obj._run_llm_with_tools("Exclua a tarefa Ler", "tutor", "qa", [])
+    assert calls == ["list", "delete"]
+    assert "Tarefa Ler excluída" in result.summary and "tudo" not in result.summary
+
+
+def test_corrected_tool_call_does_not_keep_stale_failure(agent):
+    obj, _ = agent
+    obj.registry.allowed_tool_names = lambda **_: frozenset({"calendar"})
+    obj.registry.execute_tool = lambda name, args, **_: ToolResult(bool(args.get("title")), "Evento criado." if args.get("title") else "Falta título.")
+    def chat(**kw):
+        kw["on_function_call"]("calendar", {"action": "create_reminder"})
+        kw["on_function_call"]("calendar", {"action": "create_reminder", "title": "Consulta"})
+        return "Falhou, mas deu certo."
+    obj.llm_service = SimpleNamespace(get_active_provider=lambda: "gemini", chat_with_functions_stream=chat)
+    result = obj._run_llm_with_tools("Agende uma consulta", "tutor", "qa", [])
+    assert result.summary == "Evento criado."
+
+
+def test_search_without_sources_cannot_invent_a_link(agent):
+    obj, _ = agent
+    obj.registry.allowed_tool_names = lambda **_: frozenset({"web_search"})
+    obj.registry.execute_tool = lambda *a, **k: ToolResult(True, "Evidência insuficiente: nenhuma fonte retornada.", {"results": [], "evidence_status": "insufficient"})
+    def chat(**kw):
+        assert kw["on_chunk"] is None
+        kw["on_function_call"]("web_search", {"action": "search", "query": "Python pathlib documentation"})
+        return "Encontrei em https://inventado.example/documentacao"
+    obj.llm_service = SimpleNamespace(get_active_provider=lambda: "gemini", chat_with_functions_stream=chat)
+    result = obj._run_llm_with_tools("Pesquise a documentação oficial de pathlib", "tutor", "qa", [])
+    assert "Evidência insuficiente" in result.summary
+    assert "inventado.example" not in result.summary

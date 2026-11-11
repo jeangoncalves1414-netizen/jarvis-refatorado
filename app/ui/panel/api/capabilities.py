@@ -27,12 +27,9 @@ def _registered() -> tuple[set[str], set[str]]:
     """Ferramentas que o agente registra e as que o modo geral oferece ao modelo."""
     try:
         from app.agent.tools import registry as module
+        from app.mcp.manager import mcp_manager
         names = set(module.GENERAL_TOOL_NAMES)
-        registered = set(names)
-        if not module.FASE5_TOOLS_AVAILABLE:
-            registered -= {"kasa_control", "telegram_bot", "desktop_search", "document_generator", "mobile_adb"}
-        if module.ADVANCED_TOOLS_AVAILABLE:
-            registered |= {"mcp"}
+        registered = set(mcp_manager.get_registry().tools)
         return registered, names
     except Exception:
         return set(), set()
@@ -179,8 +176,8 @@ def _integrations() -> list[dict[str, Any]]:
         items.append(_item("mcp", "Servidores MCP", "integracao", False, reason))
     else:
         try:
-            from app.agent.tools.mcp_tool import _load_servers
-            servers = _load_servers()
+            from app.mcp.config import load_server_configs
+            servers = load_server_configs()
         except Exception:
             servers = {}
         suffix = "" if "mcp" in offered else " A ferramenta não é oferecida no modo geral do chat."

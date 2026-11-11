@@ -14,6 +14,7 @@ export type HomeWindowParams = Record<string, never>
 export const WINDOW_FINANCE = 'finance'
 
 export type FinanceWindowParams = {
+  edit_id?: string
   type?: 'expense' | 'income'
   category?: string
   period?: 'week' | 'month' | 'all'
@@ -97,6 +98,7 @@ const financeDef: WindowDef<FinanceWindowParams> = {
   parseParams: parseWith({
     type: choice('expense', 'income'),
     category: text(60),
+    edit_id: text(64),
     period: choice('week', 'month', 'all'),
     amount: positive,
     description: text(300),

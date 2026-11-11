@@ -45,3 +45,28 @@ def publish(event: dict[str, Any]) -> None:
             fn(dict(event))
         except Exception:
             pass
+
+
+def publish_personal_change(tool: str, args: dict[str, Any]) -> None:
+    """Invalida as leituras abertas, inclusive quando a usuária desativa os popups."""
+    action = str(args.get("action") or "").strip().lower()
+    if tool == "personal_records":
+        publish({"type": "personal_data_changed", "area": "habits"})
+        publish({"type": "personal_data_changed", "area": "finance"})
+        publish({"type": "personal_data_changed", "area": "notes"})
+        return
+    if tool == "finance_tool" and action in {"add", "create", "add_many", "update", "delete"}:
+        area = "finance"
+    elif tool == "habit_tool" and action in {"create", "create_many", "update", "check", "done", "complete", "check_many", "auto_check", "uncheck", "undo", "delete"}:
+        area = "habits"
+    elif tool == "lifeos_tool" and action in {"add_water", "set_water"}:
+        area = "water"
+    elif tool == "lifeos_tool" and action in {"check_habit", "check", "uncheck_habit", "uncheck", "log_workout"}:
+        area = "habits"
+    elif tool in {"vault_save_note", "vault_daily_log"}:
+        area = "notes"
+    elif tool in {'task_tool', 'checklist_tool'} and action not in {'list', 'summary', 'get'}:
+        area = 'personal'
+    else:
+        return
+    publish({"type": "personal_data_changed", "area": area})

@@ -40,14 +40,14 @@ class ChecklistTool(BaseTool):
                 "action": {
                     "type": "string",
                     "enum": ["create_list", "add_items", "toggle_item", "get_list", "list_all", "list", "delete_list", "delete_item"],
-                    "description": "Ação a executar.",
+                    "description": "create_list deve incluir text ou items quando o usuário pedir itens. Consultar não exclui: use delete_list para excluir.",
                 },
                 "title": {"type": "string", "description": "Título da lista (ex.: 'Mercado', 'Mala de Viagem')."},
                 "list_id": {"type": "string", "description": "ID da lista de checagem."},
                 "text": {"type": "string", "description": "Texto dos itens em linguagem natural ou texto do item específico."},
                 "items": {
                     "type": "array",
-                    "items": {"type": "object"},
+                    "items": {"type": "object", "properties": {"text": {"type": "string"}, "completed": {"type": "boolean"}}, "required": ["text"]},
                     "description": "Lista de itens estruturados ou strings.",
                 },
                 "item_id": {"type": "string", "description": "ID do item específico a alternar ou excluir."},
@@ -61,10 +61,12 @@ class ChecklistTool(BaseTool):
             found = checklist_store.get_list(list_id)
             if found:
                 return found
+            return None
         if title:
             found = checklist_store.find_list_by_title(title)
             if found:
                 return found
+            return None
         # Se nenhuma lista foi especificada e só existe uma ativa, pega ela
         all_lists = checklist_store.list_all()
         if len(all_lists) == 1:

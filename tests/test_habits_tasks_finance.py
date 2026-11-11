@@ -6,6 +6,8 @@ from app.services.finance import FinanceService, init_finance_tables
 from app.agent.tools.lifestyle_tools import HabitTool, TaskTool, FinanceTool
 from app.ui.panel.api.routes.system_routes import handle_system_routes
 
+pytestmark = pytest.mark.usefixtures('isolated_lote6_data')
+
 
 def test_habits_service_lifecycle():
     habit = HabitService.create_habit(

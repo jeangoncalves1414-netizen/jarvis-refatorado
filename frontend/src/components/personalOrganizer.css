@@ -1,0 +1,34 @@
+.personal-organizer { display: grid; gap: 12px; margin-top: 14px; min-width: 0; }
+.today-panel [hidden] { display: none !important; }
+.personal-organizer details { border: 1px solid var(--ws-border, #ffffff20); border-radius: 14px; padding: 12px; }
+.personal-organizer summary { cursor: pointer; font-weight: 600; }
+.personal-organizer label { display: grid; gap: 5px; font-size: .86rem; }
+.personal-organizer input, .personal-organizer select, .personal-organizer textarea { width: 100%; min-width: 0; border: 1px solid #ffffff30; border-radius: 9px; background: var(--ws-surface, #17202c); color: inherit; padding: 9px; font: inherit; }
+.personal-organizer button, .personal-receipt button { border: 1px solid #ffffff30; border-radius: 9px; background: var(--ws-surface, #17202c); color: inherit; padding: 7px 11px; cursor: pointer; }
+.personal-organizer button:disabled, .personal-receipt button:disabled { opacity: .5; cursor: default; }
+.personal-organizer button:focus-visible, .personal-organizer input:focus-visible, .personal-organizer select:focus-visible, .personal-organizer summary:focus-visible { outline: 2px solid #67b8ff; outline-offset: 2px; }
+.personal-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; border: 1px solid #ffffff20; border-radius: 16px; padding: 14px; }
+.personal-form fieldset, .personal-form > .today-actions { grid-column: 1 / -1; }
+.personal-form fieldset { min-width: 0; border: 1px solid #ffffff20; border-radius: 10px; }
+.personal-form textarea { min-height: 90px; resize: vertical; }
+.personal-organizer .personal-check { display: inline-flex; flex-direction: row; align-items: center; margin: 8px 14px 8px 0; }
+.personal-check input { width: auto; }
+.personal-exercise { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 8px; margin: 10px 0; }
+.personal-today-extra { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.personal-today-extra .today-cell > strong, .personal-today-extra small { display: block; margin: 7px 0; }
+.personal-browser > ul { list-style: none; margin: 12px 0; padding: 0; max-height: 400px; overflow: auto; }
+.personal-browser > ul > li { padding: 12px 0; border-bottom: 1px solid #ffffff20; }
+.personal-browser small { display: block; opacity: .7; }
+.personal-receipt { border-radius: 14px; padding: 12px; border: 1px solid #ffffff20; margin: 8px 0; overflow-wrap: anywhere; }
+.personal-receipt ul { list-style: none; padding: 0; }
+.personal-receipt li { display: flex; justify-content: space-between; gap: 12px; margin: 7px 0; animation: personal-enter 220ms ease-out; }
+.personal-receipt small { opacity: .7; }
+.personal-before-after { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.personal-before-after > div { min-width: 0; }
+.personal-before-after pre { white-space: pre-wrap; font: inherit; font-size: .8rem; max-height: 180px; overflow: auto; }
+.personal-receipt.is-undone { opacity: .65; }
+.personal-popup { max-height: 65vh; overflow: auto; }
+@keyframes personal-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+.personal-reduced-motion *, .personal-reduced-motion *::before, .personal-reduced-motion *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+@media (prefers-reduced-motion: reduce) { .personal-receipt li { animation: none; } }
+@media (max-width: 540px) { .personal-exercise, .personal-before-after { grid-template-columns: 1fr 1fr; } }

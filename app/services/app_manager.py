@@ -20,7 +20,7 @@ APP_ALIASES: dict[str, str] = {
     "código": "code", "vscode": "code", "vs code": "code", "visual studio code": "code",
     "spotify": "spotify",
     "explorador": "explorer", "arquivos": "explorer", "explorador de arquivos": "explorer",
-    "calculadora": "calc", "calc": "calc",
+    "calculadora": "calc", "calculator": "calc", "calc": "calc",
     "paint": "mspaint",
     "terminal": "wt", "windows terminal": "wt",
     "cmd": "cmd", "prompt": "cmd",

@@ -177,6 +177,14 @@
   font-size: 12px;
 }
 
+.ws-finance-receipt { display: grid; justify-items: start; gap: 9px; }
+.ws-finance-receipt .ws-popup-list, .ws-finance-receipt details { width: 100%; }
+.ws-finance-receipt-row { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 7px; }
+.ws-finance-receipt-row > span { overflow-wrap: anywhere; }
+.ws-finance-receipt strong { font-variant-numeric: tabular-nums; }
+.ws-finance-receipt small { color: var(--ws-muted); }
+.ws-finance details > summary, .ws-finance-receipt details > summary { cursor: pointer; }
+
 .ws-finance-head {
   display: flex;
   align-items: center;

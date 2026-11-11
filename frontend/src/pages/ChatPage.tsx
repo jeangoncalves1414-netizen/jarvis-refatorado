@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowUpRight, Code2, Copy, Download, Lightbulb, Search, Sparkles, Trash2, Volume2, X } from 'lucide-react'
+import { ArrowDown, ArrowUpRight, Code2, Copy, Download, Lightbulb, Pencil, Search, Sparkles, Trash2, Volume2, X } from 'lucide-react'
 import type { ChatMode } from '../components/ChatComposer'
 import { WorkspaceComposer } from '../components/WorkspaceComposer'
 import type { CommandHandlers } from '../commands/registry'
 import { MessageRenderer } from '../components/chat/MessageRenderer'
+import { ToolActivity } from '../components/chat/ToolActivity'
 import { TurnMetaDetails } from '../components/chat/TurnMetaDetails'
 import { PlanningWorkspace } from '../components/PlanningWorkspace'
 import type { ChatMessage, ChatSession, ScriptRequest, WakeWord } from '../types'
@@ -19,6 +20,7 @@ type CinemaRequestPayload = {
 
 type ChatPageProps = {
   canStopRequest: boolean
+  hasActiveRequest?: boolean
   runStatus: string
   commandHandlers: CommandHandlers
   wakeWord?: WakeWord | null
@@ -40,6 +42,9 @@ type ChatPageProps = {
   chatAttachment: { name: string; dataUrl: string } | null
   recording: boolean
   pendingScript: ScriptRequest | null
+  onEditMessage?: (index: number) => Promise<void>
+  liveActivity?: import("../types").ToolActivityEntry[]
+  liveMode?: string
   onDeleteSession: (id: string) => void
   onExportSession: () => void
   onCopySession: () => void
@@ -89,21 +94,35 @@ export function ChatPage(props: ChatPageProps) {
   const empty = !props.messages.length && !props.loading && !props.streamingReply
   useEffect(() => { setMaxVisible(25); setFollowing(true); setFeedback('') }, [props.sessionId])
   useEffect(() => { if (following && history.current) history.current.scrollTop = history.current.scrollHeight }, [props.messages.length, props.streamingReply, following])
-  const renderContent = (content: string, streaming = false) => <MessageRenderer content={content} mode={props.chatMode} isStreaming={streaming} liveText={streaming ? props.liveReasoning : undefined} pendingScript={props.pendingScript} onRunPendingScript={() => props.onRunPendingScript().catch(() => setFeedback('Não foi possível executar a ação.'))} onSendText={text => props.onSendText(text).catch(() => { setFeedback('Não foi possível enviar.'); return '' })} onCinemaRequest={props.onCinemaRequest} liveSearch={streaming ? props.liveSearch : null} />
+  const renderContent = (content: string, streaming = false, compactSearch = false) => <MessageRenderer compactSearch={compactSearch || streaming && !!props.liveActivity?.some(e => e.tool === "web_search")} content={content} mode={streaming && props.liveMode ? props.liveMode as ChatMode : props.chatMode} isStreaming={streaming} liveText={streaming ? props.liveReasoning : undefined} pendingScript={props.pendingScript} onRunPendingScript={() => props.onRunPendingScript().catch(() => setFeedback('Não foi possível executar a ação.'))} onSendText={text => props.onSendText(text).catch(() => { setFeedback('Não foi possível enviar.'); return '' })} onCinemaRequest={props.onCinemaRequest} liveSearch={streaming ? props.liveSearch : null} />
   const copy = async (text: string) => { try { await navigator.clipboard.writeText(text); setFeedback('Mensagem copiada.') } catch { setFeedback('Não foi possível acessar a área de transferência.') } }
   return <section className={`ws-chat ${empty ? 'is-empty' : ''}`}>
     <header className="ws-chat-header"><div><span className="ws-overline">CONVERSA</span><strong>{props.sessions.find(item => item.id === props.sessionId)?.title || 'Nova conversa'}</strong></div><div className="ws-chat-actions"><PlanningWorkspace sessionId={props.sessionId} messages={props.messages} /><button className="ws-icon-button" title="Copiar conversa" aria-label="Copiar conversa" disabled={!props.messages.length} onClick={props.onCopySession}><Copy size={16} /></button><button className="ws-icon-button" title="Exportar Markdown" aria-label="Exportar conversa" disabled={!props.messages.length} onClick={props.onExportSession}><Download size={16} /></button><button className="ws-icon-button" title="Excluir conversa" aria-label="Excluir conversa" disabled={!props.sessionId || props.loading} onClick={() => deleteDialog.current?.showModal()}><Trash2 size={16} /></button></div></header>
     <div className="ws-chat-history" ref={history} onScroll={() => { const element = history.current; if (element) setFollowing(element.scrollHeight - element.scrollTop - element.clientHeight < 80) }}>
       {empty ? <div className="ws-welcome"><div className="ws-welcome-mark"><Sparkles size={30} strokeWidth={1.3} /></div><span className="ws-overline">UM ESPAÇO PARA SUAS IDEIAS</span><h1>O que vamos fazer hoje?</h1><p>Uma conversa pode ser o começo de algo maior.<br />Pesquise, crie e coloque seus planos em movimento.</p><div className="ws-suggestions">{suggestions.map(item => <button key={item.title} onClick={() => { props.onModeChange(item.mode); props.onQueryChange(item.prompt); document.querySelector<HTMLTextAreaElement>('.ws-composer textarea')?.focus() }}><item.icon size={19} /><ArrowUpRight size={14} className="suggestion-arrow" /><strong>{item.title}</strong><span>{item.description}</span></button>)}</div>{props.answer && !['Olá. Estou pronto para ajudar.', 'Ola. Estou pronto para ajudar.', 'Nova conversa iniciada.', 'Sessão carregada.'].includes(props.answer) && <div className="ws-answer-note">{renderContent(props.answer)}</div>}</div> : <div className="ws-message-list">
         {props.messages.length > maxVisible && <button className="ws-button ws-load-more" onClick={() => { setFollowing(false); setMaxVisible(value => value + 25) }}>Carregar mensagens anteriores</button>}
-        {props.messages.slice(-maxVisible).map((message, index) => <article key={props.messages.length - Math.min(props.messages.length, maxVisible) + index} className={`ws-message ${message.role}`}><div className="ws-message-label">{message.role === 'assistant' && <Sparkles size={15} />}<span>{message.role === 'user' ? 'Você' : 'Assistente'}</span></div><div className="ws-message-content">{renderContent(message.content)}</div>{message.role === 'assistant' && <TurnMetaDetails meta={message.meta} />}{message.role === 'assistant' && <div className="ws-message-actions">{message.run_id && props.onOpenRun && <button className="ws-text-button" onClick={() => props.onOpenRun?.(message.run_id!)}>Ver execução <ArrowUpRight size={14} /></button>}<button className="ws-icon-button" aria-label="Copiar resposta" onClick={() => void copy(message.content)}><Copy size={14} /></button>{props.onSpeakText && <button className="ws-icon-button" aria-label="Ouvir resposta" onClick={() => props.onSpeakText?.(message.content)}><Volume2 size={14} /></button>}</div>}</article>)}
-        {(props.loading || props.streamingReply || props.agentProgress) && <article className="ws-message assistant"><div className="ws-message-label"><Sparkles size={15} /><span>Assistente</span><span className="ws-generating">{props.loading || props.streamingReply ? 'Respondendo' : 'Continuando'}</span></div>{props.agentProgress && <AgentProgressLine progress={props.agentProgress} />}{renderContent(props.streamingReply || (props.loading ? 'Pensando…' : 'Continuando a sequência…'), true)}</article>}
+        {props.messages.slice(-maxVisible).map((message, index) => <article key={props.messages.length - Math.min(props.messages.length, maxVisible) + index} className={`ws-message ${message.role}`}>
+          <div className="ws-message-bubble">
+          <div className="ws-message-label">{message.role === 'assistant' && <Sparkles size={15} />}<span>{message.role === 'user' ? 'Você' : 'Assistente'}</span></div>
+          <div className="ws-message-content">{renderContent(message.content, false, !!message.activity?.some(e => e.tool === 'web_search'))}</div>
+          <ToolActivity entries={message.activity || message.meta?.tool_activity} />
+          {message.role === 'assistant' && <TurnMetaDetails meta={message.meta} />}
+          </div>
+          <div className="ws-message-actions">
+            {message.role === 'assistant' && message.run_id && message.activity?.some(entry => ['running', 'succeeded', 'failed'].includes(entry.status)) && props.onOpenRun && <button className="ws-text-button ws-message-run" onClick={() => props.onOpenRun?.(message.run_id!)}>Ver execução <ArrowUpRight size={14} /></button>}
+            {typeof message.timestamp === 'number' && <time className="ws-message-time" dateTime={new Date(message.timestamp).toISOString()} title={new Date(message.timestamp).toLocaleString('pt-BR')}>{new Date(message.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</time>}
+            <button className="ws-icon-button" aria-label="Copiar mensagem" title="Copiar mensagem" onClick={() => void copy(message.content)}><Copy size={14} /></button>
+            {message.role === 'user' && props.onEditMessage && <button className="ws-icon-button" aria-label="Editar mensagem" title="Editar mensagem" disabled={props.loading || props.canStopRequest} onClick={() => { void props.onEditMessage?.(props.messages.length - Math.min(props.messages.length, maxVisible) + index).then(() => document.querySelector<HTMLTextAreaElement>('.ws-composer textarea')?.focus()).catch(error => setFeedback(error.message || 'Não foi possível editar.')) }}><Pencil size={14} /></button>}
+            {message.role === 'assistant' && props.onSpeakText && <button className="ws-icon-button" aria-label="Ouvir resposta" title="Ouvir resposta" onClick={() => props.onSpeakText?.(message.content)}><Volume2 size={14} /></button>}
+          </div>
+        </article>)}
+        {(props.loading || props.streamingReply || props.agentProgress) && <article className="ws-message assistant"><div className="ws-message-label"><Sparkles size={15} /><span>Assistente</span><span className="ws-generating">{props.loading || props.streamingReply ? 'Respondendo' : 'Continuando'}</span></div>{props.agentProgress && <AgentProgressLine progress={props.agentProgress} />}{renderContent(props.streamingReply || (props.loading ? 'Pensando…' : 'Continuando a sequência…'), true)}<ToolActivity entries={props.liveActivity} live /></article>}
       </div>}
     </div>
     {!following && !empty && <button className="ws-jump-latest" aria-label="Ir para a última mensagem" onClick={() => setFollowing(true)}><ArrowDown size={16} /> Últimas mensagens</button>}
     {props.chatError && <div className="ws-error" role="alert"><span>{props.chatError}</span><button className="ws-icon-button" aria-label="Fechar erro" onClick={props.onClearChatError}><X size={16} /></button></div>}
     {feedback && <div className="ws-feedback" role="status">{feedback}<button aria-label="Fechar aviso" onClick={() => setFeedback('')}><X size={13} /></button></div>}
-    <WorkspaceComposer canStopRequest={props.canStopRequest} runStatus={props.runStatus} supportsRuns={!!props.onOpenRun} commandHandlers={props.commandHandlers} wakeWord={props.wakeWord} wakeHeard={props.wakeHeard} value={props.query} loading={props.loading} mode={props.chatMode} attachment={props.chatAttachment} recording={props.recording} onChange={props.onQueryChange} onModeChange={props.onModeChange} onAttachment={props.onAttachment} onClearAttachment={props.onClearAttachment} onSubmit={props.onSubmit} onVoice={props.onVoice} onScreen={props.onScreen} onCinema={props.onCinema} onOpenLiveCall={props.onOpenLiveCall} />
+    <WorkspaceComposer hasActiveRequest={props.hasActiveRequest} canStopRequest={props.canStopRequest} runStatus={props.runStatus} supportsRuns={!!props.onOpenRun} commandHandlers={props.commandHandlers} wakeWord={props.wakeWord} wakeHeard={props.wakeHeard} value={props.query} loading={props.loading} mode={props.chatMode} attachment={props.chatAttachment} recording={props.recording} onChange={props.onQueryChange} onModeChange={props.onModeChange} onAttachment={props.onAttachment} onClearAttachment={props.onClearAttachment} onSubmit={props.onSubmit} onVoice={props.onVoice} onScreen={props.onScreen} onCinema={props.onCinema} onOpenLiveCall={props.onOpenLiveCall} />
     <dialog ref={deleteDialog} className="ws-confirm-dialog" aria-labelledby="delete-chat-title"><h2 id="delete-chat-title">Excluir esta conversa?</h2><p>As mensagens desta conversa serão removidas. Exporte uma cópia se quiser guardá-las.</p><div><button className="ws-button" onClick={() => deleteDialog.current?.close()}>Manter conversa</button><button className="ws-button danger" onClick={() => { props.onDeleteSession(props.sessionId); deleteDialog.current?.close() }}>Excluir conversa</button></div></dialog>
   </section>
 }

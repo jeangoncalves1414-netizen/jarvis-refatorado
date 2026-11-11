@@ -1,7 +1,7 @@
 """STM Filters (Semantic Transformation Modules) - Inspirado no G0DM0D3.
 
 Filtra e normaliza as saídas geradas pelos LLMs para remover prolixidades,
-hesitações, preâmbulos robóticos e saudações repetitivas antes de exibir ao usuário.
+preâmbulos robóticos e saudações repetitivas antes de exibir ao usuário.
 """
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ _ROBOTIC_PREAMBLES = [
     r"^como um modelo de linguagem (de ia|ia|treinado)?\s*,?\s*",
     r"^como um assistente de ia\s*,?\s*",
     r"^como uma inteligência artificial\s*,?\s*",
-    r"^de acordo com (as minhas informações|meus conhecimentos|meus dados)\s*,?\s*",
     r"^olá[!.,]?\s*(como posso te ajudar hoje\??|em que posso ser útil\??)?\s*",
     r"^certamente[!.,]?\s*",
     r"^entendido[!.,]?\s*(aqui está|vou|posso)?[:\s]*",
@@ -46,7 +45,6 @@ class STMFilterEngine:
         # Remove cabeçalhos técnicos soltos e despejos de links brutos gerados por modelos
         result = re.sub(r"(?im)^\s*(?:aqui\s+(?:est[aá]|est[aã]o)\s+)?(?:os\s+)?resultados?\s+(?:das?\s+)?(?:ferramentas?|a[cç][oõ]es)[:\s]*\n?", "", result)
         result = re.sub(r"(?im)^\s*resultados?\s+(?:da\s+)?(?:pesquisa|busca)[:\s]*\n?", "", result)
-        result = re.sub(r"(?im)^\s*(?:[-*•]\s*)?(?:link|url|fonte):\s*https?://\S+\s*$\n?", "", result)
 
         # Remove linhas iniciais vazias geradas por cortes
         lines = result.splitlines()
@@ -56,25 +54,43 @@ class STMFilterEngine:
         return "\n".join(lines).strip()
 
     def filter_hesitations(self, text: str) -> str:
-        """Substitui marcas de hesitação como 'acho que', 'talvez possa ser' por afirmativas diretas."""
+        """Preserva qualificadores de incerteza na resposta."""
         if not text:
             return text
 
-        subs = [
-            (r"\bacho que\b", "", re.IGNORECASE),
-            (r"\bparece que talvez\b", "parece que", re.IGNORECASE),
-            (r"\bse eu não me engano\b", "", re.IGNORECASE),
-        ]
-        res = text
-        for pattern, repl, flags in subs:
-            res = re.sub(pattern, repl, res, flags=flags)
-        return res
+        # Incerteza faz parte do significado; removê-la converte hipótese em afirmação.
+        return text
 
     def process(self, text: str) -> str:
         """Aplica todas as transformações STM em sequência."""
         text = self.clean_text(text)
         text = self.filter_hesitations(text)
         return text
+
+    def avoid_unsolicited_tables(self, text: str, request: str) -> str:
+        """Keep chat readable when a prior answer makes the model imitate tables."""
+        if re.search(r"\b(?:tabela|table|tabular|colunas?)\b", request or "", re.I):
+            return text
+        lines = text.splitlines()
+        result: list[str] = []
+        index = 0
+        while index < len(lines):
+            if (index + 1 < len(lines) and lines[index].strip().startswith("|")
+                    and re.fullmatch(r"\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*", lines[index + 1])):
+                headers = [cell.strip() for cell in lines[index].strip().strip("|").split("|")]
+                index += 2
+                items: list[str] = []
+                while index < len(lines) and lines[index].strip().startswith("|"):
+                    cells = [cell.strip() for cell in lines[index].strip().strip("|").split("|")]
+                    parts = [f"{headers[pos]}: {value}" for pos, value in enumerate(cells) if value and pos < len(headers)]
+                    if parts:
+                        items.append("- " + "; ".join(parts))
+                    index += 1
+                result.extend(items)
+                continue
+            result.append(lines[index])
+            index += 1
+        return "\n".join(result).strip()
 
 
 # Instância global do filtro STM

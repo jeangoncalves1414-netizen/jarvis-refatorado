@@ -76,18 +76,7 @@ def build_app() -> tuple[AgentOrchestrator, PanelServer]:
     from app.services.profile_memory import ProfileMemoryStore
     profile_memory = ProfileMemoryStore()
     
-    # Cria ToolRegistry com plugin_manager
-    from app.agent.tools.registry import ToolRegistry
-    from app.storage.enem_store import EnemStore
-    from app.storage.tutor_store import TutorStore
-    
-    base_folder = getattr(settings, "base_folder", None)
-    tool_registry = ToolRegistry(
-        base_folder=base_folder,
-        tutor_store=TutorStore(),
-        enem_store=EnemStore(),
-        plugin_manager=plugin_manager,
-    )
+    from app.mcp.manager import mcp_manager
     
     orchestrator = AgentOrchestrator(
         settings=settings, 
@@ -96,6 +85,7 @@ def build_app() -> tuple[AgentOrchestrator, PanelServer]:
         agent_manager=agent_manager,
         semantic_memory=semantic_memory,
         profile_memory=profile_memory,
+        plugin_manager=plugin_manager,
     )
 
     # Remove entradas técnicas gravadas por versões anteriores; elas não são
@@ -104,8 +94,7 @@ def build_app() -> tuple[AgentOrchestrator, PanelServer]:
     if removed_error_memories:
         print(f"[Jarvis] {removed_error_memories} memória(s) técnica(s) removida(s).")
     
-    # Injeta tool_registry no orchestrator
-    orchestrator.registry = tool_registry
+    mcp_manager.registry = orchestrator.registry
     
     panel = PanelServer(settings=settings)
     # connect orchestrator and voice pipeline to panel server
@@ -162,7 +151,6 @@ def main() -> None:
 
     import time as _time
     _time.sleep(0.5)
-    panel.start_wake_word()
 
     # ── Modo Desktop (pywebview) com System Tray integrado ──────────────────
     desktop_mode = not args.server or args.desktop or args.tray
@@ -217,6 +205,8 @@ def main() -> None:
 
                 from app.ui.desktop import DesktopAPI
                 api = DesktopAPI(s, ps)
+                # PortAudio init/terminate is not safe concurrently with Microphone().
+                ps.start_wake_word()
 
                 window = _webview.create_window(
                     s.app_name,
@@ -311,7 +301,13 @@ def main() -> None:
                     hidden=True,
                 )
 
-                _webview.start(debug=False)
+                profile_path = os.path.join(os.environ.get('LOCALAPPDATA') or os.path.expanduser('~'), 'Jarvis', 'WebView')
+                os.makedirs(profile_path, exist_ok=True)
+                desktop_debug = os.environ.get('JARVIS_DESKTOP_DEBUG') == '1'
+                if desktop_debug:
+                    _webview.settings['OPEN_DEVTOOLS_IN_DEBUG'] = False
+                    _webview.settings['REMOTE_DEBUGGING_PORT'] = 9234
+                _webview.start(debug=desktop_debug, private_mode=False, storage_path=profile_path)
 
             _patched_start_desktop(settings, panel)
         except Exception as exc:
@@ -330,6 +326,7 @@ def main() -> None:
         return
 
     # ── Modo somente Tray (sem pywebview) ──────────────────────────────────
+    panel.start_wake_word()
     tray = None
     if TRAY_AVAILABLE and args.tray:
         import webbrowser

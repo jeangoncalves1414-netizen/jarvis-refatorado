@@ -24,6 +24,7 @@ type MessageRendererProps = {
   onSendText?: (text: string) => void
   onCinemaRequest?: (payload: { title?: string; detect_url?: string; discovery_results?: Array<{ title?: string; url?: string; source?: string; snippet?: string }>; catalog_results?: Array<{ id?: string; title?: string; year?: string | number; description?: string }> }) => void
   liveSearch?: SearchPayload | null
+  compactSearch?: boolean
 }
 
 export function MessageRenderer({
@@ -37,6 +38,7 @@ export function MessageRenderer({
   onSendText,
   onCinemaRequest,
   liveSearch = null,
+  compactSearch = false,
 }: MessageRendererProps) {
   let reasoning = ''
   let text = content
@@ -90,16 +92,17 @@ export function MessageRenderer({
   }, [cinemaPayload, cinemaSignature, onCinemaRequest])
 
   const isThinkingSentinel = isStreaming && text === 'Pensando…'
-  const showReasoning = mode === 'planning' && visibleReasoning
+  const thinkingMode = mode === 'planning' || mode === 'thinking'
+  const showReasoning = thinkingMode && visibleReasoning
 
   return (
     <div className="message-body">
-      {isThinkingSentinel && mode === 'planning' && (
-        <ProcessingState label="Jarvis está pensando…" sublabel="modo thinking ativo" />
+      {isThinkingSentinel && thinkingMode && (
+        <span className="ws-thinking" role="status">{mode === 'planning' ? 'Planejando…' : 'Pensando…'}</span>
       )}
 
-      {isThinkingSentinel && mode !== 'planning' && (
-        <ProcessingState label="Jarvis está pensando…" showLine={false} />
+      {isThinkingSentinel && !thinkingMode && (
+        <span className="ws-response-pending" role="status" aria-label="Aguardando resposta"><span aria-hidden="true" /><span aria-hidden="true" /><span aria-hidden="true" /></span>
       )}
 
       {!isThinkingSentinel && showReasoning && (
@@ -152,7 +155,7 @@ export function MessageRenderer({
           }}
         />
       )}
-      {searchPayload && (
+      {searchPayload && !compactSearch && (
         <SearchTool
           state={isStreaming ? 'searching' : 'done'}
           query={searchPayload.query}

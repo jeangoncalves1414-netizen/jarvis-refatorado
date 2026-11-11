@@ -8,8 +8,10 @@ from typing import Any
 
 from app.core.capability_health import track_model_call
 from app.core.runs import RunCancelled
+from app.services.rate_limits import ProviderRateLimit, is_rate_limit, retry_seconds, limit_reason
 from app.core.secrets_mask import mask_key
 from app.storage.runtime_settings import get_llm_provider, resolve_ai_routes
+from app.core.model_routing import current_model_mode
 from app.services.stm_filters import stm_filter
 
 import time
@@ -29,6 +31,7 @@ class KeyRotator:
     """
     def __init__(self) -> None:
         self.cooldowns: dict[str, float] = {}
+        self.reasons: dict[str, str] = {}
         self.indices: dict[str, int] = {"groq": 0, "gemini": 0, "oxyy": 0}
 
     def _cleaned_keys(self, provider: str, settings: Any) -> list[str]:
@@ -63,8 +66,20 @@ class KeyRotator:
     def mark_cooldown(self, key: str, duration_seconds: float = 60.0) -> None:
         if not key:
             return
-        self.cooldowns[key] = time.time() + duration_seconds
+        self.cooldowns[key] = max(self.cooldowns.get(key, 0), time.time() + duration_seconds)
         print(f"[KeyRotator] Chave {mask_key(key)} colocada em cooldown por {int(duration_seconds)}s devido a Rate Limit (429).")
+
+    def mark_rate_limit(self, key: str, error: Exception, default: float = 60) -> None:
+        self.mark_cooldown(key, retry_seconds(error, default))
+        self.reasons[key] = limit_reason(error)
+
+    def wait_message(self, provider: str, settings: Any) -> str:
+        import math
+        keys = self._cleaned_keys(provider, settings)
+        blocked = [k for k in keys if self.cooldowns.get(k, 0) > time.time()]
+        seconds = max(1, math.ceil(min((self.cooldowns[k] for k in blocked), default=time.time()) - time.time()))
+        reason = self.reasons.get(min(blocked, key=lambda k: self.cooldowns[k]), 'limite temporário de uso') if blocked else 'limite temporário de uso'
+        return f"{provider.capitalize()}: {reason} (429). {len(blocked)} de {len(keys)} chaves em espera. Próxima tentativa em cerca de {seconds} segundos. As chaves continuam configuradas."
 
     def rotate_next(self, provider: str, settings: Any) -> str:
         cleaned = self._cleaned_keys(provider, settings)
@@ -99,7 +114,8 @@ class LLMService:
         if override and override.lower() in {"gemini", "groq", "oxyy"}:
             return override.lower()
         env_default = getattr(self.settings, "llm_provider", "gemini") or "gemini"
-        route = resolve_ai_routes({"llm_provider": env_default}).get("chat", {})
+        routes = resolve_ai_routes({"llm_provider": env_default})
+        route = routes.get(current_model_mode.get(), routes.get("chat", {}))
         effective = route.get("effective") or route.get("primary") or {"provider": get_llm_provider(env_default)}
         provider = str(effective.get("provider", env_default)).lower()
         if route.get("fallback_used"):
@@ -108,6 +124,12 @@ class LLMService:
 
     def _api_key_for(self, provider: str) -> str:
         return _key_rotator.get_key(provider, self.settings)
+
+    def unavailable_reason(self, provider: str) -> str:
+        keys = _key_rotator._cleaned_keys(provider, self.settings)
+        if keys and not _key_rotator.get_key(provider, self.settings):
+            return _key_rotator.wait_message(provider, self.settings)
+        return ""
 
     _SAFE_MODEL_FALLBACKS = {
         "oxyy": "gpt-4o-mini",
@@ -127,7 +149,8 @@ class LLMService:
     def _effective_chat_model(self, provider: str | None = None) -> str:
         """Retorna o modelo da rota efetiva, sem deixar cada método escolher outro."""
         active = provider or self.get_active_provider()
-        route = resolve_ai_routes().get("chat", {})
+        routes = resolve_ai_routes()
+        route = routes.get(current_model_mode.get(), routes.get("chat", {}))
         effective = route.get("effective") or {}
         if effective.get("provider") == active and effective.get("model"):
             return self._sanitize_model(str(effective["model"]), active)
@@ -152,9 +175,7 @@ class LLMService:
         active = self.get_active_provider(provider)
         api_key = self._api_key_for(active)
         if not api_key:
-            if active == "groq":
-                return "Chave GROQ_API_KEY não encontrada no .env. Configure-a ou volte para Gemini."
-            return "Chave GEMINI_API_KEY não encontrada no .env. Por favor, configure-a para conversar com o Jarvis."
+            return self.unavailable_reason(active) or f"Chave {active.upper()}_API_KEY não encontrada no .env. Configure-a para conversar com o Jarvis."
 
         try:
             response = self.generate(prompt, system_instruction=system_instruction, provider=active)
@@ -240,6 +261,9 @@ class LLMService:
         api_key = self._api_key_for(active)
         if not api_key:
             key_name = {"groq": "GROQ_API_KEY", "oxyy": "OXYY_API_KEY"}.get(active, "GEMINI_API_KEY")
+            reason = self.unavailable_reason(active)
+            if reason:
+                raise ProviderRateLimit(reason)
             raise ValueError(f"{key_name} não configurada.")
 
         try:
@@ -276,6 +300,9 @@ class LLMService:
         api_key = self._api_key_for(active)
         if not api_key:
             key_name = {"groq": "GROQ_API_KEY", "oxyy": "OXYY_API_KEY"}.get(active, "GEMINI_API_KEY")
+            reason = self.unavailable_reason(active)
+            if reason:
+                raise ProviderRateLimit(reason)
             raise ValueError(f"{key_name} não configurada.")
 
         if active == "groq":
@@ -383,12 +410,14 @@ class LLMService:
             return LLMResponse(text="".join(full_chunks))
         except Exception as e:
             err_str = str(e).lower()
-            if "429" in err_str or "rate_limit" in err_str or "limit" in err_str:
-                _key_rotator.mark_cooldown(api_key, duration_seconds=60.0)
+            if is_rate_limit(e):
+                _key_rotator.mark_rate_limit(api_key, e)
                 next_key = _key_rotator.rotate_next("groq", self.settings)
                 if next_key and next_key != api_key:
                     print(f"[Groq Stream] 429 detectado. Rotação IMEDIATA para chave ({mask_key(next_key)}).")
                     return self._generate_groq_stream(contents, on_chunk, tools, system_instruction, next_key, on_reasoning)
+            if is_rate_limit(e):
+                raise ProviderRateLimit(_key_rotator.wait_message("groq", self.settings)) from e
             print(f"[LLMStream Groq] Fallback devido a erro: {e}")
             return self._generate_groq(contents, tools, system_instruction, api_key)
 
@@ -461,6 +490,9 @@ class LLMService:
         api_key = self._api_key_for(active)
         if not api_key:
             key_name = "GROQ_API_KEY" if active == "groq" else "GEMINI_API_KEY"
+            reason = self.unavailable_reason(active)
+            if reason:
+                raise ProviderRateLimit(reason)
             raise ValueError(f"{key_name} não configurada.")
 
         if active == "groq":
@@ -632,12 +664,14 @@ class LLMService:
                 function_calls.append(SimpleNamespace(name=fn.name, args=args))
         except Exception as e:
             err_str = str(e).lower()
-            if "429" in err_str or "rate_limit" in err_str or "limit" in err_str:
-                _key_rotator.mark_cooldown(api_key, duration_seconds=60.0)
+            if is_rate_limit(e):
+                _key_rotator.mark_rate_limit(api_key, e)
                 next_key = _key_rotator.rotate_next("groq", self.settings)
                 if next_key and next_key != api_key:
                     print(f"[Groq Generate] 429 detectado. Rotação IMEDIATA para chave ({mask_key(next_key)}).")
                     return self._generate_groq(contents, tools, system_instruction, next_key)
+            if is_rate_limit(e):
+                raise ProviderRateLimit(_key_rotator.wait_message("groq", self.settings)) from e
             # Se erro de validação de tools, retry sem tools
             if "tool" in str(e).lower() or "validation" in str(e).lower():
                 print(f"[Groq] Erro de validação de tools: {e}. Retry sem tools.")
@@ -922,7 +956,7 @@ class LLMService:
             err_str = str(e).lower()
             # Rotação IMEDIATA entre chaves Gemini se houver mais de uma
             if "429" in err_str or "resource_exhausted" in err_str:
-                _key_rotator.mark_cooldown(api_key, duration_seconds=60.0)
+                _key_rotator.mark_rate_limit(api_key, e)
                 next_key = _key_rotator.rotate_next("gemini", self.settings)
                 if next_key and next_key != api_key:
                     print(f"[Gemini Stream] 429 detectado. Rotação IMEDIATA para chave Gemini ({mask_key(next_key)}).")
@@ -1029,7 +1063,7 @@ class LLMService:
             return final_text or text or None
         except Exception as exc:
             if "429" in str(exc) or "rate" in str(exc).lower() or "limit" in str(exc).lower():
-                _key_rotator.mark_cooldown(api_key, duration_seconds=600.0)
+                _key_rotator.mark_rate_limit(api_key, exc, default=600)
                 next_key = _key_rotator.rotate_next("oxyy", self.settings)
                 if next_key and next_key != api_key:
                     return self._chat_oxyy_stream(system_instruction, messages, tools, on_function_call, on_chunk)
@@ -1045,6 +1079,7 @@ class LLMService:
         on_chunk: callable | None = None,
         on_reasoning: callable | None = None,
         tried_keys: set[str] | None = None,
+        context_reduced: bool = False,
     ) -> str | None:
         """Function calling nativo de 2 etapas para Groq (streaming + reasoning)."""
         from groq import Groq
@@ -1087,54 +1122,23 @@ class LLMService:
         if system_instruction:
             formatted_messages.append({"role": "system", "content": system_instruction})
 
-        # Limita histórico recente para não estourar limite de TPM (8000 TPM no gpt-oss-120b na Groq)
-        history_msgs = [m for m in (messages or []) if (m.get("content") or m.get("text"))]
-        if len(history_msgs) > 10:
-            history_msgs = history_msgs[-10:]
-
-        for m in history_msgs:
-            role = m.get("role", "user")
-            content = str(m.get("content") or m.get("text") or "")
-            if content:
-                if len(content) > 3000:
-                    content = content[:3000] + "... [truncado para caber no contexto]"
-                formatted_messages.append({"role": role, "content": content})
+        from app.agent.context_budget import conversation_messages
+        normalized = [{"role": m.get("role", "user"), "content": str(m.get("content") or m.get("text") or "")} for m in (messages or [])]
+        # Keep the latest request intact; only omit older history from the API payload.
+        formatted_messages.extend(conversation_messages(normalized[-10:], budget=10000))
 
         groq_tools = None
         if tools:
-            # Proteção contra estouro de TPM na Groq:
-            # Enviar 35 ferramentas consome ~6500 tokens só de schemas.
-            # Filtramos para as essenciais + quaisquer mencionadas na última fala do usuário:
-            core_groq_names = {
-                "web_search", "system_control", "open_windows_app", "timer", "wait",
-                "spotify", "whatsapp", "calendar", "file_manager", "notes",
-                "cinema", "script_runner", "image_generator", "vision"
-            }
-            last_user_content = ""
-            for msg in reversed(messages or []):
-                if msg.get("role") == "user":
-                    last_user_content = str(msg.get("content") or "").lower()
-                    break
-
+            # O registro já selecionou as ferramentas por intenção e modo.
+            # Um segundo filtro por nome em inglês removia tools pedidas em português.
             selected_tools = []
             seen_selected_names: set[str] = set()
             for tool in tools:
                 t_name = tool.get("name", "")
                 if not t_name or t_name in seen_selected_names:
                     continue
-                # routine só chega aqui quando o registro já casou horário/repetição no pedido.
-                if t_name in core_groq_names or t_name == "routine" or t_name in last_user_content or t_name.replace("_", " ") in last_user_content:
-                    seen_selected_names.add(t_name)
-                    selected_tools.append(tool)
-
-            if not selected_tools:
-                for tool in tools:
-                    t_name = tool.get("name", "")
-                    if t_name and t_name not in seen_selected_names:
-                        seen_selected_names.add(t_name)
-                        selected_tools.append(tool)
-                    if len(selected_tools) >= 8:
-                        break
+                seen_selected_names.add(t_name)
+                selected_tools.append(tool)
 
             groq_tools = [
                 {
@@ -1291,7 +1295,18 @@ class LLMService:
             final_text = ""
             try:
                 final_text, _final_tools = _stream_turn(final_messages, with_tools=False)
+            except RunCancelled:
+                raise
             except Exception as final_err:
+                if is_rate_limit(final_err):
+                    _key_rotator.mark_rate_limit(api_key, final_err)
+                    result = tool_summary + "\n\nNão consegui redigir a síntese, os resultados acima foram preservados, sem repetir as ações. " + _key_rotator.wait_message("groq", self.settings)
+                    _emit_chunk(result)
+                    return result
+                if "413" in str(final_err) or "too large" in str(final_err).lower():
+                    result = tool_summary + "\n\nA síntese excedeu o tamanho permitido. Os resultados foram preservados, sem repetir as ações."
+                    _emit_chunk(result)
+                    return result
                 if "tool choice is none" not in str(final_err).lower() and "called a tool" not in str(final_err).lower():
                     raise
                 # O modelo insistiu em chamar ferramenta no turno de sintese. Os resultados ja
@@ -1307,15 +1322,24 @@ class LLMService:
                 })
                 try:
                     final_text, _final_tools = _stream_turn(plain_messages, with_tools=False)
+                except RunCancelled:
+                    raise
                 except Exception as retry_err:
+                    if is_rate_limit(retry_err):
+                        _key_rotator.mark_rate_limit(api_key, retry_err)
+                        result = tool_summary + "\n\n" + _key_rotator.wait_message("groq", self.settings)
+                        _emit_chunk(result)
+                        return result
                     print(f"[Groq] Retry do turno final falhou: {retry_err}")
                     final_text = ""
                 if not final_text:
-                    try:
-                        from app.services.stm_filters import stm_filter
-                        final_text = stm_filter.process(tool_summary)
-                    except Exception:
-                        final_text = tool_summary
+                    # A síntese do modelo falhou. Entrega os resultados sem o
+                    # cabeçalho técnico que a chamada de voz e o chat não devem expor.
+                    final_text = "\n".join(
+                        str(m.get("content", "")).strip()
+                        for m in formatted_messages
+                        if m.get("role") == "tool" and str(m.get("content", "")).strip()
+                    ) or tool_summary
                     _emit_chunk(final_text)
             if final_text:
                 try:
@@ -1368,14 +1392,15 @@ class LLMService:
 
             print(f"[Groq Function Calling Stream] Erro: {e}")
             err_str = str(e).lower()
-            if "413" in err_str or "too large" in err_str or "message size" in err_str:
+            if not context_reduced and ("413" in err_str or "too large" in err_str or "message size" in err_str):
                 print("[Groq] Contexto excedeu limite de TPM/tamanho (413). Compactando histórico para 3 mensagens...")
                 reduced_messages = (messages or [])[-3:]
                 try:
                     return self._chat_groq_stream(
-                        system_instruction=system_instruction[:1500] if system_instruction else None,
+                        system_instruction=system_instruction,
                         messages=reduced_messages,
-                        tools=None,
+                        tools=tools,
+                        context_reduced=True,
                         on_function_call=on_function_call,
                         on_chunk=on_chunk,
                         on_reasoning=on_reasoning,
@@ -1385,9 +1410,10 @@ class LLMService:
                 except Exception as retry_413_err:
                     print(f"[Groq] Falha após compactação: {retry_413_err}")
 
-            if "429" in err_str or "rate_limit" in err_str or "limit" in err_str or "tpd" in err_str:
-                # Marca a chave atual em cooldown (60s)
-                _key_rotator.mark_cooldown(api_key, duration_seconds=60.0)
+            if is_rate_limit(e):
+                # A falha pode ter vindo de uma tentativa interna em outra chave.
+                if not isinstance(e, ProviderRateLimit):
+                    _key_rotator.mark_rate_limit(api_key, e)
                 tried_keys.add(api_key)
 
                 # Tenta a próxima chave do pool Groq livre que ainda não foi tentada nesta chamada
@@ -1403,6 +1429,7 @@ class LLMService:
                             on_chunk=on_chunk,
                             on_reasoning=on_reasoning,
                             tried_keys=tried_keys,
+                            context_reduced=context_reduced,
                         )
                     except RunCancelled:
                         raise
@@ -1441,7 +1468,7 @@ class LLMService:
                     except Exception as oxyy_err:
                         print(f"[LLM] Falha no fallback para Oxyy: {oxyy_err}")
 
-                raise ValueError("Todas as chaves da API Groq atingiram o limite de cota (429) e nenhum fallback respondeu.")
+                raise ProviderRateLimit(_key_rotator.wait_message("groq", self.settings) + " Nenhum provedor alternativo respondeu.")
             raise
 
 

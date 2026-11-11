@@ -6,6 +6,8 @@ from app.agent.tools.registry import ToolRegistry
 from app.agent.tools.lifeos_tool import LifeOSTool
 from app.services.proactive import ProactiveService
 
+pytestmark = pytest.mark.usefixtures("isolated_lote6_data")
+
 def test_lifeos_summary():
     summary = LifeOSService.get_daily_summary()
     assert summary.get("ok") is True
@@ -23,6 +25,8 @@ def test_lifeos_summary():
     assert len(motiv["speech"]) > 10
 
 def test_lifeos_water_and_habit():
+    from app.services.habits import HabitService
+    HabitService.create_habit("agua", "Água")
     # Test adding water
     water_res = LifeOSService.add_water(250)
     assert water_res.get("ok") is True

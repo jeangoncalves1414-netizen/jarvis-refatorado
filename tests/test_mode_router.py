@@ -17,15 +17,14 @@ class TestModeRouterExplicit:
             assert meta["strategy"] == "explicit"
             assert meta["confidence"] == 1.0
 
-    def test_auto_and_general_trigger_inference(self):
-        # Quando explicit_mode é "auto" ou "general", a inferência deve acontecer
+    def test_only_auto_triggers_inference(self):
         resolved_auto, meta_auto = resolve_active_mode("Escreva uma função python", explicit_mode="auto")
         assert resolved_auto == "coder"
         assert meta_auto["strategy"] == "auto"
 
         resolved_gen, meta_gen = resolve_active_mode("Escreva uma função python", explicit_mode="general")
-        assert resolved_gen == "coder"
-        assert meta_gen["strategy"] == "auto"
+        assert resolved_gen == "general"
+        assert meta_gen["strategy"] == "explicit"
 
 
 class TestModeRouterAutoThinking:

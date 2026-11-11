@@ -95,6 +95,7 @@ class VaultDailyNoteTool(BaseTool):
             "message": "Entrada registrada no diário de hoje." if ok else "Não foi possível registrar no diário.",
             "entry": entry,
             "category": label,
+            "path": _relative_to_vault(str(memory_vault.get_today_note_path())) if ok else "",
         }
 
 

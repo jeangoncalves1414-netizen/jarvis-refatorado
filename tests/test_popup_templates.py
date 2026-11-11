@@ -14,7 +14,7 @@ from app.agent.orchestrator import AgentOrchestrator
 from app.agent.react_loop import ReActLoopEngine
 from app.agent.tools.calendar_tool import CalendarTool
 from app.agent.tools.lifeos_tool import LifeOSTool
-from app.agent.tools.lifestyle_tools import HabitTool, TaskTool
+from app.agent.tools.lifestyle_tools import FinanceTool, HabitTool, TaskTool
 from app.agent.tools.memory_vault_tool import VaultSaveNoteTool, VaultSearchTool
 from app.agent.tools.open_screen import OpenScreenTool
 from app.agent.tools.registry import ToolRegistry
@@ -35,7 +35,7 @@ TOMORROW = (date.today() + timedelta(days=1)).isoformat()
 def real_registry():
     registry = ToolRegistry.__new__(ToolRegistry)
     registry.tools = {tool.name: tool for tool in (
-        OpenScreenTool(), HabitTool(), TaskTool(), CalendarTool(), LifeOSTool(), ShowPopupTool(), VaultSaveNoteTool(), VaultSearchTool(),
+        OpenScreenTool(), HabitTool(), TaskTool(), FinanceTool(), CalendarTool(), LifeOSTool(), ShowPopupTool(), VaultSaveNoteTool(), VaultSearchTool(),
     )}
     return registry
 
@@ -85,7 +85,46 @@ def acoes(*items):
 
 
 def popup_events(env):
-    return [event["popup"] for event in env.events if event.get("type") == "ui_popup"]
+    return [receipt_preview(event['popup']) for event in env.events if event.get('type') == 'ui_popup']
+
+
+def receipt_preview(popup):
+    # Animated domain cards now live inside the persistent, undoable receipt.
+    if popup['template'] == 'personal_receipt':
+        assert popup['key'] == 'personal-receipt'
+        assert popup['data']['receipts'] and all(r['can_undo'] for r in popup['data']['receipts'])
+        return popup['data']['preview']
+    return popup
+
+
+def test_finance_receipt_survives_kernel_receipt_and_groups_confirmed_mixed_batch(env):
+    FinanceTool().execute({"action": "add", "type": "income", "amount": 100, "date": "2025-06-01"})
+    script(env, [acoes(("finance_tool", {"action": "add_many", "entries": [
+        {"amount": 40.01, "category": "Mercado", "date": "2025-06-02"},
+        {"type": "income", "amount": 10.50, "category": "Reembolso", "date": "2025-06-03"},
+    ]})), "FINISH: Registrei."])
+    plan = env.agent.handle_request("registra os gastos e receitas e depois confere se ficou certo", session_id="s1")
+    published = popup_events(env)
+    assert [p["template"] for p in published] == ["finance_receipt"]
+    assert [receipt_preview(p) for p in plan.context["ui_popups"]] == published
+    data = published[0]["data"]
+    assert (data["period"], data["before"], data["after"]) == ("2025-06", 100, 70.49)
+    assert [(e["category"], e["type"]) for e in data["entries"]] == [("Mercado", "expense"), ("Reembolso", "income")]
+    assert published[0]["animate"] == {}
+
+
+def test_finance_receipt_replaces_same_id_and_handles_different_months(env):
+    tool = FinanceTool()
+    args = {"action": "add", "amount": 25, "date": "2025-02-28", "trans_id": "same"}
+    assert tool.execute(args).data["finance_receipt"]["after"] == -25
+    again = tool.execute(args).data["finance_receipt"]
+    assert again["before"] == again["after"] == -25
+    replaced = tool.execute({**args, "amount": 10, "date": "2025-03-01"}).data["finance_receipt"]
+    assert (replaced["period"], replaced["before"], replaced["after"]) == ("all", -25, -10)
+    invalid = tool.execute({"action": "add_many", "entries": [{"amount": 100}, {"amount": -1}]})
+    assert not invalid.ok
+    assert not popups.popups_for_result("finance_tool", {"action": "add_many"}, invalid)
+    assert tool.execute({"action": "summary"}).data["summary"]["total_balance"] == -10
 
 
 # ── Hábitos ──────────────────────────────────────────────────────────────────
@@ -102,7 +141,7 @@ def test_create_many_in_chat_turn_emits_one_habit_list_with_added_ids_in_order(e
     ids = [item["id"] for item in popup["data"]["items"]]
     assert popup["animate"] == {"added_ids": ids}
     assert popup["data"]["highlight_ids"] == ids and popup["data"]["total"] == 3
-    assert plan.context["ui_popups"] == published
+    assert [receipt_preview(p) for p in plan.context["ui_popups"]] == published
 
 
 def test_two_habit_calls_reuse_the_same_key(env):
@@ -161,6 +200,7 @@ def test_auto_popups_disabled_do_not_emit(env):
     script(env, [acoes(("lifeos_tool", {"action": "set_water", "total_ml": 2000})), "FINISH: ok"])
     plan = env.agent.handle_request("coloca que bebi 2 litros de água hoje e depois confere se ficou certo", session_id="s1")
     assert popup_events(env) == [] and "ui_popups" not in plan.context
+    assert {"type": "personal_data_changed", "area": "water"} in env.events
 
 
 def test_failed_tool_never_emits(env):
@@ -180,7 +220,7 @@ def test_task_create_many_emits_task_list_with_added_ids(env):
     assert set(titles) == {"Pagar luz", "Ligar pro banco"} and titles["Pagar luz"]["priority"] == 1
     assert set(popup["animate"]["added_ids"]) == {item["id"] for item in popup["data"]["items"]}
     assert popup["data"]["pending"] == 2 and popup["data"]["total"] == 2
-    assert popup in plan.context["ui_popups"]
+    assert popup in [receipt_preview(p) for p in plan.context["ui_popups"]]
 
 
 def test_task_toggle_keeps_completed_task_visible_in_pending_popup(env):
@@ -286,6 +326,30 @@ def http_server(env, monkeypatch):
         thread.join(2)
 
 
+def test_today_panel_reads_agent_habit_and_daily_spending(env, http_server):
+    from app.services.finance import FinanceService
+
+    script(env, [acoes(("habit_tool", {"action": "create", "name": "Caminhar"})), "FINISH: Pronto."])
+    env.agent.handle_request("adiciona caminhar aos hábitos e depois confere se ficou certo", session_id="s1")
+    status, data = http_server("/api/lifeos/habits?today=1")
+    assert status == 200
+    walking = next(h for h in data["habits"] if h["name"] == "Caminhar")
+    for changed in (True, False):
+        status, data = http_server(f"/api/lifeos/habits/{walking['id']}/toggle", {"completed": True})
+        assert status == 200 and data["habit"]["completed_today"]
+        assert data["habit"]["changed"] is changed
+    status, data = http_server("/api/popups/habit_list?filter=today")
+    assert status == 200 and data["popup"]["data"]["completed"] == 1
+
+    today = date.today().isoformat()
+    FinanceService.add_transaction("food", "expense", 42, description="Mercado", date_str=today)
+    FinanceService.add_transaction("income", "income", 100, date_str=today)
+    FinanceService.add_transaction("old", "expense", 20, date_str=(date.today() - timedelta(days=1)).isoformat())
+    status, data = http_server("/api/finance", {"action": "list", "date_from": today, "date_to": today, "limit": 5})
+    assert status == 200 and data["totals"]["expense"] == 42
+    assert {item["id"] for item in data["transactions"]} == {"food", "income"}
+
+
 def test_command_routes_build_data_popups_and_water_add_returns_popup(env, http_server):
     LifeOSService.set_water(500)
     status, data = http_server("/api/evolute/water/add", {"amount_ml": 250})
@@ -324,8 +388,11 @@ def test_full_user_scenario_through_the_loop(env):
     # 4 ações + leituras de verificação (hábitos, agenda, água) no mesmo Run.
     assert tools.count("habit_tool") == 2 and tools.count("calendar") == 2 and tools.count("lifeos_tool") == 2
     assert all(a["status"] == "succeeded" for a in actions)
-    templates = [p["template"] for p in plan.context["ui_popups"]]
+    previews = [receipt_preview(p) for p in plan.context["ui_popups"]]
+    templates = [p["template"] for p in previews]
     assert templates == ["habit_list", "schedule", "water"]
-    water = plan.context["ui_popups"][2]["data"]
+    water = previews[2]["data"]
     assert water["current_ml"] == 3000 and water["previous_ml"] == 0
-    assert [item["name"] for item in plan.context["ui_popups"][0]["data"]["items"]] == ["Ler", "Meditar"]
+    assert [item["name"] for item in previews[0]["data"]["items"]] == ["Ler", "Meditar"]
+    grouped = [p for p in plan.context['ui_popups'] if p['template'] == 'personal_receipt']
+    assert len(grouped[-1]['data']['receipts']) == 2

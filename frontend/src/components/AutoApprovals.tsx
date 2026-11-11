@@ -1,3 +1,4 @@
+import { pollVisible } from '../utils/panelVisibility'
 import { useCallback, useEffect, useState } from 'react'
 import { ShieldAlert, ShieldCheck, Trash2 } from 'lucide-react'
 import { panelRequest } from '../utils/panelApi'
@@ -17,11 +18,10 @@ export function useApprovals() {
   const apply = useCallback((next: ApprovalState) => { setState(next); setError(''); window.dispatchEvent(new CustomEvent(MODE_EVENT, { detail: next.mode.enabled })) }, [])
   const refresh = useCallback(() => panelRequest<ApprovalState>('/api/approvals').then(next => { setState(next); setError('') }).catch(err => setError(err instanceof Error ? err.message : 'Não foi possível consultar as aprovações.')), [])
   useEffect(() => {
-    void refresh()
-    const timer = setInterval(() => void refresh(), 15000)
+    const stopPolling = pollVisible(refresh, 15000, true)
     const listener = (event: Event) => setState(current => current && current.mode.enabled !== (event as CustomEvent<boolean>).detail ? { ...current, mode: { ...current.mode, enabled: (event as CustomEvent<boolean>).detail } } : current)
     window.addEventListener(MODE_EVENT, listener)
-    return () => { clearInterval(timer); window.removeEventListener(MODE_EVENT, listener) }
+    return () => { stopPolling(); window.removeEventListener(MODE_EVENT, listener) }
   }, [refresh])
   const run = (request: Promise<ApprovalState>) => request.then(apply).catch(err => setError(err instanceof Error ? err.message : 'Não foi possível salvar.'))
   return {

@@ -1,3 +1,4 @@
+import { pollVisible } from '../utils/panelVisibility'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatMessage } from '../types'
 import { isMobileStandalone } from '../hooks/useDirectChat'
@@ -66,8 +67,7 @@ export function PlanningWorkspace({ sessionId, messages }: Props) {
 
   useEffect(() => {
     if (isMobileStandalone()) return
-    const interval = window.setInterval(() => request().catch(() => undefined), 3500)
-    return () => window.clearInterval(interval)
+    return pollVisible(() => request(), 3500)
   }, [request])
 
   useEffect(() => {

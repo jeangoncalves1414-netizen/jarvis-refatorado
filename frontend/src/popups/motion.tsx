@@ -20,6 +20,12 @@ const REDUCED_QUERY = '(prefers-reduced-motion: reduce)'
 
 /** true quando o sistema pede movimento reduzido (framer ou matchMedia). */
 export function useCalmMotion() {
+  const [personal, setPersonal] = useState(() => typeof document !== 'undefined' && document.documentElement.classList.contains('personal-reduced-motion'))
+  useEffect(() => {
+    const observer = new MutationObserver(() => setPersonal(document.documentElement.classList.contains('personal-reduced-motion')))
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
   const framer = useReducedMotion()
   const [media, setMedia] = useState(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(REDUCED_QUERY).matches)
   useEffect(() => {
@@ -30,7 +36,7 @@ export function useCalmMotion() {
     query.addEventListener('change', onChange)
     return () => query.removeEventListener('change', onChange)
   }, [])
-  return Boolean(framer) || media
+  return personal || Boolean(framer) || media
 }
 
 // ── 2. Moldura ────────────────────────────────────────────────────────────────

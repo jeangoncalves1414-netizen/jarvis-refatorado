@@ -21,7 +21,7 @@ from app.services.habits import (
 
 
 @pytest.fixture
-def isolated_lifestyle_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def isolated_lifestyle_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, isolated_lote6_data):
     """Garante que habits use um banco SQLite em tmp_path."""
     db_file = tmp_path / "lifestyle.db"
     monkeypatch.setattr(habits, "DB_PATH", db_file)

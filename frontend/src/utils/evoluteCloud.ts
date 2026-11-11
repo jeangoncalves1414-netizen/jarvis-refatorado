@@ -28,6 +28,7 @@ export function saveEvoluteSettings(patch: Partial<EvoluteSettings>): EvoluteSet
   const current = getEvoluteSettings()
   const next = { ...current, ...patch }
   localStorage.setItem(EVOLUTE_SETTINGS_KEY, JSON.stringify(next))
+  window.dispatchEvent(new Event('jarvis:auth-changed'))
   return next
 }
 
@@ -110,7 +111,18 @@ export function isTokenExpired(settings = getEvoluteSettings()): boolean {
 }
 
 // Renova o token usando o refresh token
-export async function refreshAccessToken(settings = getEvoluteSettings()): Promise<EvoluteSettings> {
+let refreshPending: Promise<EvoluteSettings> | null = null
+let authGeneration = 0
+
+export function refreshAccessToken(settings = getEvoluteSettings()): Promise<EvoluteSettings> {
+  if (refreshPending) return refreshPending
+  const request = renewAccessToken(settings, authGeneration)
+  refreshPending = request
+  void request.finally(() => { if (refreshPending === request) refreshPending = null }).catch(() => undefined)
+  return request
+}
+
+async function renewAccessToken(settings: EvoluteSettings, generation: number): Promise<EvoluteSettings> {
   if (!settings.supabaseRefreshToken || !settings.supabaseUrl || !settings.supabasePublishableKey) {
     throw new Error('Refresh token não disponível. Faça login novamente.')
   }
@@ -124,6 +136,7 @@ export async function refreshAccessToken(settings = getEvoluteSettings()): Promi
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: key },
     body: JSON.stringify({ refresh_token: settings.supabaseRefreshToken }),
+    signal: AbortSignal.timeout(15000),
   })
 
   const payload = await response.json().catch(() => ({}))
@@ -131,18 +144,14 @@ export async function refreshAccessToken(settings = getEvoluteSettings()): Promi
 
   if (!response.ok || !payload.access_token) {
     console.error('[SupabaseAuth] Falha ao renovar token (status', response.status, ')')
-    // Limpa tokens expirados
-    saveEvoluteSettings({
-      supabaseAccessToken: '',
-      supabaseRefreshToken: '',
-      supabaseExpiresAt: 0,
-    })
-    throw new Error('Sessão expirada. Faça login novamente.')
+    // Uma falha de rede/servidor não equivale a sair da conta.
+    throw new Error(response.status >= 500 ? 'Não foi possível reconectar à conta. Tentaremos novamente ao abrir o app.' : 'Não foi possível restaurar sua sessão. Entre novamente em Configurações.')
   }
 
   const expiresAt = Date.now() + (payload.expires_in || 3600) * 1000
   console.log('[SupabaseAuth] Token renovado com sucesso.')
 
+  if (generation !== authGeneration || getEvoluteSettings().supabaseRefreshToken !== settings.supabaseRefreshToken) throw new Error('A sessão foi alterada durante a reconexão.')
   return saveEvoluteSettings({
     supabaseAccessToken: payload.access_token,
     supabaseRefreshToken: payload.refresh_token || settings.supabaseRefreshToken,
@@ -176,6 +185,8 @@ export async function autoSignIn(): Promise<{ success: boolean; error?: string }
 
 // Logout - limpa a sessão
 export function signOutEvoluteCloud(): void {
+  authGeneration += 1
+  refreshPending = null
   saveEvoluteSettings({
     supabaseAccessToken: '',
     supabaseRefreshToken: '',

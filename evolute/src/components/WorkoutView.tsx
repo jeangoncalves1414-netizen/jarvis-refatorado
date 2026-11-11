@@ -462,13 +462,20 @@ export const WorkoutView: React.FC<WorkoutViewProps> = ({
                     <span className="font-mono text-xs border border-neutral-800 px-2 py-1 rounded text-white">
                       {w.totalVolume} kg
                     </span>
-                    <button
+                    {w.jarvis_session_id ? <button
+                      onClick={() => {
+                        if (window.parent === window) window.location.assign('/app/?personal=workout&query=' + encodeURIComponent(w.exerciseName));
+                        else window.parent.postMessage({ type: 'jarvis:open-personal', kind: 'workout', query: w.exerciseName }, window.location.origin);
+                      }}
+                      className="text-neutral-400 hover:text-white text-xs p-1"
+                      title="Editar a sessão completa no Hoje"
+                    >Editar sessão em Hoje</button> : <button
                       onClick={() => onDeleteWorkout(w.id)}
                       className="text-neutral-600 hover:text-red-400 p-1"
                       title="Excluir"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    </button>}
                   </div>
                 </div>
               ))

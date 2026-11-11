@@ -8,6 +8,7 @@ export const navigation = [
   { id: 'Automações', label: 'Automações', icon: Workflow, group: 'workspace', description: 'Rotinas, lembretes e dispositivos' },
   { id: 'Memórias', label: 'Conhecimento', icon: BookOpen, group: 'workspace', description: 'Memórias e contexto do agente' },
   { id: 'Integrações', label: 'Integrações', icon: Plug, group: 'workspace', description: 'Disponibilidade das conexões' },
+  { id: 'Saúde', label: 'Saúde do Jarvis', icon: Activity, group: 'workspace', description: 'Modelos, microfone, ferramentas e últimos erros' },
   { id: 'Estudos', label: 'Estudos', icon: GraduationCap, group: 'modules', description: 'Sessões, materiais e quadro de estudos' },
   { id: 'Evolução', label: 'Life OS', icon: Sprout, group: 'modules', description: 'Hábitos e evolução pessoal' },
   { id: 'Calendário', label: 'Calendário', icon: CalendarDays, group: 'modules', description: 'Sua agenda' },

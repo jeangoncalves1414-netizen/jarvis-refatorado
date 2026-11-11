@@ -42,6 +42,9 @@ def track_run(method):
                 bound.arguments[name] = guarded(bound.arguments[name])
         try:
             try:
+                progress = bound.arguments.get("on_progress")
+                if origin == "voice" and progress:
+                    progress({"phase": "started", "run_id": run.id})
                 result = method(*bound.args, **bound.kwargs)
                 action_store.check_cancelled(run.id)
                 failed = result.intent == "error" or (result.context.get("success") is False and not result.context.get("pending_action_id"))

@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:live": "playwright test",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:mobile": "npm run build && node scripts/sync-mobile-assets.js",
@@ -24,11 +25,16 @@
     "vite": "^7.1.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "typescript": "^5.9.2"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "vite", "@vitejs/plugin-react"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "vite",
+      "@vitejs/plugin-react"
+    ]
   }
 }

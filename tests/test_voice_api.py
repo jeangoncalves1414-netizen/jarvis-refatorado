@@ -250,5 +250,5 @@ def test_orchestrator_llm_fallback_when_no_api_key(isolated_conversation_journal
     llm = LLMService(settings=settings)
     orchestrator = AgentOrchestrator(settings=settings, llm_service=llm)
     plan = orchestrator.handle_request("explique física")
-    assert plan.intent == "general"
+    assert plan.intent == "error"
     assert "GEMINI_API_KEY" in plan.summary or "GROQ_API_KEY" in plan.summary

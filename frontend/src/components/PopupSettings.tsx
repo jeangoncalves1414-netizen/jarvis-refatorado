@@ -68,7 +68,7 @@ export function PopupSettings() {
       <h2>Popups animados</h2>
       <p>Cartões no canto da tela mostram o que o agente fez (hábitos, agenda, água, anotações). Os números vêm sempre dos seus dados, não do texto do modelo.</p>
       <Switch label="Mostrar popups" description="Desligado, o agente não mostra popups na conversa nem na ligação. Os comandos com / continuam abrindo." checked={config.enabled} disabled={busy} onChange={checked => edit({ enabled: checked })} glowColor="green" />
-      <Switch label="Popups automáticos" description="Mostra o popup sozinho depois que o agente cria hábitos, lembretes ou registra água, sem chamada extra ao modelo." checked={config.auto} disabled={busy || !config.enabled} onChange={checked => edit({ auto: checked })} glowColor="green" />
+      <Switch label="Popups automáticos" description="Mostra a confirmação de hábitos, gastos, receitas, anotações e outros registros feitos pelo agente." checked={config.auto} disabled={busy || !config.enabled} onChange={checked => edit({ auto: checked })} glowColor="green" />
       <div className="agent-loop-limits">
         <label className="field-label">Fechar sozinho após (s, 0 = fica até fechar)
           <input type="number" min={0} max={120} step={1} value={config.ttl_seconds} disabled={busy} onChange={event => edit({ ttl_seconds: clampInt(event.target.value, 0, 120) })} />

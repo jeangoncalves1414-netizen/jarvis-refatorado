@@ -15,7 +15,7 @@ class FileManagerTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Gerencia arquivos locais com segurança: lista pastas, lê arquivos e cria diretórios autorizados."
+        return "Gerencia arquivos locais: lista, lê, cria diretórios e cria arquivos de texto sem sobrescrever existentes. Use create para criar texto, sem script_runner."
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -24,9 +24,10 @@ class FileManagerTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list", "read", "mkdir"],
+                    "enum": ["list", "read", "mkdir", "create"],
                     "description": "Ação a ser executada: 'list' para ver diretório, 'read' para ver conteúdo ou 'mkdir' para criar pasta."
                 },
+                "content": {"type": "string", "description": "create: conteúdo UTF-8 do novo arquivo; não sobrescreve arquivos existentes."},
                 "path": {
                     "type": "string",
                     "description": "Caminho relativo do arquivo ou diretório."
@@ -57,6 +58,9 @@ class FileManagerTool(BaseTool):
                     message=f"Conteúdo de '{path}':\n\n{preview}",
                     data={"content": content}
                 )
+            elif action == "create":
+                created = self.service.create_file(path, args.get("content", ""))
+                return ToolResult(True, f"Arquivo criado: '{path}'.", {"path": str(created)})
             elif action in ("mkdir", "create_dir"):
                 created_p = self.service.create_directory(path)
                 return ToolResult(

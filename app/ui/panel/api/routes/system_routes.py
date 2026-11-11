@@ -13,6 +13,21 @@ _FINANCE_ID_RE = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 
 
 def handle_system_routes(path: str, body: bytes, send_json_fn: Callable[[int, dict[str, Any]], None]) -> bool:
+    if body and path in {'/api/finance', '/api/tasks', '/api/habits'}:
+        from app.ui.panel.api.personal_journal import journal_response
+        captured = []
+        def call():
+            _handle_system_routes(path, body, lambda status, data: captured.append((status, data)))
+            return captured[0] if captured else None
+        result = journal_response({'/api/finance': 'finance_tool', '/api/tasks': 'task_tool', '/api/habits': 'habit_tool'}[path], path, body, call)
+        if result:
+            send_json_fn(*result)
+            return True
+        return False
+    return _handle_system_routes(path, body, send_json_fn)
+
+
+def _handle_system_routes(path: str, body: bytes, send_json_fn: Callable[[int, dict[str, Any]], None]) -> bool:
     """Processa requisições REST para o domínio de Inteligência do Sistema e Segurança."""
     if path == "/api/llm/route":
         try:
@@ -114,7 +129,7 @@ def handle_system_routes(path: str, body: bytes, send_json_fn: Callable[[int, di
 
     if path in ("/api/habits", "/api/habits/list"):
         try:
-            from app.services.habits import HabitService
+            from app.services.personal_habits import PersonalHabits as HabitService
             payload = {}
             if body and body.strip():
                 try:
@@ -136,7 +151,7 @@ def handle_system_routes(path: str, body: bytes, send_json_fn: Callable[[int, di
                 send_json_fn(200, {"ok": True, "habit": h})
             elif action == "update":
                 h = HabitService.update_habit(
-                    habit_id=str(payload.get("id") or payload.get("habit_id")),
+                    str(payload.get("id") or payload.get("habit_id")),
                     name=payload.get("name"),
                     category=payload.get("category"),
                     routine_block=payload.get("routine_block"),
@@ -178,7 +193,8 @@ def handle_system_routes(path: str, body: bytes, send_json_fn: Callable[[int, di
                 )
                 send_json_fn(200, {"ok": True, "task": t})
             elif action in ("toggle", "complete"):
-                t = TaskService.toggle_task(str(payload.get("id") or payload.get("task_id")))
+                task_id = str(payload.get("id") or payload.get("task_id"))
+                t = TaskService.set_completed(task_id, True) if action == "complete" else TaskService.toggle_task(task_id)
                 send_json_fn(200, {"ok": True, "task": t})
             elif action == "delete":
                 ok = TaskService.delete_task(str(payload.get("id") or payload.get("task_id")))
@@ -212,6 +228,12 @@ def handle_system_routes(path: str, body: bytes, send_json_fn: Callable[[int, di
                     description=entry["description"], date_str=entry["date_str"],
                 )
                 send_json_fn(200, {"ok": True, "summary": summary, "transaction": FinanceService.get_transaction(trans_id) if trans_id else None})
+            elif action == "get":
+                tx = FinanceService.get_transaction(trans_id)
+                if tx is None:
+                    send_json_fn(404, {"ok": False, "error": "Lançamento não encontrado."})
+                else:
+                    send_json_fn(200, {"ok": True, "transaction": tx})
             elif action == "update":
                 tx = FinanceService.update_transaction(
                     trans_id, payload.get("type"), payload.get("amount"), payload.get("category", ""),

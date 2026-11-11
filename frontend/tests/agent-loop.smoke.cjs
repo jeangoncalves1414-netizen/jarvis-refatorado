@@ -94,7 +94,10 @@ const { assertSourceHasNoBrokenText, assertPageHasNoBrokenText } = require('./br
     await page.locator('.ws-message.assistant').filter({ hasText: 'Tudo feito depois da aprovação.' }).waitFor()
     await page.waitForFunction(() => !document.querySelector('.ws-agent-progress'))
     const lastHistory = savedHistories.at(-1)
-    assert.deepEqual(lastHistory.at(-1), { role: 'assistant', content: 'Tudo feito depois da aprovação.', run_id: 'run-1' })
+    assert.equal(lastHistory.at(-1).role, 'assistant')
+    assert.equal(lastHistory.at(-1).content, 'Tudo feito depois da aprovação.')
+    assert.equal(lastHistory.at(-1).run_id, 'run-1')
+    assert.equal(typeof lastHistory.at(-1).timestamp, 'number')
     // A mesma resposta repetida não duplica a mensagem.
     await page.evaluate(() => window.__wsEmit({ type: 'agent_reply', session_id: 'session-1', run_id: 'run-1', reply: 'Tudo feito depois da aprovação.' }))
     await page.waitForTimeout(200)

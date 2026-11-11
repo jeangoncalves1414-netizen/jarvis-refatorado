@@ -39,7 +39,9 @@ def test_orchestrator_remembers_preferences(tmp_path) -> None:
 
     plan = orchestrator.handle_request("Me lembre que eu prefiro respostas curtas")
 
-    assert plan.intent == "general"
+    # A memória local é salva mesmo quando a conversa não tem provedor configurado.
+    assert plan.intent == "error"
+    assert "API_KEY" in plan.summary
     assert memory_store.get_preferences()
     assert any(item["key"] == "preferred_response_style" for item in memory_store.get_preferences())
 

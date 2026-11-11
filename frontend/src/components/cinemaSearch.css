@@ -1,0 +1,54 @@
+.tool-modal.cinema-modal-overlay { padding: 16px; z-index: 50; }
+.tool-modal section.cinema-search-workspace { box-sizing: border-box; width: min(1320px, 96vw); max-width: 1320px; max-height: calc(100dvh - 32px); padding: 28px; background: #13151c; color: #e7e7ef; }
+.cinema-search-workspace .cinema-modal-header { display: block; margin-bottom: 24px; padding-right: 30px; }
+.cinema-search-workspace .cinema-modal-body { grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: 26px; }
+.cinema-search-workspace .cinema-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.cinema-search-workspace .cinema-main-panel { min-width: 0; }
+.cinema-search-workspace .cinema-domain-filter { display: flex; gap: 8px; margin-top: 12px; }
+.cinema-domain-filter input { flex: 1; }
+.cinema-compatible-filter { display: flex; align-items: center; gap: 8px; margin: 16px 0; font-size: 13px; }
+.cinema-compatible-filter input { width: 17px; height: 17px; accent-color: #67e8f9; }
+.cinema-pagination { display: flex; justify-content: center; align-items: center; gap: 20px; margin: 18px 0; font-size: 12px; }
+.cinema-detected-episodes { border: 1px solid #353b4b; border-radius: 12px; padding: 14px; margin: 16px 0; }
+.cinema-detected-episodes > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; max-height: 210px; overflow-y: auto; }
+.cinema-search-workspace .cinema-detected-episodes button { min-width: 40px; }
+.cinema-search-workspace .cinema-domain-filter button, .cinema-search-workspace .cinema-pagination button, .cinema-search-workspace .cinema-detected-episodes button { border: 1px solid #3b465b; border-radius: 8px; background: #202b3e; color: #e2f6fb; padding: 9px 12px; cursor: pointer; }
+.cinema-search-workspace h2 { margin: 6px 0 10px; font-size: 28px; }
+.cinema-search-workspace p { color: #a6aaba; font-size: 13px; line-height: 1.6; }
+.cinema-search-workspace button, .cinema-search-workspace input, .cinema-search-workspace select { font: inherit; }
+.cinema-search-workspace button:disabled { opacity: .5; cursor: default; }
+.cinema-search-workspace button:focus-visible, .cinema-search-workspace a:focus-visible, .cinema-search-workspace input:focus-visible, .cinema-search-workspace select:focus-visible, .cinema-search-workspace summary:focus-visible { outline: 2px solid var(--jarvis-cyan, #67e8f9); outline-offset: 3px; }
+.cinema-search-workspace .cinema-poster-panel h3 { margin: 0; font-size: 17px; }
+.cinema-search-workspace .cinema-poster-panel > small { color: #a6aaba; line-height: 1.5; }
+.cinema-search-workspace .cinema-poster-panel > button, .cinema-search-workspace .source-row button, .cinema-search-workspace .cinema-search button { border: 1px solid #3b465b; border-radius: 9px; background: #202b3e; color: #e2f6fb; padding: 10px 12px; cursor: pointer; }
+.cinema-search-tabs { display: flex; gap: 6px; padding: 4px; border: 1px solid #303541; background: #0d1017; border-radius: 12px; }
+.cinema-search-tabs button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 8px; padding: 10px; background: transparent; color: #a6aaba; cursor: pointer; }
+.cinema-search-tabs button[aria-pressed=true] { background: #253247; color: #b9f2fa; }
+.cinema-search-workspace .cinema-search button { display: flex; align-items: center; justify-content: center; gap: 7px; }
+.cinema-search-workspace input, .cinema-search-workspace select { min-width: 0; border: 1px solid #353b4b; border-radius: 8px; background: #0e121b; color: #e7e7ef; padding: 10px; }
+.cinema-source-filter { display: flex; align-items: center; gap: 10px; color: #a6aaba; font-size: 12px; }
+.cinema-source-filter select { flex: 1; }
+.cinema-catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr)); gap: 14px; }
+.cinema-catalog-card { text-align: left; border: 1px solid #303541; border-radius: 12px; overflow: hidden; background: #181d28; color: #e7e7ef; padding: 0 0 12px; cursor: pointer; min-width: 0; }
+.cinema-catalog-card:hover, .cinema-catalog-card[aria-pressed=true] { border-color: #74c5d2; }
+.cinema-catalog-card img, .cinema-cover-placeholder { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; background: #222b3a; }
+.cinema-cover-placeholder { display: grid; place-items: center; color: #829ab2; }
+.cinema-catalog-card b, .cinema-catalog-card small { display: block; margin: 9px 10px 0; overflow-wrap: anywhere; }
+.cinema-catalog-card b { font-size: 13px; line-height: 1.4; }
+.cinema-catalog-card small { font-size: 11px; color: #a6aaba; }
+.cinema-search-workspace .cinema-results p { font-size: 12px; color: #b1b6c5 !important; }
+.cinema-search-workspace .cinema-results b { font-size: 14px; margin-top: 6px; }
+.cinema-search-workspace .cinema-results .cinema-result-hint { margin-top: 8px; white-space: normal; line-height: 1.5; }
+.cinema-search-workspace .cinema-result-actions { justify-content: flex-start; }
+.cinema-search-workspace .cinema-link-btn { display: inline-flex; align-items: center; gap: 6px; }
+.cinema-history { margin-top: 18px; border-top: 1px solid #303541; padding-top: 14px; }
+.cinema-history > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 8px; }
+.cinema-history button { border: 0; background: transparent; color: #a6aaba; cursor: pointer; padding: 5px 0; font-size: 11px !important; }
+.cinema-history > button { display: flex; width: 100%; justify-content: space-between; gap: 8px; text-align: left; }
+.cinema-history > button span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #e7e7ef; }
+.cinema-history small { flex-shrink: 0; }
+.cinema-url-entry { border-top: 1px solid #303541; margin-top: 24px; padding-top: 16px; }
+.cinema-url-entry summary { cursor: pointer; font-size: 13px; color: #c0d6e2; }
+.cinema-url-entry .source-row { margin: 12px 0; }
+@media (max-width: 640px) { .cinema-catalog { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cinema-search-workspace .cinema-poster-panel { order: 2; } .cinema-source-filter { align-items: stretch; flex-direction: column; } }
+@media (max-width: 850px) { .cinema-search-workspace .cinema-modal-body { grid-template-columns: minmax(0, 1fr); } .cinema-search-workspace .cinema-poster-panel { order: 2; } .cinema-search-tabs { flex-wrap: wrap; } .cinema-search-tabs button { flex-basis: 40%; } .cinema-search-workspace .cinema-domain-filter { flex-wrap: wrap; } .tool-modal section.cinema-search-workspace { padding: 20px 16px; } .cinema-search-workspace .cinema-results article { flex-wrap: wrap; } }

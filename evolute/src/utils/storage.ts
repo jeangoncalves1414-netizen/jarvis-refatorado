@@ -174,6 +174,9 @@ import { pushToServerDebounced } from './sync';
 export function setStoredItem<T>(key: string, value: T): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    if (key === StorageKeys.STUDY_NOTES_INFINITE) {
+      localStorage.setItem(key + '_modified', String(Date.now()));
+    }
     pushToServerDebounced();
   } catch (e) {
     console.error(`Falha ao salvar ${key} no localStorage:`, e);

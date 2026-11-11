@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 from .base import BaseTool, ToolResult
+from .video_intent import is_video_analysis_request, youtube_url
 from .file_manager import FileManagerTool
 from .system_control import SystemControlTool
 from .jarvis_mode import JarvisModeTool
@@ -76,6 +77,7 @@ except ImportError:
 from .lifestyle_tools import HabitTool, TaskTool, FinanceTool
 from .checklist_tool import ChecklistTool
 from .lifeos_tool import LifeOSTool
+from .personal_records_tool import PersonalRecordsTool
 from .persona_tool import PersonaTool
 from .open_window import OpenWindowTool
 from .open_screen import OpenScreenTool
@@ -97,7 +99,7 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
         (r"\bchecklist|\blista\b|\blistas\b|\bmercado\b|\bcompras\b", ("checklist_tool",)),
         (r"\btaref|\bpendencia", ("task_tool",)),
         (r"\bagua\b|\bbebi\b|\bhidrat|\btreino\b", ("lifeos_tool",)),
-        (r"\bgastei\b|\bpaguei\b|\bgasto|\bdespesa|\breceita\b|\bfinanc", ("finance_tool",)),
+        (r"\bgastei\b|\bpaguei\b|\bgasto|\bdespesa|\breceita\b|\bfinanc|\blancamento|\bsaldo\b|\bdinheiro\b|\brecebi\b|\bganhei\b", ("finance_tool",)),
         (r"\bnota\b|\bnotas\b|\banota|\bcofre\b", ("vault_save_note", "vault_search")),
         (r"\blembrete|\bagenda|\bcompromisso", ("calendar",)),
         (r"\btela\b|\bpainel\b|\babre\b|\babrir\b|\babra\b", ("open_screen",)),
@@ -115,7 +117,8 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
 
 # Loop agêntico: ferramentas de dados do dia a dia que entram em qualquer pedido, para qualquer provedor.
 LOOP_DATA_TOOLS = frozenset({
-    "habit_tool", "task_tool", "checklist_tool", "lifeos_tool", "calendar", "vault_save_note", "vault_search",
+    "personal_records",
+    "habit_tool", "task_tool", "checklist_tool", "finance_tool", "lifeos_tool", "calendar", "vault_save_note", "vault_search",
     "open_window", "open_screen", "wait", "persona_tool",
 })
 
@@ -124,7 +127,7 @@ LOOP_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
     (re.compile(pattern), tools)
     for pattern, tools in (
         (r"\bpesquis|\bbusca|\bprocur|\bnoticia|\bpesquisa|\bsite\b|\blink\b|\burl\b", ("web_search",)),
-        (r"\bapp\b|\baplicativo|\bprograma|\bnavegador|\bchrome|\bjanela", ("open_windows_app",)),
+        (r"\bapp\b|\baplicativo|\bprograma|\bnavegador|\bchrome|\bjanela|\bcalculador", ("open_windows_app",)),
         (r"\bvolume|\bbrilho|\bdesligar\b|\breiniciar|\bbloquear|\bsistema\b", ("system_control",)),
         (r"\bmusica|\btoca\b|\btocar\b|\bspotify|\bplaylist", ("spotify",)),
         (r"\btimer\b|\btemporizador|\bcronometro|\balarme|\bminutos\b", ("timer",)),
@@ -142,27 +145,8 @@ LOOP_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
     )
 )
 
-def is_video_analysis_request(text: str) -> bool:
-    """Verifica se o pedido do usuário trata de análise/resumo/tópicos de vídeo ou URLs do YouTube."""
-    if not text:
-        return False
-    normalized = normalize_name(text)
-    if "youtube.com" in normalized or "youtu.be" in normalized:
-        return True
-    patterns = (
-        r"\banalise\s+(?:o\s+)?v[ií]deo\b",
-        r"\banalisar\s+(?:o\s+)?v[ií]deo\b",
-        r"\bresumo\s+(?:do\s+)?v[ií]deo\b",
-        r"\bresumir\s+(?:o\s+)?v[ií]deo\b",
-        r"\btranscri[cç][aã]o\b",
-        r"\bt[oó]picos?\s+do\s+v[ií]deo\b",
-        r"\bmomentos?\s+do\s+v[ií]deo\b",
-        r"\bconte[uú]do\s+do\s+v[ií]deo\b",
-        r"\btimestamps?\b",
-    )
-    return any(re.search(pat, normalized, re.IGNORECASE) for pat in patterns)
-
 GENERAL_TOOL_NAMES = {
+    "personal_records",
     "file_manager", "system_control", "jarvis_mode", "web_search", "browser", "browser_agent", "timer", "wait",
     "whatsapp", "spotify", "clipboard", "news_reader", "open_windows_app", "script_runner",
     "vision", "video_analyst", "media_tool", "qr_reader", "realtime", "proactive_agent", "system_tray", "cinema", "calendar", "image_generator",
@@ -170,7 +154,7 @@ GENERAL_TOOL_NAMES = {
     "desktop_search", "kasa_control", "home", "document_generator", "telegram_bot", "mobile_adb",
     "wormhole", "wallpaper_engine", "clipboard_intelligence",
     "habit_tool", "task_tool", "checklist_tool", "finance_tool", "lifeos_tool", "open_window", "open_screen", "show_popup",
-    "notification",
+    "notification", "persona_tool",
     "places_search",
     "planning_workspace", "routine",
     "vault_search", "vault_daily_log", "vault_save_note", "vault_update_profile",
@@ -295,6 +279,7 @@ class ToolRegistry:
         self._register(ChecklistTool())
         self._register(FinanceTool())
         self._register(LifeOSTool())
+        self._register(PersonalRecordsTool())
         self._register(PersonaTool())
         self._register(OpenWindowTool())
         self._register(OpenScreenTool())
@@ -398,6 +383,7 @@ class ToolRegistry:
         # Otimização de TPM para provedores com limite estrito de taxa (ex: Groq)
         if (provider == "groq" or narrow) and mode != "tutor":
             core_groq = {
+                "personal_records",
                 "web_search", "system_control", "open_windows_app", "timer", "wait",
                 "spotify", "whatsapp", "calendar", "file_manager",
                 "cinema", "script_runner", "image_generator", "vision", "planning_workspace", "open_window"
@@ -413,6 +399,9 @@ class ToolRegistry:
                 if m_name in user_lower or clean_mcp in user_lower:
                     dynamic_tools.add(m_name)
             normalized = normalize_name(user_text)
+            # Abrir/reproduzir vídeo precisa de descoberta e navegação, não só análise.
+            if re.search(r"\b(?:abr\w*|toc\w*|reprodu\w*|assist\w*)\b", normalized) and re.search(r"\byoutube\b|\bvideo\b|https?://", normalized) and not is_video_req:
+                dynamic_tools.update({"web_search", "browser", "open_windows_app", "media_tool"})
             for pattern, tools in GROQ_KEYWORD_TOOLS + (LOOP_KEYWORD_TOOLS if narrow else ()):
                 if pattern.search(normalized):
                     dynamic_tools.update(tools)
@@ -422,6 +411,13 @@ class ToolRegistry:
             allowed = allowed.intersection(dynamic_tools)
 
         allowed_set = set(name for name in allowed if name in self.tools)
+        # One write interface for advanced personal requests prevents the planner
+        # from applying the same edit through both the old and unified tools.
+        if 'personal_records' in allowed_set and re.search(r'\b(?:conta\b|cartao\b|parcela|estorn|transfer|recorr|etiqueta|treino|serie|repetic|sono|dormi|humor|desfaz|historico|na verdade|relac|vincul)', normalize_name(user_text)):
+            redundant = {'finance_tool', 'habit_tool', 'task_tool', 'checklist_tool', 'vault_save_note'}
+            if not re.search(r'\b(?:agua|bebi|hidrat)', normalize_name(user_text)):
+                redundant.add('lifeos_tool')
+            allowed_set.difference_update(name for name in redundant if name not in user_text)
         if is_video_req and mode != "tutor":
             if "video_analyst" in self.tools:
                 allowed_set.add("video_analyst")
@@ -466,15 +462,22 @@ class ToolRegistry:
         if not tool:
             return ToolResult(ok=False, message=f"Ferramenta '{name}' não está cadastrada no registro.")
         try:
-            return tool.execute(args, context=context)
+            from app.services import personal_history
+            from app.core.ui_events import current_popup_session
+            from app.agent.tool_activity import current_activity
+            activity = current_activity.get()
+            return personal_history.execute(name, args, lambda: tool.execute(args, context=context),
+                session=current_popup_session.get() or (context or {}).get('session_id') or '',
+                operation_id=activity[0].id if activity else None)
         except RunCancelled:
             # "Parar pedido" durante uma espera: o cancelamento sobe até o Kernel.
             raise
         except Exception as e:
             return ToolResult(ok=False, message=f"Erro interno ao executar a ferramenta '{name}': {e}")
 
-    def run_by_marker(self, kind: str, arg: str | None, user_line: str) -> ToolResult:
-        """Executa ferramenta pedida pela LLM via marcador (suporta nomes compactos)."""
+    @staticmethod
+    def resolve_marker(kind: str, arg: str | None, user_line: str) -> tuple[str, dict]:
+        """Normaliza ANTES da política, aprovação, deduplicação e registro da execução."""
         kind_l = kind.lower().strip()
         
         # Mapeamento de nomes compactos
@@ -512,14 +515,8 @@ class ToolRegistry:
         
         # Redirecionamento estrito: web_search NUNCA deve sequestrar vídeos do YouTube
         if mapped_name == "web_search":
-            arg_str = str(arg or "").lower()
-            if "youtube.com" in arg_str or "youtu.be" in arg_str or is_video_analysis_request(user_line):
+            if is_video_analysis_request(user_line or str(arg or "")):
                 mapped_name = "video_analyst"
-
-        tool = self.get_tool(mapped_name)
-        
-        if not tool:
-            return ToolResult(ok=False, message=f"Ferramenta '{kind}' não encontrada.")
         
         # Preparar argumentos baseados no tipo de ferramenta
         args = {}
@@ -528,15 +525,18 @@ class ToolRegistry:
             if not video_url:
                 m = re.search(r"(https?://\S+)", user_line)
                 video_url = m.group(1) if m else user_line
-            args = {"action": "analyze_youtube_video", "url": video_url, "prompt": user_line}
+            remote = youtube_url(video_url)
+            args = ({"action": "analyze_youtube_video", "url": remote} if remote
+                    else {"action": "analyze_local_video", "file_path": video_url})
+            args["prompt"] = user_line
         elif arg:
             if mapped_name == "web_search":
-                args = {"query": arg}
+                args = {"action": "open_url" if youtube_url(arg) and not is_video_analysis_request(user_line or arg) else "search", "query": arg}
             elif mapped_name == "open_windows_app":
                 args = {"app_name": arg}
             elif mapped_name == "file_manager":
                 # Parsear argumentos de arquivo (acao:caminho)
-                parts = arg.split("|") if "|" in arg else [arg]
+                parts = arg.split("|", 2) if "|" in arg else arg.split(":", 1)
                 if len(parts) >= 1:
                     args = {"action": parts[0]}
                 if len(parts) >= 2:
@@ -552,10 +552,11 @@ class ToolRegistry:
             else:
                 args = {"command": arg}
         
-        try:
-            return tool.execute(args, context={"user_line": user_line})
-        except Exception as e:
-            return ToolResult(ok=False, message=f"Erro ao executar '{mapped_name}': {e}")
+        return mapped_name, args
+
+    def run_by_marker(self, kind: str, arg: str | None, user_line: str) -> ToolResult:
+        name, args = self.resolve_marker(kind, arg, user_line)
+        return self.execute_tool(name, args, context={"user_line": user_line})
 
 
 # Instância global do registro de ferramentas

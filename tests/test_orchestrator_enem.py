@@ -46,5 +46,5 @@ def test_enem_prefix_without_api_key(tmp_path, isolated_conversation_journal) ->
         mode="tutor",
         enem_context={"text": "2+2=?", "subject": "matematica", "year": 2021},
     )
-    assert plan.intent == "general"
+    assert plan.intent == "error"
     assert "API_KEY" in plan.summary

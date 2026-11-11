@@ -37,7 +37,7 @@ class EffectCheck:
         if self.status == "confirmed":
             return f"Confirmado: {self.evidence}."
         if self.status == "unconfirmed":
-            return f"Abri, mas não consegui confirmar: {self.evidence}."
+            return f"Não consegui confirmar o efeito: {self.evidence}."
         return ""
 
     def as_dict(self) -> dict[str, str]:
@@ -186,12 +186,12 @@ def _check_spotify(operation: str, before: Any) -> EffectCheck:
     if operation == "search_play":
         def playing() -> str:
             title = (_spotify_title() or "").strip()
-            return title if " - " in title and title.casefold() not in _SPOTIFY_IDLE_TITLES else ""
+            return title if isinstance(before, str) and title != before and " - " in title and title.casefold() not in _SPOTIFY_IDLE_TITLES else ""
 
         title = _poll(playing, SPOTIFY_PLAY_TIMEOUT)
         if title:
-            return EffectCheck("confirmed", f'o Spotify está tocando "{title}"')
-        return EffectCheck("unconfirmed", "o Spotify não mostra nenhuma música tocando")
+            return EffectCheck("confirmed", f'a janela do Spotify passou a mostrar "{title}"; áudio não verificado')
+        return EffectCheck("unconfirmed", "não observei uma nova faixa no Spotify após o pedido")
     if operation in {"play_pause", "next", "previous"}:
         previous = before if isinstance(before, str) else None
         if previous is None:
@@ -213,7 +213,7 @@ def _url_key(url: str) -> tuple[str, bool]:
     host = (parsed.hostname or "").lower()
     if host.startswith("www."):
         host = host[4:]
-    if host == "youtu.be" or host.endswith("youtube.com"):
+    if host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com"):
         page = host == "youtu.be" or parsed.path.startswith(("/watch", "/results", "/shorts"))
         return "youtube", page
     return host.split(".")[0] if host else "", False
@@ -266,7 +266,7 @@ def _check_open_url(args: dict[str, Any], result: Any) -> EffectCheck:
 
 def capture_before(tool: str, args: dict[str, Any]) -> Any:
     """Estado lido antes da ação (só controles do Spotify, barato)."""
-    if not enabled or tool != "spotify" or _operation(args or {}) not in {"play_pause", "next", "previous"}:
+    if not enabled or tool != "spotify" or _operation(args or {}) not in {"play_pause", "next", "previous", "search_play"}:
         return None
     try:
         return (_spotify_title() or "").strip()
@@ -288,4 +288,22 @@ def check_effect(tool: str, args: dict[str, Any] | None, result: Any, before: An
         return _check_spotify(operation, before)
     if (tool == "web_search" and operation == "open_url") or (tool == "desktop_automation" and operation == "open_url"):
         return _check_open_url(args, result)
+    data = getattr(result, "data", None) or {}
+    if tool == "file_manager" and operation in {"mkdir", "create_dir"}:
+        from pathlib import Path
+        path = data.get("path")
+        if path and Path(path).is_dir():
+            return EffectCheck("confirmed", f"pasta existente em {path}")
+        return EffectCheck("unconfirmed", "a pasta criada não foi encontrada no caminho retornado")
+    if tool == "timer" and operation in {"set_timer", "set_alarm"}:
+        from app.agent.tools.timer import list_active_timers
+        if any(t["label"] == data.get("label") and t["fire_at"] == data.get("fire_at") for t in list_active_timers()):
+            return EffectCheck("confirmed", f"alarme registrado para {data['fire_at']}; o disparo sonoro ainda não ocorreu")
+        return EffectCheck("unconfirmed", "não encontrei o alarme no registro de timers ativos")
+    if tool == "script_runner":
+        if data.get("exit_code") == 0 and not data.get("needs_confirmation"):
+            return EffectCheck("confirmed", "processo do script terminou com código 0; efeitos externos não foram verificados")
+        return EffectCheck("unconfirmed", "não há código de saída do processo")
+    if tool == "media_tool" and operation in {"play_motivational", "reveal_in_folder"}:
+        return EffectCheck("unconfirmed", "pedido enviado ao player ou Explorer; sem confirmação da interface")
     return NOT_APPLICABLE

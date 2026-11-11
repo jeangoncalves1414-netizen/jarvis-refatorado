@@ -14,7 +14,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from app.agent.tools.base import BaseTool, ToolResult
-from app.services.habits import HabitService
+from app.services.personal_habits import PersonalHabits as HabitService
 from app.services.tasks import TaskService
 from app.services.finance import FinanceService
 
@@ -364,11 +364,13 @@ class HabitTool(BaseTool):
             checked = HabitService.contextual_auto_check(text=text_query)
             names_desc = ", ".join(f"'{h['name']}'" for h in checked)
             msg = f"{len(checked)} hábito(s) marcado(s) automaticamente: {names_desc}." if checked else "Nenhum hábito elegível para auto-check."
-            return {"ok": True, "message": msg, "checked_habits": checked, "habit_ids": [h["id"] for h in checked]}
+            return {"ok": True, "message": msg, "checked_habits": checked, "habits": checked, "habit_ids": [h["id"] for h in checked]}
 
         if act in ("check", "complete", "done"):
             target = self._find(habit_id, name, allow_partial=True)
             res = HabitService.check_in(target["id"])
+            if not res["changed"]:
+                return {"ok": True, "message": f"'{target['name']}' já estava feito hoje.", "habit": res, "habit_ids": []}
             return {
                 "ok": True,
                 "message": f"Hábito '{target['name']}' concluído hoje! 🔥 Streak atual: {res.get('current_streak', 1)} dia(s).",
@@ -388,10 +390,17 @@ class HabitTool(BaseTool):
                 if found["id"] not in {t["id"] for t in targets}:
                     targets.append(found)
             checked = [HabitService.check_in(t["id"]) for t in targets]
+            newly_done = [h for h in checked if h["changed"]]
+            previous = [h["name"] for h in checked if not h["changed"]]
+            messages = []
+            if newly_done:
+                messages.append("Marcados hoje: " + ", ".join(h["name"] for h in newly_done) + ".")
+            if previous:
+                messages.append("Já estavam feitos hoje: " + ", ".join(previous) + ".")
             return {
                 "ok": True,
-                "message": f"{len(targets)} hábito(s) marcado(s) hoje: " + ", ".join(t["name"] for t in targets) + ".",
-                "habit_ids": [t["id"] for t in targets],
+                "message": " ".join(messages),
+                "habit_ids": [h["id"] for h in newly_done],
                 "habits": [_habit_brief(item) for item in checked],
             }
 
@@ -467,8 +476,8 @@ class TaskTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list", "create", "create_many", "update", "toggle", "delete"],
-                    "description": "list: lê; create: 1 tarefa; create_many: várias; update: edita; toggle: conclui ou reabre; delete: exclui (pede aprovação).",
+                    "enum": ["list", "create", "create_many", "update", "complete", "reopen", "toggle", "delete"],
+                    "description": "list: lê; create: 1 tarefa; create_many: várias; update: edita; complete: conclui sem reabrir; reopen: reabre; toggle: inverte; delete: exclui. Use title para localizar pelo nome.",
                 },
                 "task_id": {"type": "string", "description": "Id da tarefa, quando conhecido."},
                 **task_fields,
@@ -556,9 +565,10 @@ class TaskTool(BaseTool):
                 res = TaskService.update_task(target["id"], **changes)
                 return {"ok": res is not None, "message": f"Tarefa '{target['title']}' atualizada.", "task": res, "task_ids": [target["id"]]}
 
-            if act in ("toggle", "complete", "done"):
+            if act in ("toggle", "complete", "done", "reopen"):
                 target = self._find(task_id, title, allow_partial=True)
-                res = TaskService.toggle_task(target["id"])
+                desired = act != "reopen"
+                res = TaskService.toggle_task(target["id"]) if act == "toggle" else TaskService.set_completed(target["id"], desired)
                 if not res:
                     return {"ok": False, "error": "Tarefa não encontrada."}
                 status_str = "concluída" if res["completed"] == 1 else "reaberta"
@@ -610,6 +620,8 @@ class FinanceTool(BaseTool):
             "category": {"type": "string", "description": "Categoria (ex.: Alimentação, Moradia, Lazer, Salário)."},
             "description": {"type": "string", "description": "Descrição curta."},
             "date": {"type": "string", "description": "Data AAAA-MM-DD (padrão hoje)."},
+            "account": {"type": "string", "description": "Conta ou cartão, somente se informado pela usuária."},
+            "installments": {"type": "integer", "minimum": 1, "maximum": 60, "description": "Quantidade de parcelas; amount é o total da compra."},
         }
         return {
             "type": "object",
@@ -621,6 +633,7 @@ class FinanceTool(BaseTool):
                 },
                 **entry_fields,
                 "trans_id": {"type": "string", "description": "Id do lançamento (update e delete)."},
+                "match_description": {"type": "string", "description": "update/delete: descrição exata para localizar um lançamento quando não souber o ID. Não altera a descrição."},
                 "entries": {
                     "type": "array",
                     "maxItems": MAX_ENTRIES_PER_CALL,
@@ -640,6 +653,7 @@ class FinanceTool(BaseTool):
         category: str | None = None,
         description: str | None = None,
         trans_id: str = "",
+        match_description: str = "",
         entries: list[dict[str, Any]] | None = None,
         period: str = "month",
         date: str | None = None,
@@ -647,6 +661,16 @@ class FinanceTool(BaseTool):
     ) -> dict[str, Any]:
         act = (action or "summary").lower().strip()
         try:
+            if act in {'add', 'create', 'update'} and any(k in kwargs for k in ('account', 'installments')):
+                from app.services.personal_records import mutate, resolve
+                fields = {k: v for k, v in {'type': type, 'amount': amount, 'category': category, 'description': description, 'date': date}.items() if v is not None}
+                fields.update({k: kwargs[k] for k in ('account', 'installments') if k in kwargs})
+                target = resolve('finance', trans_id, match_description) if act == 'update' else None
+                result = mutate('finance', 'create' if act in {'add', 'create'} else 'update', fields, target)
+                return {'ok': result.ok, 'message': result.message, **result.data}
+            if act in {"update", "delete"} and not trans_id and match_description:
+                matches = FinanceService.find_by_description(match_description)
+                trans_id = resolve_by_name(matches, match_description, "description", kind="o lançamento", allow_partial=False)["id"]
             if act == "summary":
                 summary = FinanceService.get_summary()
                 return {
@@ -661,11 +685,14 @@ class FinanceTool(BaseTool):
                 t_id = trans_id or f"fin_{uuid.uuid4().hex[:8]}"
                 t_type = "income" if str(type or "").lower() in ("income", "receita", "ganho") else "expense"
                 label = category or "Outros"
-                summary = FinanceService.add_transaction(t_id, t_type, amount, category=label, description=description or "", date_str=str(date or ""))
+                entry = FinanceService.normalize_entry(t_type, amount, label, description, date)
+                recorded = FinanceService.record_with_receipt([{"id": t_id, **entry}])
                 type_label = "Receita" if t_type == "income" else "Despesa"
-                return {"ok": True, "message": f"{type_label} de R$ {amount:.2f} lançada na categoria '{label}'.", "summary": summary, "trans_ids": [t_id]}
+                return {"ok": True, "message": f"{type_label} de {_brl(entry['amount'])} lançada na categoria '{entry['category']}'.", **recorded, "trans_ids": [t_id]}
 
             if act == "add_many":
+                if isinstance(entries, list) and any(isinstance(entry, dict) and any(key in entry for key in ('account', 'installments')) for entry in entries):
+                    raise ValueError('Lote com contas ou parcelas: use personal_records create finance para cada compra. Nada foi gravado.')
                 if not isinstance(entries, list) or not entries:
                     raise ValueError("Informe a lista 'entries' com pelo menos um lançamento.")
                 if len(entries) > MAX_ENTRIES_PER_CALL:
@@ -681,17 +708,15 @@ class FinanceTool(BaseTool):
                         prepared.append(FinanceService.normalize_entry(kind, spec.get("amount"), spec.get("category"), spec.get("description"), spec.get("date")))
                     except ValueError as exc:
                         raise ValueError(f"Lançamento {index}: {exc} Nada foi gravado.") from None
-                ids = []
-                summary: dict[str, Any] = {}
-                for entry in prepared:
-                    t_id = f"fin_{uuid.uuid4().hex[:8]}"
-                    summary = FinanceService.add_transaction(t_id, entry["type"], entry["amount"], category=entry["category"], description=entry["description"], date_str=entry["date_str"])
-                    ids.append(t_id)
+                records = [{"id": f"fin_{uuid.uuid4().hex[:8]}", **entry} for entry in prepared]
+                recorded = FinanceService.record_with_receipt(records)
+                ids = [entry["id"] for entry in records]
                 total = round(sum(entry["amount"] for entry in prepared), 2)
+                net = recorded["finance_receipt"]["after"] - recorded["finance_receipt"]["before"]
                 return {
                     "ok": True,
-                    "message": f"{len(ids)} lançamento(s) gravado(s), total {_brl(total)}.",
-                    "trans_ids": ids, "total": total, "summary": summary,
+                    "message": f"{len(ids)} lançamento(s) gravado(s). Variação do saldo: {_brl(net)}.",
+                    "trans_ids": ids, "total": total, **recorded,
                 }
 
             if act == "list":
@@ -719,14 +744,18 @@ class FinanceTool(BaseTool):
                     category if category is not None else current["category"],
                     description if description is not None else current["description"],
                     date if date is not None else current["date_str"],
+                    with_receipt=True,
                 )
                 if updated is None:
                     raise ValueError("Lançamento não encontrado.")
-                return {"ok": True, "message": f"Lançamento atualizado: {_brl(float(updated['amount']))} em '{updated['category']}'.", "transaction": updated, "trans_ids": [trans_id]}
+                transaction = updated["transaction"]
+                return {"ok": True, "message": f"Lançamento atualizado: {_brl(float(transaction['amount']))} em '{transaction['category']}'.", **updated, "trans_ids": [trans_id]}
 
             if act == "delete":
                 if not trans_id:
                     return {"ok": False, "error": "ID da transação é obrigatório."}
+                if not FinanceService.get_transaction(trans_id):
+                    return {"ok": False, "error": "Lançamento não encontrado; nada foi removido."}
                 summary = FinanceService.delete_transaction(trans_id)
                 return {"ok": True, "message": "Transação removida.", "summary": summary, "trans_ids": [trans_id]}
         except ValueError as exc:

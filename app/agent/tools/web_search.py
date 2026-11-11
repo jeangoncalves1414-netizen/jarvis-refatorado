@@ -61,7 +61,7 @@ def _unwrap_bing_url(url: str) -> str:
         parsed = urllib.parse.urlparse(url)
         encoded = urllib.parse.parse_qs(parsed.query).get("u", [""])[0]
         if encoded.startswith("a1"):
-            raw = base64.b64decode(encoded[2:] + "===").decode("utf-8", errors="ignore")
+            raw = base64.urlsafe_b64decode(encoded[2:] + "===").decode("utf-8")
             if raw.startswith(("http://", "https://")):
                 return raw
     except Exception:
@@ -76,6 +76,7 @@ def _normalise_result(item: dict[str, Any]) -> dict[str, str]:
         "url": url,
         "source": _source_name(url),
         "snippet": str(item.get("body") or item.get("snippet") or "").strip(),
+        "published_at": str(item.get("published_at") or item.get("published") or item.get("date") or "").strip(),
     }
 
 
@@ -86,11 +87,12 @@ def _fallback_search(query: str, limit: int) -> list[dict[str, str]]:
     request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Jarvis research client)"})
     with urllib.request.urlopen(request, timeout=12) as response:
         document = response.read().decode("utf-8", errors="replace")
-    rows = re.findall(
-        r'<li[^>]+class="b_algo"[\s\S]*?<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>\s*</h2>[\s\S]*?(?:<p[^>]*>([\s\S]*?)</p>)?',
-        document,
-        flags=re.I,
-    )
+    rows = []
+    for block in re.findall(r'<li[^>]+class="b_algo"[^>]*>([\s\S]*?)</li>', document, re.I):
+        link = re.search(r'<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>', block, re.I)
+        paragraph = re.search(r'<p[^>]*>([\s\S]*?)</p>', block, re.I)
+        if link:
+            rows.append((*link.groups(), paragraph.group(1) if paragraph else ""))
     results: list[dict[str, str]] = []
     for href, title, snippet in rows[:limit]:
         clean = lambda value: re.sub(r"\s+", " ", html_lib.unescape(re.sub(r"<[^>]+>", " ", value))).strip()
@@ -108,26 +110,51 @@ def _fallback_search(query: str, limit: int) -> list[dict[str, str]]:
 
 def _search(query: str, limit: int) -> list[dict[str, str]]:
     try:
-        from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            rows = list(ddgs.text(query, max_results=limit))
+        from ddgs import DDGS
+        rows = DDGS().text(query, max_results=limit)
         return [_normalise_result(item) for item in rows if item.get("href") or item.get("url")]
     except Exception:
         return _fallback_search(query, limit)
 
 
-def _page_excerpt(url: str) -> str:
+class _PageMetadata(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.published_at = ""
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        key = str(values.get("property") or values.get("name") or values.get("itemprop") or "").lower()
+        if tag == "meta" and key in {"article:published_time", "datepublished", "date", "pubdate"}:
+            self.published_at = values.get("content") or self.published_at
+
+
+def _page_details(url: str) -> dict[str, str]:
     """Extrai somente um trecho curto para mostrar que a fonte foi consultada."""
     if not url.startswith(("http://", "https://")):
-        return ""
+        return {"excerpt": "", "read_status": "unavailable"}
     try:
         request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Jarvis research client)"})
         with urllib.request.urlopen(request, timeout=8) as response:
             raw = response.read(180_000).decode("utf-8", errors="replace")
-        raw = re.sub(r"<script[\s\S]*?</script>|<style[\s\S]*?</style>|<[^>]+>", " ", raw, flags=re.I)
-        return re.sub(r"\s+", " ", raw).strip()[:420]
+        metadata = _PageMetadata()
+        metadata.feed(raw)
+        raw = re.sub(r"<script[\s\S]*?</script>|<style[\s\S]*?</style>|<nav[\s\S]*?</nav>|<header[\s\S]*?</header>", " ", raw, flags=re.I)
+        article = re.search(r"<(?:article|main)\b[^>]*>([\s\S]*?)</(?:article|main)>", raw, re.I)
+        body = article.group(1) if article else raw
+        paragraphs = re.findall(r"<p\b[^>]*>([\s\S]*?)</p>", body, re.I)
+        content = " ".join(paragraphs) if paragraphs else body
+        excerpt = re.sub(r"\s+", " ", html_lib.unescape(re.sub(r"<[^>]+>", " ", content))).strip()[:900]
+        result = {"excerpt": excerpt, "read_status": "read" if excerpt else "empty"}
+        if metadata.published_at:
+            result["published_at"] = metadata.published_at[:80]
+        return result
     except Exception:
-        return ""
+        return {"excerpt": "", "read_status": "unavailable"}
+
+
+def _page_excerpt(url: str) -> str:
+    return _page_details(url)["excerpt"]
 
 
 GENERIC_DOMAINS = frozenset({
@@ -157,13 +184,13 @@ def _is_informative_result(item: dict[str, Any]) -> bool:
 
     # Dicionários e redes sociais genéricas são não-informativos para fatos/notícias
     for gen in GENERIC_DOMAINS:
-        if gen in source or gen in url:
+        if source == gen or source.endswith("." + gen):
             return False
 
-    snippet = str(item.get("snippet") or item.get("body") or "").strip()
+    snippet = str(item.get("excerpt") or item.get("snippet") or item.get("body") or "").strip()
     title = str(item.get("title") or "").strip()
 
-    if not snippet and not title:
+    if not snippet:
         return False
 
     low_text = (title + " " + snippet).lower()
@@ -186,6 +213,17 @@ def _needs_refinement(results: list[dict[str, Any]]) -> bool:
     return informative_count == 0
 
 
+def _matches_topic(item: dict[str, Any], query: str) -> bool:
+    """Documentation searches must mention the requested subject, not just the language."""
+    words = re.findall(r"[\w.-]+", query.lower())
+    if not any(w in words for w in ("documentation", "documentação", "docs")):
+        return True
+    generic = {"documentation", "documentação", "docs", "official", "oficial", "python", "da", "de", "do", "a", "the"}
+    topics = [w for w in words if w not in generic and len(w) > 2]
+    content = " ".join(str(item.get(key) or "") for key in ("title", "url", "snippet")).lower()
+    return all(topic in content for topic in topics)
+
+
 def _generate_refinement_queries(query: str) -> list[str]:
     """Gera termos de busca refinados para multi-hop (notícias recentes, fontes jornalísticas)."""
     q = query.strip()
@@ -193,6 +231,8 @@ def _generate_refinement_queries(query: str) -> list[str]:
     clean = re.sub(r'^(?:pesquise|busque|procure|quem\s+[eé]|o\s+que\s+(?:aconteceu|houve)\s+(?:com|sobre)?)\s+', '', clean, flags=re.I).strip()
 
     candidates: list[str] = []
+    if re.search(r"\b(?:documentation|documentação|docs)\b", clean, re.I):
+        return [f"{clean} site:docs.python.org" if re.search(r"\bpython\b", clean, re.I) else f"{clean} reference", f'"{clean}"']
     has_news = bool(re.search(r'\bnot[ií]cias?\b', clean, re.I))
 
     if not has_news:
@@ -235,7 +275,7 @@ def search_with_refinement(
     steps: list[dict[str, str]] = []
 
     # Hop 1: Busca inicial
-    current_results = _search(query, limit)
+    current_results = [item for item in _search(query, limit) if _matches_topic(item, query)]
     steps.append({
         "label": "Busca inicial",
         "status": "completed",
@@ -256,7 +296,7 @@ def search_with_refinement(
             "status": "running",
             "detail": f"Refinando busca com '{ref_query}'",
         })
-        refined_results = _search(ref_query, limit)
+        refined_results = [item for item in _search(ref_query, limit) if _matches_topic(item, query)]
         informative = [r for r in refined_results if _is_informative_result(r)]
 
         if informative:
@@ -279,10 +319,12 @@ def search_with_refinement(
 def _format_search_response(query: str, results: list[dict[str, Any]], refined_query: str | None = None) -> str:
     """Sintetiza os fatos encontrados de forma limpa e informativa, sem despejos de links brutos."""
     if not results:
-        return f"Não foram encontradas notícias ou informações sobre '{query}' após pesquisa aprofundada."
+        return f"Evidência insuficiente: a busca não retornou fontes sobre '{query}'. Isso não demonstra ausência de informações."
 
     informative_items = [r for r in results if _is_informative_result(r)]
-    items_to_use = informative_items if informative_items else results
+    items_to_use = informative_items
+    if not informative_items:
+        return f"Evidência insuficiente para responder sobre '{query}': a busca retornou apenas resultados genéricos. Isso não demonstra que não existam informações sobre o assunto."
 
     facts: list[str] = []
     sources: list[str] = []
@@ -292,23 +334,27 @@ def _format_search_response(query: str, results: list[dict[str, Any]], refined_q
         source = r.get("source", "").strip() or "web"
         url = r.get("url", "").strip()
         content = r.get("excerpt", "") or r.get("snippet", "") or ""
-        clean_content = re.sub(r"\s+", " ", content).strip()
+        sentences = re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", content).strip())
+        keywords = {w.lower() for w in re.findall(r"\w{4,}", query)}
+        ranked = sorted(enumerate(sentences), key=lambda pair: -len(keywords & set(re.findall(r"\w{4,}", pair[1].lower()))))
+        selected = sorted(ranked[:2])
+        clean_content = " ".join(sentence for _, sentence in selected)[:600]
+        date = r.get("published_at") or "data de publicação não informada"
+        basis = "página lida" if r.get("read_status") == "read" else "trecho do buscador; página não verificada"
 
         if clean_content:
-            facts.append(f"• [{source}] {clean_content}")
-        elif title:
-            facts.append(f"• [{source}] {title}")
+            facts.append(f"• {clean_content} — [{title or source}]({url}) ({source}; {date}; {basis})")
 
         if title and url:
-            sources.append(f"- {title} ({source}): {url}")
+            sources.append(f"- [{title}]({url}) — {source}; {date}")
 
     refinement_info = f" (busca refinada com '{refined_query}')" if refined_query and refined_query.lower() != query.lower() else ""
 
     sections = [
         f"Síntese informativa sobre '{query}'{refinement_info}:",
-        "\n".join(facts) if facts else "Nenhum detalhe informativo substantivo extraído.",
-        "\nFontes consultadas:",
-        "\n".join(sources),
+        "\n".join(facts) if facts else "Evidência insuficiente: encontrei títulos, mas nenhum trecho que sustente uma conclusão.",
+        "Síntese baseada nos trechos acima; divergências e detalhes não consultados permanecem sem confirmação.",
+        "\nFontes encontradas:\n" + "\n".join(sources) if not facts else "",
     ]
     return "\n\n".join(sections)
 
@@ -359,11 +405,10 @@ class WebSearchTool(BaseTool):
         if not query:
             return ToolResult(ok=False, message="Nenhum termo ou URL fornecido.")
 
-        # Roteamento exclusivo: web_search NUNCA deve sequestrar URLs do YouTube para abrir navegadores locais
-        is_yt_url = "youtube.com" in query.lower() or "youtu.be" in query.lower()
-        if is_yt_url:
+        from .video_intent import is_video_analysis_request, youtube_url
+        user_line = (context or {}).get("user_line", "")
+        if action != "open_url" and youtube_url(query) and is_video_analysis_request(user_line or query):
             from .video_analyst_tool import VideoAnalystTool
-            user_line = (context or {}).get("user_line", "")
             return VideoAnalystTool().execute(
                 {"action": "analyze_youtube_video", "url": query, "prompt": user_line},
                 context=context,
@@ -375,16 +420,19 @@ class WebSearchTool(BaseTool):
                 if not results:
                     return ToolResult(
                         ok=True,
-                        message=f"Não foram encontradas notícias ou informações sobre '{query}' após pesquisa aprofundada.",
-                        data={"query": query, "results": [], "steps": steps},
+                        message=f"Evidência insuficiente: a busca não retornou fontes para '{query}'. Tente informar mais contexto ou um link; não posso concluir que não existam informações.",
+                        data={"query": query, "results": [], "steps": steps, "evidence_status": "insufficient"},
                     )
 
                 if action == "research":
+                    from app.agent.tool_activity import report_progress
+                    report_progress({"results": results}, "Investigando fontes…")
                     steps.append({"label": "Leitura das fontes", "status": "running", "detail": "Abrindo fontes relevantes"})
                     for result in results:
-                        result["excerpt"] = _page_excerpt(result["url"])
+                        result.update(_page_details(result["url"]))
+                        report_progress({"results": results}, "Investigando fontes…")
                     steps[-1]["status"] = "completed"
-                    steps[-1]["detail"] = f"{len(results)} fontes consultadas"
+                    steps[-1]["detail"] = f"{sum(r.get('read_status') == 'read' for r in results)} de {len(results)} fontes lidas"
 
                 refined_from = effective_q if effective_q.lower() != query.lower() else None
                 synthesis_msg = _format_search_response(query, results, refined_query=refined_from)
@@ -392,7 +440,8 @@ class WebSearchTool(BaseTool):
                 return ToolResult(
                     ok=True,
                     message=synthesis_msg,
-                    data={"query": query, "effective_query": effective_q, "results": results, "steps": steps, "workflow": action},
+                    data={"query": query, "effective_query": effective_q, "results": results, "steps": steps, "workflow": action,
+                          "evidence_status": "excerpts" if any(_is_informative_result(r) and (r.get("snippet") or r.get("excerpt")) for r in results) else "insufficient"},
                 )
             except Exception as exc:
                 return ToolResult(ok=False, message=f"Não foi possível pesquisar agora: {exc}")
@@ -400,8 +449,9 @@ class WebSearchTool(BaseTool):
         if action == "open_url":
             url = query if query.startswith(("http://", "https://")) else "https://" + query
             try:
-                webbrowser.open(url)
-                return ToolResult(ok=True, message=f"Navegador aberto na URL: {url}", data={"url": url})
+                if not webbrowser.open(url):
+                    return ToolResult(ok=False, message="O navegador não aceitou o pedido de abertura.", data={"url": url})
+                return ToolResult(ok=True, message=f"Pedido de abertura enviado ao navegador: {url}", data={"url": url})
             except Exception as exc:
                 return ToolResult(ok=False, message=f"Erro ao abrir URL: {exc}")
 

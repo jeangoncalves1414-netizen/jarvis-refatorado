@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { panelRequest } from '../utils/panelApi'
@@ -94,6 +94,12 @@ export function FinanceWindow({ params, operational }: WindowComponentProps<Fina
   const [loading, setLoading] = useState(true)
   const [listError, setListError] = useState('')
   const [form, setForm] = useState<Form>(() => readDraft() ?? prefillForm(params))
+  const [formOpen, setFormOpen] = useState(() => isDirty(form) || Boolean(params.type || params.date))
+  const [allVisible, setAllVisible] = useState(false)
+  const [editId, setEditId] = useState(params.edit_id ?? '')
+  const [revision, setRevision] = useState(0)
+  const latestRequest = useRef(0)
+  const formRef = useRef<HTMLFormElement>(null)
   const [restored, setRestored] = useState(() => readDraft() !== null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -108,20 +114,21 @@ export function FinanceWindow({ params, operational }: WindowComponentProps<Fina
   const range = useMemo(() => periodRange(filters), [filters])
 
   const load = useCallback(async (signal?: AbortSignal) => {
+    const sequence = ++latestRequest.current
     setLoading(true)
     try {
       const response = await panelRequest<ListResponse>('/api/finance', {
         method: 'POST', headers: JSON_HEADERS, signal,
         body: JSON.stringify({ action: 'list', date_from: range.from, date_to: range.to, type: filters.type, category: filters.category }),
       })
-      if (signal?.aborted) return
+      if (signal?.aborted || sequence !== latestRequest.current) return
       setData(response)
       setListError('')
     } catch (error) {
-      if (signal?.aborted) return
+      if (signal?.aborted || sequence !== latestRequest.current) return
       setListError(describeError(error, 'Não foi possível carregar os lançamentos'))
     } finally {
-      if (!signal?.aborted) setLoading(false)
+      if (!signal?.aborted && sequence === latestRequest.current) setLoading(false)
     }
   }, [range, filters.type, filters.category])
 
@@ -129,7 +136,20 @@ export function FinanceWindow({ params, operational }: WindowComponentProps<Fina
     const controller = new AbortController()
     void load(controller.signal)
     return () => controller.abort()
-  }, [load])
+  }, [load, revision])
+
+  useEffect(() => {
+    const refresh = () => setRevision(value => value + 1)
+    const edit = (event: Event) => setEditId(String((event as CustomEvent).detail || ''))
+    window.addEventListener('jarvis:finance-changed', refresh)
+    window.addEventListener('jarvis:finance-edit', edit)
+    window.addEventListener('focus', refresh)
+    return () => {
+      window.removeEventListener('jarvis:finance-changed', refresh)
+      window.removeEventListener('jarvis:finance-edit', edit)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [])
 
   const updateForm = (patch: Partial<Form>) => {
     const next = { ...form, ...patch }
@@ -164,8 +184,9 @@ export function FinanceWindow({ params, operational }: WindowComponentProps<Fina
       clearDraft()
       setForm(blankForm())
       setRestored(false)
+      setFormOpen(false)
       setSavedNotice(form.editingId ? 'Lançamento atualizado.' : 'Lançamento salvo.')
-      await load()
+      window.dispatchEvent(new Event('jarvis:finance-changed'))
     } catch (error) {
       setSaveError(`${describeError(error, 'Não foi possível salvar')} O rascunho foi mantido; tente novamente.`)
     } finally {
@@ -176,6 +197,8 @@ export function FinanceWindow({ params, operational }: WindowComponentProps<Fina
   const applyEdit = (tx: Transaction) => {
     const next: Form = { id: tx.id, editingId: tx.id, type: tx.type, amount: String(tx.amount).replace('.', ','), category: tx.category, description: tx.description, date: tx.date_str }
     setForm(next)
+    setFormOpen(true)
+    requestAnimationFrame(() => formRef.current?.querySelector<HTMLInputElement>('input[inputmode="decimal"]')?.focus())
     writeDraft(next)
     setRestored(false)
     setSaveError('')
@@ -188,6 +211,22 @@ export function FinanceWindow({ params, operational }: WindowComponentProps<Fina
     else applyEdit(tx)
   }
 
+  const editLatest = useRef(requestEdit)
+  editLatest.current = requestEdit
+  useEffect(() => {
+    if (!editId) return
+    const controller = new AbortController()
+    panelRequest<{ transaction: Transaction }>('/api/finance', {
+      method: 'POST', headers: JSON_HEADERS, signal: controller.signal,
+      body: JSON.stringify({ action: 'get', id: editId }),
+    }).then(({ transaction }) => {
+      if (!controller.signal.aborted) editLatest.current(transaction)
+    }).catch(error => {
+      if (!controller.signal.aborted) setListError(describeError(error, 'Não foi possível abrir o lançamento'))
+    }).finally(() => { if (!controller.signal.aborted) setEditId('') })
+    return () => controller.abort()
+  }, [editId])
+
   const confirmPending = async () => {
     if (!pending) return
     if (pending.kind === 'edit') { applyEdit(pending.tx); setPending(null); return }
@@ -197,7 +236,7 @@ export function FinanceWindow({ params, operational }: WindowComponentProps<Fina
       if (form.editingId === pending.tx.id) discardDraft()
       setSavedNotice('Lançamento excluído.')
       setPending(null)
-      await load()
+      window.dispatchEvent(new Event('jarvis:finance-changed'))
     } catch (error) {
       setPending(null)
       setListError(describeError(error, 'Não foi possível excluir o lançamento'))
@@ -216,7 +255,35 @@ export function FinanceWindow({ params, operational }: WindowComponentProps<Fina
         <span className="ws-muted">Valores calculados pelo servidor</span>
       </div>
 
-      <form className="ws-finance-form" onSubmit={submit} aria-label={form.editingId ? 'Editar lançamento' : 'Novo lançamento'}>
+      <div className="ws-finance-totals" aria-live="polite">
+        <article><span>Receitas</span><strong className="income">{totals ? money.format(totals.income) : '—'}</strong></article>
+        <article><span>Despesas</span><strong className="expense">{totals ? money.format(totals.expense) : '—'}</strong></article>
+        <article><span>Saldo do período</span><strong>{totals ? money.format(totals.net) : '—'}</strong></article>
+      </div>
+
+      <div className="ws-finance-list" aria-busy={loading}>
+        {totals && <p className="ws-muted">{totals.count} lançamento(s) no filtro{data?.truncated ? `; mostrando os ${data.transactions.length} mais recentes (os totais incluem todos)` : ''}</p>}
+        {!loading && data && !data.transactions.length && <p className="ws-finance-empty">Nenhum lançamento neste filtro.</p>}
+        <ul>
+          {data?.transactions.slice(0, allVisible ? undefined : 3).map(tx => (
+            <li key={tx.id} className={form.editingId === tx.id ? 'editing' : ''}>
+              <span className="ws-finance-date">{showDate(tx.date_str)}</span>
+              <span className="ws-finance-what"><strong>{tx.description || tx.category}</strong><small>{tx.category}</small></span>
+              <span className={`ws-finance-amount ${tx.type}`}>{tx.type === 'income' ? '+' : '−'} {money.format(tx.amount)}</span>
+              <button type="button" className="ws-icon-button" aria-label={`Editar lançamento de ${tx.category}`} title="Editar" onClick={() => requestEdit(tx)}><Pencil size={14} /></button>
+              <button type="button" className="ws-icon-button" aria-label={`Excluir lançamento de ${tx.category}`} title="Excluir" onClick={() => setPending({ kind: 'delete', tx })}><Trash2 size={14} /></button>
+            </li>
+          ))}
+        </ul>
+        {(data?.transactions.length ?? 0) > 3 && <button type="button" className="ws-text-button" onClick={() => setAllVisible(value => !value)}>{allVisible ? 'Mostrar recentes' : 'Ver todos os lan\u00e7amentos'}</button>}
+      </div>
+
+      <div className="ws-finance-actions">
+        <button type="button" className="ws-button primary" aria-expanded={formOpen} onClick={() => setFormOpen(value => !value)}>{formOpen ? 'Recolher formul\u00e1rio' : isDirty(form) ? 'Continuar rascunho' : 'Registrar'}</button>
+      </div>
+      {savedNotice && <p className="ws-finance-ok" role="status">{savedNotice}</p>}
+
+      {formOpen && <form ref={formRef} className="ws-finance-form" onSubmit={submit} aria-label={form.editingId ? 'Editar lançamento' : 'Novo lançamento'}>
         <div className="ws-finance-form-title">
           <strong>{form.editingId ? 'Editar lançamento' : 'Novo lançamento'}</strong>
           {restored && <span className="ws-muted">Rascunho restaurado</span>}
@@ -234,16 +301,19 @@ export function FinanceWindow({ params, operational }: WindowComponentProps<Fina
         <datalist id="ws-finance-categories">{categories.map(name => <option key={name} value={name} />)}</datalist>
         {formError && <p className="ws-finance-error" role="alert">{formError}</p>}
         {saveError && <p className="ws-finance-error" role="alert">{saveError}</p>}
-        {savedNotice && <p className="ws-finance-ok" role="status">{savedNotice}</p>}
+
         <div className="ws-finance-actions">
           <button type="submit" className="ws-button primary" disabled={saving}>{saving ? 'Salvando…' : saveError ? 'Tentar novamente' : form.editingId ? 'Salvar alterações' : 'Salvar lançamento'}</button>
           {isDirty(form) && <button type="button" className="ws-button" disabled={saving} onClick={discardDraft}>{form.editingId ? 'Cancelar edição' : 'Descartar rascunho'}</button>}
         </div>
-      </form>
+      </form>}
 
+      {listError && <p className="ws-finance-error" role="alert">{listError} <button type="button" className="ws-text-button" onClick={() => void load()}>Tentar de novo</button></p>}
+
+      <details><summary>Filtros do extrato</summary>
       <div className="ws-finance-filters" role="group" aria-label="Filtros">
         <label>Período
-          <select value={filters.period} onChange={event => setFilters({ ...filters, period: event.target.value as Period })}>
+          <select aria-label="Período" value={filters.period} onChange={event => setFilters({ ...filters, period: event.target.value as Period })}>
             <option value="month">Este mês</option>
             <option value="week">Últimos 7 dias</option>
             <option value="all">Tudo</option>
@@ -271,29 +341,7 @@ export function FinanceWindow({ params, operational }: WindowComponentProps<Fina
         </label>
       </div>
 
-      {listError && <p className="ws-finance-error" role="alert">{listError} <button type="button" className="ws-text-button" onClick={() => void load()}>Tentar de novo</button></p>}
-
-      <div className="ws-finance-totals" aria-live="polite">
-        <article><span>Receitas</span><strong className="income">{totals ? money.format(totals.income) : '—'}</strong></article>
-        <article><span>Despesas</span><strong className="expense">{totals ? money.format(totals.expense) : '—'}</strong></article>
-        <article><span>Saldo do período</span><strong>{totals ? money.format(totals.net) : '—'}</strong></article>
-      </div>
-
-      <div className="ws-finance-list" aria-busy={loading}>
-        {totals && <p className="ws-muted">{totals.count} lançamento(s) no filtro{data?.truncated ? `; mostrando os ${data.transactions.length} mais recentes (os totais incluem todos)` : ''}</p>}
-        {!loading && data && !data.transactions.length && <p className="ws-finance-empty">Nenhum lançamento neste filtro.</p>}
-        <ul>
-          {data?.transactions.map(tx => (
-            <li key={tx.id} className={form.editingId === tx.id ? 'editing' : ''}>
-              <span className="ws-finance-date">{showDate(tx.date_str)}</span>
-              <span className="ws-finance-what"><strong>{tx.description || tx.category}</strong><small>{tx.category}</small></span>
-              <span className={`ws-finance-amount ${tx.type}`}>{tx.type === 'income' ? '+' : '−'} {money.format(tx.amount)}</span>
-              <button type="button" className="ws-icon-button" aria-label={`Editar lançamento de ${tx.category}`} title="Editar" onClick={() => requestEdit(tx)}><Pencil size={14} /></button>
-              <button type="button" className="ws-icon-button" aria-label={`Excluir lançamento de ${tx.category}`} title="Excluir" onClick={() => setPending({ kind: 'delete', tx })}><Trash2 size={14} /></button>
-            </li>
-          ))}
-        </ul>
-      </div>
+      </details>
 
       {pending?.kind === 'delete' && (
         <ConfirmDialog
