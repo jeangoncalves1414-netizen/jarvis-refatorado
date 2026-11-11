@@ -505,18 +505,15 @@ class AgentOrchestrator:
                 except Exception:
                     pass
 
-            # Memory Vault: AI Priming contextual + perfil do usuário (ai-memory-vault)
+            # Memory Vault: AI Priming contextual. O perfil do usuário vem do perfil essencial
+            # (turn_context, memory_facts), não do USER-PROFILE.md cru.
             try:
                 from app.services.memory_vault import memory_vault
                 priming_notes = memory_vault.get_priming_context(text) if not local_history else ""
                 if priming_notes:
                     evolution_notes.append(f"[Priming Contextual]\n{priming_notes}")
-                user_profile = memory_vault.get_user_profile() if not local_history else ""
-                if user_profile:
-                    # Inclui apenas as primeiras 600 chars do perfil para não inflar o contexto
-                    evolution_notes.append(f"[Perfil do Usuário]\n{user_profile[:600]}")
-            except Exception:
-                pass
+            except Exception as exc:
+                record_run_step(f"Contexto do turno: notas de priming indisponíveis ({type(exc).__name__}).", kind="failure")
 
             if lookup_memory:
                 turn_meta.record("memory_lookup", {

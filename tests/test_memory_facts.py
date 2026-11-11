@@ -222,6 +222,21 @@ def test_system_prompt_lists_relevant_facts_only(chat):
     assert "Preferências salvas" not in chat.llm.systems[-1]
 
 
+def test_essential_profile_every_turn_without_raw_user_profile(chat, monkeypatch):
+    from app.agent.turn_context import PROFILE_HEADER
+    from app.services.memory_vault import memory_vault
+    monkeypatch.setattr(memory_vault, "get_user_profile", lambda: "Nome: Usuário")
+    memory_facts.save("O nome da usuária é Jean", pinned=True)
+    chat.run("oi")
+    system = chat.llm.systems[-1]
+    assert "## Perfil essencial do usuário" in system and "- O nome da usuária é Jean" in system
+    section = system.split(PROFILE_HEADER, 1)[1].split("\n\n", 1)[0]
+    assert len(section) <= 500
+    chat.run("Resuma o início deste chat")
+    assert "Perfil essencial" not in chat.llm.systems[-1]
+    assert all("Nome: Usuário" not in prompt for prompt in chat.llm.systems)
+
+
 def test_commands_never_create_preferences_or_trigger_memory_extraction(chat, tmp_path):
     from app.storage.memory_store import MemoryStore
     chat.agent.memory_store = MemoryStore(str(tmp_path / "memory.json"))
