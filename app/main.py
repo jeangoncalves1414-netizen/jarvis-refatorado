@@ -7,6 +7,7 @@ import time
 
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
+from app.core.stdio import configure_utf8_stdio
 from app.config import load_settings
 from app.agent.orchestrator import AgentOrchestrator
 from app.services.llm import LLMService
@@ -110,6 +111,7 @@ def build_app() -> tuple[AgentOrchestrator, PanelServer]:
 
 
 def main() -> None:
+    configure_utf8_stdio()
     parser = argparse.ArgumentParser(description="Jarvis Rebuild: modular desktop assistant")
     parser.add_argument("--demo", action="store_true", help="Executa uma demonstração simples após subir o painel")
     parser.add_argument("--desktop", action="store_true", help="Abre uma janela desktop embutida (pywebview)")

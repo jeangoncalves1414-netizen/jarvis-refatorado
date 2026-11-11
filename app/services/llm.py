@@ -16,6 +16,20 @@ from app.services.stm_filters import stm_filter
 
 import time
 
+
+def _log(message: str) -> None:
+    """Print de diagnóstico que nunca derruba a chamada (console cp1252 não codifica tudo)."""
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        try:
+            print(message.encode("ascii", "replace").decode())
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 try:
     from app.services.llm_router import SmartLLMRouter
     _smart_router = SmartLLMRouter()
@@ -142,7 +156,7 @@ class LLMService:
         bad_prefixes = ("official-", "the provider", "unknown", "qwen3-235b")
         if not model or any(model.startswith(p) for p in bad_prefixes):
             safe = self._SAFE_MODEL_FALLBACKS.get(provider, "gpt-4o-mini")
-            print(f"[LLM] Modelo invalido '{model}' rejeitado para {provider}, usando fallback: {safe}")
+            _log(f"[LLM] Modelo invalido '{model}' rejeitado para {provider}, usando fallback: {safe}")
             return safe
         return model
 
@@ -279,7 +293,7 @@ class LLMService:
                 fallback = "groq" if active != "groq" else "gemini"
                 fallback_key = self._api_key_for(fallback)
                 if fallback_key:
-                    print(f"[LLM] Failover automático: {active} → {fallback} ({exc})")
+                    _log(f"[LLM] Failover automático: {active} -> {fallback} ({exc})")
                     if fallback == "groq":
                         return self._generate_groq(contents, tools, system_instruction, fallback_key)
                     return self._generate_gemini(contents, tools, system_instruction, fallback_key)
@@ -418,7 +432,7 @@ class LLMService:
                     return self._generate_groq_stream(contents, on_chunk, tools, system_instruction, next_key, on_reasoning)
             if is_rate_limit(e):
                 raise ProviderRateLimit(_key_rotator.wait_message("groq", self.settings)) from e
-            print(f"[LLMStream Groq] Fallback devido a erro: {e}")
+            _log(f"[LLMStream Groq] Fallback devido a erro: {e}")
             return self._generate_groq(contents, tools, system_instruction, api_key)
 
     @track_model_call("gemini")
@@ -475,7 +489,7 @@ class LLMService:
                             pass
             return LLMResponse(text="".join(full_chunks))
         except Exception as e:
-            print(f"[LLMStream Gemini] Fallback devido a erro: {e}")
+            _log(f"[LLMStream Gemini] Fallback devido a erro: {e}")
             return self._generate_gemini(contents, tools, system_instruction, api_key)
 
     def generate_with_messages(
@@ -582,7 +596,7 @@ class LLMService:
                 config=config,
             )
         except Exception as e:
-            print(f"[Gemini] Erro na API: {e}")
+            _log(f"[Gemini] Erro na API: {e}")
             if "API key" in str(e) or "401" in str(e) or "403" in str(e):
                 raise ValueError("Erro de autenticação com a API Gemini. Verifique a GEMINI_API_KEY no .env.")
             elif "429" in str(e):
@@ -674,7 +688,7 @@ class LLMService:
                 raise ProviderRateLimit(_key_rotator.wait_message("groq", self.settings)) from e
             # Se erro de validação de tools, retry sem tools
             if "tool" in str(e).lower() or "validation" in str(e).lower():
-                print(f"[Groq] Erro de validação de tools: {e}. Retry sem tools.")
+                _log(f"[Groq] Erro de validação de tools: {e}. Retry sem tools.")
                 kwargs.pop("tools", None)
                 kwargs.pop("tool_choice", None)
                 completion = client.chat.completions.create(**kwargs)
@@ -924,7 +938,7 @@ class LLMService:
             return final_text if final_text else None
 
         except Exception as e:
-            print(f"[LLM] Erro no function calling Gemini: {e}")
+            _log(f"[LLM] Erro no function calling Gemini: {e}")
             import traceback
             traceback.print_exc()
 
@@ -933,7 +947,7 @@ class LLMService:
                 err_str = str(e)
                 if "failed_generation" in err_str and ("<function=" in err_str or "function=" in err_str):
                     import re, json
-                    print(f"[LLM] Detectado failed_generation no erro Gemini; extraindo chamada de função: {err_str}")
+                    _log(f"[LLM] Detectado failed_generation no erro Gemini; extraindo chamada de função: {err_str}")
                     match = re.search(r'<function=([a-zA-Z0-9_]+)\s*(\{.*?\})', err_str)
                     if not match:
                         match = re.search(r'function=([a-zA-Z0-9_]+)\s*(\{.*?\})', err_str)
@@ -949,7 +963,7 @@ class LLMService:
                                 tool_result = on_function_call(fn_name, fn_args)
                                 return str(tool_result)
                             except Exception as exfn:
-                                print(f"[LLM] Erro ao executar função extraída: {exfn}")
+                                _log(f"[LLM] Erro ao executar função extraída: {exfn}")
             except Exception:
                 pass
 
@@ -984,7 +998,7 @@ class LLMService:
                         on_reasoning=on_reasoning,
                     )
                 except Exception as groq_err:
-                    print(f"[LLM] Falha no fallback Groq: {groq_err}")
+                    _log(f"[LLM] Falha no fallback Groq: {groq_err}")
 
             if "429" in err_str or "resource_exhausted" in err_str:
                 raise ValueError("Limite de taxa da API Gemini excedido. Altere o provedor para 'Groq' nas Configurações do painel.")
@@ -1274,7 +1288,7 @@ class LLMService:
                     except RunCancelled:
                         raise
                     except Exception as exfn:
-                        print(f"[Groq] Erro ao executar tool {fn_name}: {exfn}")
+                        _log(f"[Groq] Erro ao executar tool {fn_name}: {exfn}")
                         tool_result = f"A ferramenta {fn_name} falhou; nada foi confirmado."
 
                 formatted_messages.append({
@@ -1311,7 +1325,7 @@ class LLMService:
                     raise
                 # O modelo insistiu em chamar ferramenta no turno de sintese. Os resultados ja
                 # existem: tenta uma vez so com o contexto em texto, depois entrega o resumo.
-                print(f"[Groq] Turno final tentou chamar ferramenta; tentando de novo sem historico de tools: {final_err}")
+                _log(f"[Groq] Turno final tentou chamar ferramenta; tentando de novo sem historico de tools: {final_err}")
                 plain_messages = [
                     m for m in final_messages[:-1]
                     if m.get("role") in ("system", "user", "assistant") and not m.get("tool_calls")
@@ -1330,7 +1344,7 @@ class LLMService:
                         result = tool_summary + "\n\n" + _key_rotator.wait_message("groq", self.settings)
                         _emit_chunk(result)
                         return result
-                    print(f"[Groq] Retry do turno final falhou: {retry_err}")
+                    _log(f"[Groq] Retry do turno final falhou: {retry_err}")
                     final_text = ""
                 if not final_text:
                     # A síntese do modelo falhou. Entrega os resultados sem o
@@ -1356,7 +1370,7 @@ class LLMService:
             # Tratar caso o Groq retorne erro 400 tool_use_failed com failed_generation
             if "failed_generation" in err_msg and ("<function=" in err_msg or "function=" in err_msg):
                 import re
-                print(f"[Groq] Resgatando chamada de funcao do failed_generation: {err_msg}")
+                _log(f"[Groq] Resgatando chamada de funcao do failed_generation: {err_msg}")
                 match = re.search(r"<function=([a-zA-Z0-9_]+)(\(\{.*?\}\)|\{.*?\})", err_msg)
                 if not match:
                     match = re.search(r"function=([a-zA-Z0-9_]+)(\(\{.*?\}\)|\{.*?\})", err_msg)
@@ -1376,7 +1390,7 @@ class LLMService:
                         except RunCancelled:
                             raise
                         except Exception as exfn:
-                            print(f"[Groq] Erro ao executar tool {fn_name}: {exfn}")
+                            _log(f"[Groq] Erro ao executar tool {fn_name}: {exfn}")
                             tool_result = f"A ferramenta {fn_name} falhou; nada foi confirmado."
 
                     # Gerar resposta final em linguagem natural (streaming, com reasoning)
@@ -1390,7 +1404,7 @@ class LLMService:
                     except Exception:
                         return tool_result or f"A ferramenta {fn_name} não devolveu resultado; nada foi confirmado."
 
-            print(f"[Groq Function Calling Stream] Erro: {e}")
+            _log(f"[Groq Function Calling Stream] Erro: {e}")
             err_str = str(e).lower()
             if not context_reduced and ("413" in err_str or "too large" in err_str or "message size" in err_str):
                 print("[Groq] Contexto excedeu limite de TPM/tamanho (413). Compactando histórico para 3 mensagens...")
@@ -1408,7 +1422,7 @@ class LLMService:
                 except RunCancelled:
                     raise
                 except Exception as retry_413_err:
-                    print(f"[Groq] Falha após compactação: {retry_413_err}")
+                    _log(f"[Groq] Falha após compactação: {retry_413_err}")
 
             if is_rate_limit(e):
                 # A falha pode ter vindo de uma tentativa interna em outra chave.
@@ -1434,7 +1448,7 @@ class LLMService:
                     except RunCancelled:
                         raise
                     except Exception as retry_err:
-                        print(f"[Groq] Falha com chave secundária: {retry_err}")
+                        _log(f"[Groq] Falha com chave secundária: {retry_err}")
 
                 # Fallback automático IMEDIATO para Gemini se todas as chaves Groq falharem ou estiverem em cooldown
                 gemini_key = self._api_key_for("gemini")
@@ -1451,7 +1465,7 @@ class LLMService:
                             on_reasoning=on_reasoning,
                         )
                     except Exception as gem_err:
-                        print(f"[LLM] Falha no fallback para Gemini: {gem_err}")
+                        _log(f"[LLM] Falha no fallback para Gemini: {gem_err}")
 
                 # Se Gemini falhar, tenta Oxyy
                 oxyy_key = self._api_key_for("oxyy")
@@ -1466,7 +1480,7 @@ class LLMService:
                             on_chunk=on_chunk,
                         )
                     except Exception as oxyy_err:
-                        print(f"[LLM] Falha no fallback para Oxyy: {oxyy_err}")
+                        _log(f"[LLM] Falha no fallback para Oxyy: {oxyy_err}")
 
                 raise ProviderRateLimit(_key_rotator.wait_message("groq", self.settings) + " Nenhum provedor alternativo respondeu.")
             raise
