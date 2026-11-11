@@ -846,6 +846,27 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         reversibility="Reversível: edite ou remova em Memórias > Com fonte.",
         scope="Só o arquivo de memórias do app.",
     ),
+    "memory": ToolMetadata(
+        ("memory",), "low", reversible=False,
+        operation_arguments=("action",), default_operation="search",
+        operation_risks=_by_operation(observe=("search", "list"), low=("save",), high=("forget",)),
+        target_arguments=("text", "query", "id"), default_target="memórias sobre você",
+        operation_effects=(
+            ("search", "Apenas procura nas memórias sobre você; nada é alterado."),
+            ("list", "Apenas lê as memórias sobre você; nada é alterado."),
+            ("save", "Grava um fato sobre você com a data, a conversa e a origem."),
+            ("forget", "Apaga a memória (fica uma lápide local) e a tira do índice de busca."),
+        ),
+        operation_reversibility=(
+            ("search", "Nada a desfazer."),
+            ("list", "Nada a desfazer."),
+            ("save", "Reversível: remova a memória em Memórias > Com fonte."),
+            ("forget", "Não há desfazer automático; salve o fato de novo se precisar."),
+        ),
+        effect="Procura, grava ou apaga fatos duradouros sobre você.",
+        reversibility="Salvar é reversível em Memórias > Com fonte; apagar não tem desfazer automático.",
+        scope="Só data/memory_facts.json e o índice local user_memory.",
+    ),
     "whatsapp": ToolMetadata(
         ("messaging",), "high", requires_confirmation=True, target_arguments=("target",),
         default_target="contato do WhatsApp", target_detail=_whatsapp_target_detail,

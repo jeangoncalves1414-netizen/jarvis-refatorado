@@ -56,6 +56,7 @@ from .memory_vault_tool import (
     VaultSaveNoteTool,
     VaultUserProfileTool,
 )
+from .memory_tool import MemoryTool
 
 # Fase 5 tools
 try:
@@ -123,7 +124,7 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
 
 # Loop agêntico: ferramentas de dados do dia a dia que entram em qualquer pedido, para qualquer provedor.
 LOOP_DATA_TOOLS = frozenset({
-    "personal_records",
+    "personal_records", "memory",
     "habit_tool", "task_tool", "checklist_tool", "finance_tool", "lifeos_tool", "calendar", "vault_save_note", "vault_search",
     "open_window", "open_screen", "wait", "persona_tool",
 })
@@ -152,7 +153,7 @@ LOOP_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
 )
 
 GENERAL_TOOL_NAMES = {
-    "personal_records",
+    "personal_records", "memory",
     "file_manager", "system_control", "jarvis_mode", "web_search", "browser", "browser_agent", "timer", "wait",
     "whatsapp", "spotify", "clipboard", "news_reader", "open_windows_app", "script_runner",
     "vision", "video_analyst", "media_tool", "qr_reader", "realtime", "proactive_agent", "system_tray", "cinema", "calendar", "image_generator",
@@ -163,7 +164,7 @@ GENERAL_TOOL_NAMES = {
     "notification", "persona_tool",
     "places_search",
     "planning_workspace", "routine",
-    "vault_search", "vault_daily_log", "vault_save_note", "vault_update_profile",
+    "vault_search", "vault_daily_log", "vault_save_note",
 }
 
 TUTOR_TOOL_NAMES = {
@@ -288,6 +289,7 @@ class ToolRegistry:
         self._register(VaultDailyNoteTool())
         self._register(VaultSaveNoteTool())
         self._register(VaultUserProfileTool())
+        self._register(MemoryTool())
 
         # Fase 4 — Automação de SO & Produtividade
         self._register(HabitTool())
@@ -399,7 +401,7 @@ class ToolRegistry:
         # Otimização de TPM para provedores com limite estrito de taxa (ex: Groq)
         if (provider == "groq" or narrow) and mode != "tutor":
             core_groq = {
-                "personal_records",
+                "personal_records", "memory",
                 "web_search", "system_control", "open_windows_app", "timer", "wait",
                 "spotify", "whatsapp", "calendar", "file_manager",
                 "cinema", "script_runner", "image_generator", "vision", "planning_workspace", "open_window"

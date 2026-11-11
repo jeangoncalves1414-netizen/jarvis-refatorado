@@ -116,9 +116,11 @@ def emit_activity(action, session_id, data=None, detail=None, *, args=None):
 
 
 def record_memory_lookup(name, result):
-    if not result.ok or name not in {"vault_search", "memory_tool"}:
+    if not result.ok or name not in {"vault_search", "memory_tool", "memory"}:
         return
     data = result.data if isinstance(result.data, dict) else {}
+    if name == "memory" and "results" not in data:
+        return  # save/forget não são consultas
     items = data.get("results") or []
     if not isinstance(items, list):
         items = []

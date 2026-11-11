@@ -1,8 +1,9 @@
 """Memórias com fonte pelo Action Kernel (fase contexto 2).
 
-Salvar, editar e remover passam por ``run_action("memory_tool", ...)``: cada mudança vira uma
-ação na Central (recibo) com risco ``low``. A ferramenta não está no registro nem é oferecida
-ao modelo; o ``execute=`` do gateway chama o store direto.
+Painel e gatilhos salvam, editam e removem por ``run_action("memory_tool", ...)``: cada mudança
+vira uma ação na Central (recibo) com risco ``low``; o ``execute=`` do gateway chama o store direto.
+O modelo usa a ferramenta ``memory`` (app/agent/tools/memory_tool.py), que já roda dentro da
+ação do turno e por isso grava com ``save_fact`` (sem recibo ``memory_tool`` aninhado).
 """
 from __future__ import annotations
 
@@ -49,15 +50,26 @@ def _run(operation: str, arguments: dict[str, Any], origin: str | None, call) ->
     return {"ok": False, "error": captured.get("error") or "Não foi possível gravar a memória.", "action": action}
 
 
+def _source(kind: str, session_id: str | None, origin: str | None) -> dict[str, Any]:
+    turn = current_run.get()
+    return {
+        "session_id": session_id or "", "run_id": turn[1] if turn else "",
+        "origin": _SOURCE_ORIGIN.get(_run_origin(origin), "chat"), "kind": kind,
+    }
+
+
+def save_fact(text: str, *, kind: str, session_id: str | None = "", origin: str | None = None,
+              pinned: bool | None = None, importance: float | None = None) -> dict[str, Any]:
+    """Grava o fato com fonte sem abrir outra ação (quem chama já está dentro de uma)."""
+    clean = " ".join(str(text or "").split())
+    return memory_facts.save(clean, source=_source(kind, session_id, origin), pinned=pinned, importance=importance)
+
+
 def save_via_kernel(text: str, *, kind: str, session_id: str | None = "", origin: str | None = None) -> dict[str, Any]:
     resolved = _run_origin(origin)
-    turn = current_run.get()
-    source = {
-        "session_id": session_id or "", "run_id": turn[1] if turn else "",
-        "origin": _SOURCE_ORIGIN.get(resolved, "chat"), "kind": kind,
-    }
     clean = " ".join(str(text or "").split())
-    return _run("save", {"text": clean}, resolved, lambda: memory_facts.save(clean, source=source))
+    return _run("save", {"text": clean}, resolved,
+                lambda: save_fact(clean, kind=kind, session_id=session_id, origin=resolved))
 
 
 def update_via_kernel(fact_id: str, text: str, *, origin: str | None = None) -> dict[str, Any]:

@@ -167,7 +167,8 @@ Invoque a ferramenta nativa adequada imediatamente APENAS quando solicitado:
 • Temporizador / Alarme (criar, listar, cancelar pelo rótulo) → timer
 • Criar, renomear, marcar ou excluir hábitos da rotina → habit_tool. Água ("bebi 3 L hoje" = total do dia → set_water; "mais 500 ml" → add_water), treino e resumo do Life OS → lifeos_tool
 • Tarefas e pendências → task_tool. Gastos e receitas → finance_tool
-• Anotar algo com título (lista, ideias, ditado) → vault_save_note; registrar no diário de hoje → vault_daily_log; procurar nas anotações → vault_search
+• MEMÓRIA: fato duradouro sobre a usuária (nome, família, gostos, rotina) → memory save; pergunta sobre ela ("o que você sabe sobre mim?") → memory search; cofre (vault_*) é só para anotações
+• Anotação com título (lista, ideias, ditado) → vault_save_note; registrar no diário de hoje → vault_daily_log; procurar nas anotações → vault_search. Fatos sobre a usuária não vão para o cofre
 • Abrir uma tela do app ("abre o painel" → Painel pessoal) → open_screen; abrir janela flutuante (Finanças, Controles do PC) → open_window
 • Lugares, estabelecimentos e endereços ("padaria perto de casa", "onde fica X") → places_search (mostra lista e mapa sozinho)
 • Popups de hábitos, tarefas, agenda, água e lugares aparecem sozinhos depois das ferramentas; show_popup só quando pedirem para ver algo em popup

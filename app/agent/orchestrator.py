@@ -601,6 +601,7 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             "vision": self.vision_service,
             "browser_agent": self.browser_agent,
             "settings": self.settings,
+            "semantic_memory": getattr(self, "semantic_memory", None),
         }
         system += "\nPara abrir um link na tela do usuário, use web_search com action=open_url; browser navega numa sessão isolada de automação. Pesquisar um link não significa abri-lo. Quando o usuário pedir algo aleatório, escolha um resultado relevante sem exigir que ele forneça a URL.\n"
         system += "\nPara dados pessoais, listar não é concluir nem excluir. Use os IDs nos resultados e execute a mutação solicitada. Após sucesso, não repita a mesma criação. Ao editar, envie somente os campos que o usuário pediu para mudar. Para criar uma checklist com itens, inclua text ou items na mesma chamada create_list.\n"
@@ -1034,7 +1035,8 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
         try:
             trajectory = self.react_loop.run_loop(
                 text, max_steps=max_steps if max_steps is not None else settings["max_steps"],
-                context={"session_id": session_id, "situational": build_turn_sections(text, current_origin.get()).text.strip()},
+                context={"session_id": session_id, "situational": build_turn_sections(text, current_origin.get()).text.strip(),
+                         "semantic_memory": getattr(self, "semantic_memory", None)},
                 allowed_tools=allowed_tools,
                 max_model_calls=settings["max_model_calls"], verify=settings["auto_verify"],
                 progress=progress, history=history, save_reply=save_reply,
