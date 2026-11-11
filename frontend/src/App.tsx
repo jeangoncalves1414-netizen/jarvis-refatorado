@@ -22,6 +22,7 @@ import { useDirectChat, isMobileStandalone } from './hooks/useDirectChat'
 import { useCinema } from './hooks/useCinema'
 import { useMediaAssistant } from './hooks/useMediaAssistant'
 import { useStudy } from './hooks/useStudy'
+import { useLanguage } from './hooks/useLanguage'
 import { playToggle, playSuccess, toggleSfx } from './utils/sfx'
 import { Repeat } from 'lucide-react'
 import { runCommandById, setDynamicCommands, unescapeSlash, WINDOW_CAMERAS, WINDOW_CINEMA, WINDOW_LIFE_OS, WINDOW_LIVE_CALL, type CommandHandlers } from './commands/registry'
@@ -107,6 +108,7 @@ export default function App() {
   const [logLevel, setLogLevel] = useState('')
   const [logQuery, setLogQuery] = useState('')
   const { addWhiteboardNote, addWhiteboardText, addWhiteboardImage, addWhiteboardImageData, updateWhiteboardElement, deleteWhiteboardElement, duplicateWhiteboardElement, clearWhiteboard, assessmentCorrect, assessmentTotal, assessments, cardBackVisible, createStudySession, dueCards, studyCategories, trashedStudySessions, renameStudySession, deleteStudySession, restoreStudySession, purgeStudySession, createStudyCategory, assignStudyCategory, enemImage, enemQuestions, enemSubject, enemText, enemYear, feynmanAttempts, feynmanExplanation, feynmanTopic, readEnemImage, reviewCard, saveAssessment, saveEnemQuestion, saveFeynman, selectStudySession, sendStudyMessage, sendTutorMessage, setAssessmentCorrect, setAssessmentTotal, setCardBackVisible, setEnemImage, setEnemSubject, setEnemText, setEnemYear, setFeynmanExplanation, setFeynmanTopic, setStudyQuery, setStudySessionId, setWhiteboardNote, studyCardIndex, studyEnemFromBank, studyEnemFromForm, studyMessages, studyProgress, studyQuery, studySessionId, tutorSessions, whiteboard, whiteboardNote } = useStudy(setNotice)
+  const language = useLanguage(setNotice)
   const [taskTitle, setTaskTitle] = useState('')
   const [memories, setMemories] = useState<Memory[]>([])
   const [memoryCollection, setMemoryCollection] = useState<'cited' | 'conversations' | 'user_memory' | 'profile_memory'>('conversations')
@@ -926,6 +928,7 @@ export default function App() {
             duplicateWhiteboardElement={duplicateWhiteboardElement}
             clearWhiteboard={clearWhiteboard}
             setNotice={setNotice}
+            languageProps={{...language, setNotice}}
           />
         )
       }

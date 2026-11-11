@@ -1,4 +1,4 @@
-export type StudyMode = 'plan' | 'learn' | 'questions' | 'review' | 'feynman' | 'quiz' | 'progress' | null
+export type StudyMode = 'plan' | 'learn' | 'questions' | 'review' | 'feynman' | 'quiz' | 'progress' | 'language' | null
 
 const MODES: { id: StudyMode; label: string; icon: string }[] = [
   { id: 'plan', label: 'Hoje', icon: '☀' },
@@ -8,6 +8,7 @@ const MODES: { id: StudyMode; label: string; icon: string }[] = [
   { id: 'feynman', label: 'Feynman', icon: '✎' },
   { id: 'quiz', label: 'Quiz', icon: '★' },
   { id: 'progress', label: 'Progresso', icon: '◉' },
+  { id: 'language', label: 'Idiomas', icon: '🌍' },
 ]
 
 type StudyToolbarProps = {

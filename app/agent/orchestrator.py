@@ -27,6 +27,7 @@ from app.agent.tools.base import ToolResult
 from app.storage.session_store import get_session_history, save_session_history
 from app.storage.enem_store import EnemStore
 from app.storage.tutor_store import TutorStore
+from app.storage.language_store import LanguageStore
 from app.agent.agent_model import AgentManager
 from app.storage.vector import SemanticMemory
 from app.storage.vector.semantic_memory import is_technical_error_memory
@@ -163,6 +164,7 @@ class AgentOrchestrator:
         productivity_service: Any | None = None,
         tutor_store: Any | None = None,
         enem_store: Any | None = None,
+        language_store: Any | None = None,
         agent_manager: Any | None = None,
         semantic_memory: Any | None = None,
         profile_memory: Any | None = None,
@@ -175,6 +177,7 @@ class AgentOrchestrator:
         self.productivity_service = productivity_service if productivity_service is not None else task_store
         self.tutor_store = tutor_store or TutorStore()
         self.enem_store = enem_store or EnemStore()
+        self.language_store = language_store or LanguageStore()
         self.agent_manager = agent_manager or AgentManager()
         self.semantic_memory = semantic_memory or SemanticMemory()
         self.profile_memory = profile_memory
@@ -184,6 +187,7 @@ class AgentOrchestrator:
             base_folder=base_folder,
             tutor_store=self.tutor_store,
             enem_store=self.enem_store,
+            language_store=self.language_store,
             plugin_manager=plugin_manager,
         )
 

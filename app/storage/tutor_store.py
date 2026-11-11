@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from app.storage.tutor.srs import apply_review, is_due
+from app.storage.tutor.fsrs import apply_review, is_due
 
 
 DEFAULT_PROGRESS: dict[str, Any] = {
@@ -36,6 +36,11 @@ DEFAULT_PROGRESS: dict[str, Any] = {
     "feynman_attempts": [],
     "assessments": [],
     "last_sessions_summary": [],
+    "streak_count": 0,
+    "last_study_date": None,
+    "total_xp": 0,
+    "daily_xp": 0,
+    "daily_goal": 100,
 }
 
 
@@ -117,6 +122,8 @@ class TutorStore:
         self._save()
 
     def _normalize_card(self, card: dict[str, Any]) -> dict[str, Any]:
+        card.setdefault("difficulty", 5.0)
+        card.setdefault("stability", 1.0)
         card.setdefault("ease", 2.3)
         card.setdefault("interval", 0)
         card.setdefault("reps", 0)
@@ -164,6 +171,8 @@ class TutorStore:
                 "reps": result.reps,
                 "lapses": result.lapses,
                 "due": result.due,
+                "difficulty": getattr(result, "difficulty", 5.0),
+                "stability": getattr(result, "stability", 1.0),
                 "last_review": str(date.today()),
             })
             self._refresh_flashcard_stats()
@@ -245,3 +254,41 @@ class TutorStore:
             weak.append(topic)
             self._data["weak_spots"] = weak[-30:]
             self._save()
+
+    # ── Streak & XP ──────────────────────────────────────────────
+
+    def _update_streak(self) -> None:
+        today_str = str(date.today())
+        last = self._data.get("last_study_date")
+        if last == today_str:
+            return
+        if last:
+            try:
+                last_date = date.fromisoformat(last)
+                diff = (date.today() - last_date).days
+                if diff == 1:
+                    self._data["streak_count"] = int(self._data.get("streak_count", 0)) + 1
+                elif diff > 1:
+                    self._data["streak_count"] = 1
+            except (ValueError, TypeError):
+                self._data["streak_count"] = 1
+        else:
+            self._data["streak_count"] = 1
+        self._data["last_study_date"] = today_str
+        self._data["daily_xp"] = 0
+
+    def add_xp(self, amount: int) -> int:
+        self._update_streak()
+        self._data["total_xp"] = int(self._data.get("total_xp", 0)) + amount
+        self._data["daily_xp"] = int(self._data.get("daily_xp", 0)) + amount
+        self._save()
+        return self._data["total_xp"]
+
+    def get_streak_info(self) -> dict[str, Any]:
+        return {
+            "streak_count": self._data.get("streak_count", 0),
+            "last_study_date": self._data.get("last_study_date"),
+            "total_xp": self._data.get("total_xp", 0),
+            "daily_xp": self._data.get("daily_xp", 0),
+            "daily_goal": self._data.get("daily_goal", 100),
+        }

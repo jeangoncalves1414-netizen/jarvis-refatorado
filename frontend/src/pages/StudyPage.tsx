@@ -5,6 +5,7 @@ import { StudyCanvas } from '../components/study/StudyCanvas'
 import { StudySidebar } from '../components/study/StudySidebar'
 import { StudyToolbar } from '../components/study/StudyToolbar'
 import { MessageContent } from '../components/MessageContent'
+import { LanguagePage } from './LanguagePage'
 
 type StudyPageProps = {
   tutorSessions: { id: string; title?: string }[]
@@ -68,6 +69,7 @@ type StudyPageProps = {
   duplicateWhiteboardElement: (id: string) => void
   clearWhiteboard: () => void
   setNotice: (message: string) => void
+  languageProps?: Record<string, any>
 }
 
 export function StudyPage(props: StudyPageProps) {
@@ -354,6 +356,9 @@ export function StudyPage(props: StudyPageProps) {
               <span><b>{props.studyProgress.stats?.feynman_attempts ?? props.feynmanAttempts.length}</b> explicações</span>
             </div>
           </div>
+        )}
+        {activeMode === 'language' && props.languageProps && (
+          <LanguagePage {...props.languageProps as any} />
         )}
       </div>
     </section>

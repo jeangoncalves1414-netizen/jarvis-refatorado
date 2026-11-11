@@ -35,6 +35,11 @@ export type Flashcard = { id: string; front?: string; back?: string }
 export type FeynmanAttempt = { id?: string; topic?: string; explanation?: string; grade?: number; date?: string }
 export type Assessment = { id?: string; stage_id?: string; correct?: number; total?: number; score?: number; date?: string }
 export type EnemQuestion = { id?: string; text?: string; subject?: string; year?: string | number; created?: string; image_base64?: string; preview?: string }
+/** Language learning types */
+export type VocabCard = { id: string; word: string; translation: string; example?: string; phonetic?: string; category?: string; cefr?: string; due?: string; reps?: number; difficulty?: number; stability?: number }
+export type PronunciationAttempt = { id: string; target: string; transcript: string; score: number; confidence?: number; wrong_words?: string[]; date?: string }
+export type LanguageDashboard = { cefr_level: string; target_language: string; placement_done: boolean; stats: Record<string, number>; due_vocabulary: number; weak_phonemes: string[]; streak: number; daily_xp: number; daily_goal: number; total_xp: number }
+export type StreakInfo = { streak_count: number; last_study_date?: string; total_xp: number; daily_xp: number; daily_goal: number }
 export type WhiteboardElement = {
   id?: string
   type?: 'text' | 'image'

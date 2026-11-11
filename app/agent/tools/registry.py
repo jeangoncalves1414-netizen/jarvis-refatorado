@@ -36,6 +36,12 @@ from .tutor_tools import (
     TutorSaveFeynmanTool,
     EnemSaveQuestionTool,
 )
+from .language_tools import (
+    LanguageAddVocabularyTool,
+    LanguageSavePronunciationTool,
+    LanguageAddWeakPhonemeTool,
+    LanguageSetLevelTool,
+)
 from .screen_peeler import ScreenPeelerTool
 from .phantom_typer import PhantomTyperTool
 from .smart_drop_zone import SmartDropZoneTool
@@ -163,6 +169,7 @@ GENERAL_TOOL_NAMES = {
 TUTOR_TOOL_NAMES = {
     "whiteboard_add_text", "whiteboard_add_image", "whiteboard_edit", "whiteboard_clear",
     "tutor_save_progress", "tutor_add_flashcard", "tutor_save_feynman", "enem_save_question",
+    "language_add_vocabulary", "language_save_pronunciation", "language_add_weak_phoneme", "language_set_level",
 }
 
 
@@ -217,10 +224,11 @@ class ToolRegistry:
         base_folder: str | None = None,
         tutor_store: Any | None = None,
         enem_store: Any | None = None,
+        language_store: Any | None = None,
         plugin_manager: Any | None = None,
     ) -> None:
         self.tools: dict[str, BaseTool] = {}
-        self._register_builtin_tools(base_folder, tutor_store, enem_store)
+        self._register_builtin_tools(base_folder, tutor_store, enem_store, language_store)
         self._register_plugin_tools(plugin_manager)
 
     def _register_builtin_tools(
@@ -228,6 +236,7 @@ class ToolRegistry:
         base_folder: str | None = None,
         tutor_store: Any | None = None,
         enem_store: Any | None = None,
+        language_store: Any | None = None,
     ) -> None:
         """Registra ferramentas nativas."""
         self._register(FileManagerTool(base_folder=base_folder))
@@ -266,6 +275,13 @@ class ToolRegistry:
             self._register(TutorSaveFeynmanTool(tutor_store))
         if enem_store:
             self._register(EnemSaveQuestionTool(enem_store))
+
+        # Language learning tools
+        if language_store:
+            self._register(LanguageAddVocabularyTool(language_store))
+            self._register(LanguageSavePronunciationTool(language_store))
+            self._register(LanguageAddWeakPhonemeTool(language_store))
+            self._register(LanguageSetLevelTool(language_store))
 
         # Memory Vault (ai-memory-vault)
         self._register(VaultSearchTool())

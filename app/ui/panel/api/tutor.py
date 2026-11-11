@@ -8,6 +8,12 @@ def _store(handler: Any) -> Any | None:
     orch = getattr(handler, "orchestrator", None)
     if orch is None:
         orch = getattr(type(handler), "orchestrator", None)
+    if orch is None:
+        try:
+            from app.ui.panel.server import _orchestrator
+            orch = _orchestrator
+        except ImportError:
+            pass
     return getattr(orch, "tutor_store", None) if orch else None
 
 

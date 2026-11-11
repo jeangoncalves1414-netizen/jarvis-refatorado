@@ -1,0 +1,459 @@
+import { FormEvent, useState } from 'react'
+import type { VocabCard, PronunciationAttempt, LanguageDashboard, ChatMessage } from '../types'
+import type { LanguageMode } from '../hooks/useLanguage'
+import { MessageContent } from '../components/MessageContent'
+import { PomodoroTimer } from '../components/study/PomodoroTimer'
+
+const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
+const CATEGORIES = ['general', 'travel', 'work', 'food', 'health', 'technology', 'social', 'academic']
+
+const PRONUNCIATION_PHRASES: Record<string, string[]> = {
+  A1: [
+    'Hello, how are you today?',
+    'My name is Jean. Nice to meet you.',
+    'I like coffee and tea.',
+    'Where is the train station?',
+    'Thank you very much.',
+  ],
+  A2: [
+    'I think this restaurant is really good.',
+    'She walks to work every morning.',
+    'The weather is beautiful today.',
+    'I would like a glass of water, please.',
+    'Can you help me find the bathroom?',
+  ],
+  B1: [
+    'I have been studying English for three months.',
+    'Although the weather was bad, we decided to go out.',
+    'The thirty-three thieves thought they thrilled the throne.',
+    'She sells seashells by the seashore.',
+    'Peter Piper picked a peck of pickled peppers.',
+  ],
+  B2: [
+    'The phenomenon of artificial intelligence has transformed modern society.',
+    'Despite the overwhelming evidence, the theory remains controversial.',
+    'She thoroughly thought through the methodology before proceeding.',
+    'The entrepreneurial ecosystem has grown substantially in recent years.',
+    'Psychological research suggests that multilingualism enhances cognitive flexibility.',
+  ],
+}
+
+type LanguagePageProps = {
+  dashboard: LanguageDashboard | null
+  dueVocab: VocabCard[]
+  vocabIndex: number
+  vocabBackVisible: boolean
+  setVocabBackVisible: (v: boolean | ((p: boolean) => boolean)) => void
+  reviewVocab: (grade: number) => Promise<void>
+  addVocabulary: (e: FormEvent) => Promise<void>
+  setCefrLevel: (level: string) => Promise<void>
+  newWord: string; setNewWord: (v: string) => void
+  newTranslation: string; setNewTranslation: (v: string) => void
+  newExample: string; setNewExample: (v: string) => void
+  newCategory: string; setNewCategory: (v: string) => void
+  pronTarget: string; setPronTarget: (v: string) => void
+  pronTranscript: string; pronScore: number | null; pronListening: boolean
+  pronWrongWords: string[]
+  startPronunciation: (target: string) => void
+  pronunciationHistory: PronunciationAttempt[]
+  langMessages: ChatMessage[]
+  langQuery: string; setLangQuery: (v: string) => void
+  sendLanguageMessage: (e: FormEvent) => Promise<void>
+  setNotice: (message: string) => void
+}
+
+type LangTab = 'home' | 'vocab' | 'pronunciation' | 'conversation' | 'shadowing' | 'progress'
+
+const LANG_MODES: { id: LangTab; label: string; icon: string }[] = [
+  { id: 'home', label: 'Início', icon: '🏠' },
+  { id: 'vocab', label: 'Vocabulário', icon: '📚' },
+  { id: 'pronunciation', label: 'Pronúncia', icon: '🎤' },
+  { id: 'conversation', label: 'Conversa', icon: '💬' },
+  { id: 'shadowing', label: 'Shadowing', icon: '🔊' },
+  { id: 'progress', label: 'Progresso', icon: '📊' },
+]
+
+function scoreClass(score: number) {
+  if (score >= 80) return 'lang-score-good'
+  if (score >= 50) return 'lang-score-ok'
+  return 'lang-score-bad'
+}
+
+function highlightTranscript(transcript: string, wrongWords: string[]) {
+  if (!wrongWords.length) return transcript
+  const words = transcript.split(/\s+/)
+  return words.map((w, i) => {
+    const clean = w.toLowerCase().replace(/[.,!?;:'"()\-]/g, '')
+    const isWrong = wrongWords.some(ww => ww.toLowerCase() === clean)
+    return isWrong
+      ? <span key={i} className="lang-wrong-word">{w} </span>
+      : <span key={i}>{w} </span>
+  })
+}
+
+export function LanguagePage(props: LanguagePageProps) {
+  const { dashboard } = props
+  const level = dashboard?.cefr_level || 'A1'
+  const phrases = PRONUNCIATION_PHRASES[level] || PRONUNCIATION_PHRASES.A1
+  const currentCard = props.dueVocab[props.vocabIndex]
+
+  const [activeTab, setActiveTab] = useState<LangTab>('home')
+  const [shadowIdx, setShadowIdx] = useState(0)
+
+  const speakPhrase = (text: string) => {
+    if (!window.speechSynthesis) {
+      props.setNotice('Seu navegador não suporta síntese de voz.')
+      return
+    }
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'en-US'
+    utterance.rate = 0.85
+    window.speechSynthesis.speak(utterance)
+  }
+
+  return (
+    <div className="study-overlay-panel" style={{ maxHeight: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      {/* Toolbar */}
+      <nav className="lang-toolbar" aria-label="Modos de idioma">
+        {LANG_MODES.map(mode => (
+          <button
+            key={mode.id}
+            type="button"
+            className={activeTab === mode.id ? 'lang-mode-active' : ''}
+            onClick={() => setActiveTab(mode.id)}
+          >
+            <span>{mode.icon}</span>
+            {mode.label}
+          </button>
+        ))}
+      </nav>
+
+      <div className="lang-panel">
+        {/* ── HOME ────────────────────────────────────────── */}
+        {activeTab === 'home' && (
+          <>
+            <p className="eyebrow">APRENDIZADO DE IDIOMAS</p>
+            <div className="lang-cefr-select">
+              <label>
+                Nível CEFR:{' '}
+                <select value={level} onChange={e => props.setCefrLevel(e.target.value)}>
+                  {CEFR_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+              </label>
+            </div>
+
+            {dashboard && (
+              <>
+                <div className="lang-streak">
+                  <span>🔥</span>
+                  <b>{dashboard.streak}</b>
+                  <span style={{ color: '#9696a2', fontSize: 11 }}>dias seguidos</span>
+                  <span style={{ marginLeft: 'auto', color: '#abbc7a', fontSize: 11 }}>{dashboard.daily_xp}/{dashboard.daily_goal} XP</span>
+                </div>
+                <div className="lang-xp-bar">
+                  <div className="lang-xp-fill" style={{ width: `${Math.min(100, (dashboard.daily_xp / Math.max(1, dashboard.daily_goal)) * 100)}%` }} />
+                </div>
+
+                <div className="lang-dashboard-grid">
+                  <div className="lang-stat">
+                    <b>{dashboard.due_vocabulary}</b>
+                    <small>revisões pendentes</small>
+                  </div>
+                  <div className="lang-stat">
+                    <b>{dashboard.total_xp}</b>
+                    <small>XP total</small>
+                  </div>
+                  <div className="lang-stat">
+                    <b>{dashboard.stats?.vocabulary_count ?? 0}</b>
+                    <small>palavras salvas</small>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="lang-quick-actions">
+              <button type="button" className="primary" onClick={() => setActiveTab('vocab')}>📚 Revisar vocabulário</button>
+              <button type="button" onClick={() => setActiveTab('pronunciation')}>🎤 Praticar pronúncia</button>
+              <button type="button" onClick={() => setActiveTab('conversation')}>💬 Conversar com tutor</button>
+              <button type="button" onClick={() => setActiveTab('shadowing')}>🔊 Shadowing</button>
+            </div>
+
+            <PomodoroTimer onComplete={() => props.setNotice('Pomodoro finalizado! Hora de uma pausa.')} />
+          </>
+        )}
+
+        {/* ── VOCABULARY ─────────────────────────────────── */}
+        {activeTab === 'vocab' && (
+          <>
+            <p className="eyebrow">VOCABULÁRIO · REVISÃO ESPAÇADA (FSRS)</p>
+            {currentCard ? (
+              <>
+                <button type="button" className="lang-card" onClick={() => props.setVocabBackVisible((v: boolean) => !v)}>
+                  <small>{props.vocabBackVisible ? 'TRADUÇÃO' : 'PALAVRA'} · clique para virar</small>
+                  <strong>{props.vocabBackVisible ? currentCard.translation : currentCard.word}</strong>
+                  {props.vocabBackVisible && currentCard.example && (
+                    <span style={{ color: '#9696a2', fontSize: 12, fontStyle: 'italic' }}>{currentCard.example}</span>
+                  )}
+                  {currentCard.phonetic && props.vocabBackVisible && (
+                    <span style={{ color: '#abbc7a', fontSize: 11 }}>/{currentCard.phonetic}/</span>
+                  )}
+                </button>
+                <div className="grade-actions">
+                  <button type="button" onClick={() => props.reviewVocab(0)}>Errei</button>
+                  <button type="button" onClick={() => props.reviewVocab(1)}>Difícil</button>
+                  <button type="button" onClick={() => props.reviewVocab(2)}>Bom</button>
+                  <button type="button" onClick={() => props.reviewVocab(3)}>Fácil</button>
+                </div>
+                <p style={{ color: '#8e8e9a', fontSize: 11, marginTop: 8 }}>
+                  {props.vocabIndex + 1} / {props.dueVocab.length} pendentes
+                </p>
+              </>
+            ) : (
+              <p className="empty-state">Nenhum vocabulário pendente para revisão hoje. 🎉</p>
+            )}
+
+            <hr style={{ border: 'none', borderTop: '1px solid #292933', margin: '20px 0' }} />
+            <p className="eyebrow">ADICIONAR VOCABULÁRIO</p>
+            <form className="lang-add-form" onSubmit={props.addVocabulary}>
+              <input value={props.newWord} onChange={e => props.setNewWord(e.target.value)} placeholder="Palavra em inglês" />
+              <input value={props.newTranslation} onChange={e => props.setNewTranslation(e.target.value)} placeholder="Tradução" />
+              <input value={props.newExample} onChange={e => props.setNewExample(e.target.value)} placeholder="Frase de exemplo (opcional)" />
+              <select value={props.newCategory} onChange={e => props.setNewCategory(e.target.value)}>
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <button type="submit">Adicionar</button>
+            </form>
+          </>
+        )}
+
+        {/* ── PRONUNCIATION ──────────────────────────────── */}
+        {activeTab === 'pronunciation' && (
+          <>
+            <p className="eyebrow">PRONÚNCIA · NÍVEL {level}</p>
+            <div className="lang-phrase-list">
+              {phrases.map((phrase, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className={`lang-phrase-btn${props.pronTarget === phrase ? ' lang-mode-active' : ''}`}
+                  onClick={() => { props.setPronTarget(phrase); speakPhrase(phrase) }}
+                >
+                  {phrase}
+                </button>
+              ))}
+            </div>
+
+            <input
+              style={{ marginTop: 10 }}
+              value={props.pronTarget}
+              onChange={e => props.setPronTarget(e.target.value)}
+              placeholder="Ou digite uma frase personalizada…"
+            />
+
+            <div className="lang-record-area">
+              <button
+                type="button"
+                className={`lang-record-btn${props.pronListening ? ' listening' : ''}`}
+                onClick={() => props.startPronunciation(props.pronTarget)}
+                disabled={!props.pronTarget || props.pronListening}
+                title={props.pronListening ? 'Ouvindo…' : 'Gravar pronúncia'}
+              >
+                {props.pronListening ? '⏺' : '🎙'}
+              </button>
+              <span style={{ color: '#9696a2', fontSize: 12 }}>
+                {props.pronListening ? 'Fale agora…' : 'Clique para gravar'}
+              </span>
+              {props.pronTarget && (
+                <button
+                  type="button"
+                  className="lang-play-btn"
+                  onClick={() => speakPhrase(props.pronTarget)}
+                >
+                  ▶ Ouvir
+                </button>
+              )}
+            </div>
+
+            {props.pronScore !== null && (
+              <div className="lang-score">
+                <span className={`lang-score-value ${scoreClass(props.pronScore)}`}>
+                  {props.pronScore}%
+                </span>
+                <span style={{ color: '#9696a2', fontSize: 12, marginLeft: 8 }}>
+                  {props.pronScore >= 80 ? 'Excelente!' : props.pronScore >= 50 ? 'Bom, continue praticando.' : 'Tente novamente.'}
+                </span>
+                <div className="lang-transcript">
+                  <small style={{ color: '#6e6e7a' }}>Você disse:</small>
+                  <p style={{ margin: '4px 0 0' }}>
+                    {highlightTranscript(props.pronTranscript, props.pronWrongWords)}
+                  </p>
+                </div>
+                {props.pronWrongWords.length > 0 && (
+                  <p style={{ color: '#f44336', fontSize: 11, marginTop: 6 }}>
+                    Palavras para melhorar: {props.pronWrongWords.join(', ')}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {props.pronunciationHistory.length > 0 && (
+              <>
+                <p className="eyebrow" style={{ marginTop: 18 }}>HISTÓRICO RECENTE</p>
+                <div className="lang-history">
+                  {props.pronunciationHistory.slice(0, 8).map(a => (
+                    <div key={a.id} className="lang-history-item">
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.target}</span>
+                      <span className={scoreClass(a.score)}>{a.score}%</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {/* ── CONVERSATION ───────────────────────────────── */}
+        {activeTab === 'conversation' && (
+          <>
+            <p className="eyebrow">CONVERSA COM TUTOR · {level}</p>
+            <div className="study-chat-history">
+              {props.langMessages.length ? props.langMessages.map((m, i) => (
+                <div className={`study-chat-message ${m.role}`} key={`${m.role}-${i}`}>
+                  <b>{m.role === 'user' ? 'VOCÊ' : 'TUTOR'}</b>
+                  <MessageContent text={m.content} />
+                </div>
+              )) : <span>Converse em inglês com o tutor de idiomas. Ele adapta ao seu nível {level}.</span>}
+            </div>
+            <form className="study-tutor-form" onSubmit={props.sendLanguageMessage}>
+              <input
+                value={props.langQuery}
+                onChange={e => props.setLangQuery(e.target.value)}
+                placeholder="Type in English or Portuguese…"
+              />
+              <button type="submit">Enviar</button>
+            </form>
+          </>
+        )}
+
+        {/* ── SHADOWING ──────────────────────────────────── */}
+        {activeTab === 'shadowing' && (
+          <>
+            <p className="eyebrow">SHADOWING · NÍVEL {level}</p>
+            <p style={{ color: '#9696a2', fontSize: 12 }}>
+              Ouça a frase, depois repita imitando a pronúncia e o ritmo.
+            </p>
+
+            <div className="lang-shadowing-phrase">
+              {phrases[shadowIdx % phrases.length]}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14 }}>
+              <button
+                type="button"
+                className="lang-play-btn"
+                onClick={() => speakPhrase(phrases[shadowIdx % phrases.length])}
+              >
+                ▶ Ouvir
+              </button>
+              <button
+                type="button"
+                className={`lang-record-btn${props.pronListening ? ' listening' : ''}`}
+                style={{ width: 40, height: 40, fontSize: 16 }}
+                onClick={() => {
+                  const phrase = phrases[shadowIdx % phrases.length]
+                  props.setPronTarget(phrase)
+                  props.startPronunciation(phrase)
+                }}
+                disabled={props.pronListening}
+              >
+                {props.pronListening ? '⏺' : '🎙'}
+              </button>
+              <button
+                type="button"
+                className="lang-play-btn"
+                onClick={() => setShadowIdx(i => i + 1)}
+              >
+                Próxima ▶
+              </button>
+            </div>
+
+            {props.pronScore !== null && (
+              <div className="lang-score" style={{ textAlign: 'center' }}>
+                <span className={`lang-score-value ${scoreClass(props.pronScore)}`}>{props.pronScore}%</span>
+                <div className="lang-transcript">
+                  <p style={{ margin: '4px 0 0' }}>
+                    {highlightTranscript(props.pronTranscript, props.pronWrongWords)}
+                  </p>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── PROGRESS ───────────────────────────────────── */}
+        {activeTab === 'progress' && (
+          <>
+            <p className="eyebrow">PROGRESSO</p>
+            {dashboard && (
+              <>
+                <div className="lang-dashboard-grid">
+                  <div className="lang-stat">
+                    <b>{level}</b>
+                    <small>nível CEFR</small>
+                  </div>
+                  <div className="lang-stat">
+                    <b>{dashboard.streak}</b>
+                    <small>dias seguidos</small>
+                  </div>
+                  <div className="lang-stat">
+                    <b>{dashboard.total_xp}</b>
+                    <small>XP total</small>
+                  </div>
+                  <div className="lang-stat">
+                    <b>{dashboard.stats?.vocabulary_count ?? 0}</b>
+                    <small>palavras</small>
+                  </div>
+                  <div className="lang-stat">
+                    <b>{dashboard.stats?.pronunciation_attempts ?? 0}</b>
+                    <small>pronúncias</small>
+                  </div>
+                  <div className="lang-stat">
+                    <b>{dashboard.stats?.conversations ?? 0}</b>
+                    <small>conversas</small>
+                  </div>
+                </div>
+
+                {dashboard.weak_phonemes.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <p className="eyebrow">FONEMAS PARA MELHORAR</p>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                      {dashboard.weak_phonemes.map(p => (
+                        <span key={p} style={{ padding: '4px 8px', borderRadius: 6, background: '#2a1a1a', color: '#f44336', fontSize: 11 }}>/{p}/</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {props.pronunciationHistory.length > 0 && (
+              <>
+                <p className="eyebrow" style={{ marginTop: 20 }}>HISTÓRICO DE PRONÚNCIA</p>
+                <div className="lang-history">
+                  {props.pronunciationHistory.map(a => (
+                    <div key={a.id} className="lang-history-item">
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.target}</span>
+                      <span className={scoreClass(a.score)}>{a.score}%</span>
+                      {a.date && <span>{new Date(a.date).toLocaleDateString('pt-BR')}</span>}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
