@@ -11,6 +11,7 @@ import pytest
 from app.agent.orchestrator import AgentOrchestrator
 from app.config import Settings
 from app.services.llm import LLMService
+from app.storage.language_store import LanguageStore
 from app.storage.tutor_store import TutorStore
 from app.ui.panel.server import PanelHandler
 
@@ -38,7 +39,12 @@ def panel_http(tmp_path, monkeypatch):
     settings.port = 0
 
     llm = LLMService(settings=settings)
-    orchestrator = AgentOrchestrator(settings=settings, llm_service=llm, tutor_store=tutor_store)
+    orchestrator = AgentOrchestrator(
+        settings=settings,
+        llm_service=llm,
+        tutor_store=tutor_store,
+        language_store=LanguageStore(storage_dir=str(tmp_path / "language")),
+    )
     PanelHandler.orchestrator = orchestrator
     PanelHandler.settings = settings
     PanelHandler.voice_pipeline = None
@@ -121,6 +127,61 @@ def test_flashcard_review_api(panel_http) -> None:
     data = json.loads(body)
     assert data["ok"] is True
     assert data["card"]["reps"] == 1
+    assert data["card"]["review_id"].startswith("rev-")
+
+
+@pytest.mark.parametrize("payload", [{"grade": 5}, {}, {"grade": "x"}, {"grade": True}, {"grade": 2.0}])
+def test_flashcard_review_rejects_invalid_grade(panel_http, payload) -> None:
+    base, store, _ = panel_http
+    card_id = store.add_flashcard("Q", "A")
+    status, body = _request(
+        "POST",
+        f"{base}/api/tutor/flashcards/review",
+        json.dumps({"card_id": card_id, **payload}).encode(),
+    )
+    assert status == 400
+    assert json.loads(body) == {"ok": False, "error": "invalid_grade"}
+    assert store.get_flashcards()[0]["reps"] == 0
+
+
+def test_flashcard_undo_api(panel_http) -> None:
+    base, store, _ = panel_http
+    card_id = store.add_flashcard("Q", "A")
+    _request("POST", f"{base}/api/tutor/flashcards/review", json.dumps({"card_id": card_id, "grade": 2}).encode())
+
+    status, body = _request("GET", f"{base}/api/tutor/flashcards/due")
+    data = json.loads(body)
+    assert data["cards"] == []
+    assert data["next_due_at"]
+
+    status, body = _request("POST", f"{base}/api/tutor/flashcards/undo", b"{}")
+    assert status == 200
+    data = json.loads(body)
+    assert data["ok"] is True
+    assert data["card"]["reps"] == 0
+    assert data["undone_review_id"].startswith("rev-")
+
+    status, body = _request("POST", f"{base}/api/tutor/flashcards/undo", b"{}")
+    assert status == 404
+    assert json.loads(body)["error"] == "nothing_to_undo"
+
+
+def test_vocabulary_review_and_undo_api(panel_http) -> None:
+    base, _, _ = panel_http
+    status, body = _request("POST", f"{base}/api/language/vocabulary", json.dumps({"word": "sun", "translation": "sol"}).encode())
+    card_id = json.loads(body)["id"]
+
+    status, body = _request("POST", f"{base}/api/language/vocabulary/review", json.dumps({"card_id": card_id, "grade": 9}).encode())
+    assert status == 400
+    assert json.loads(body)["error"] == "invalid_grade"
+
+    status, _ = _request("POST", f"{base}/api/language/vocabulary/review", json.dumps({"card_id": card_id, "grade": 3}).encode())
+    assert status == 200
+    status, body = _request("POST", f"{base}/api/language/vocabulary/undo", b"{}")
+    assert status == 200
+    assert json.loads(body)["card"]["reps"] == 0
+    status, _ = _request("POST", f"{base}/api/language/vocabulary/undo", b"{}")
+    assert status == 404
 
 
 def test_voice_stt_empty_returns_ok_false(panel_http) -> None:

@@ -4,10 +4,11 @@ from __future__ import annotations
 import copy
 import json
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.storage.tutor.review_log import ReviewLog, restore, snapshot
 from app.storage.tutor.fsrs import (
     apply_review,
     is_due,
@@ -59,6 +60,7 @@ class LanguageStore:
         self.storage_dir = Path(storage_dir or "data/language")
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.progress_path = self.storage_dir / "progress.json"
+        self.review_log = ReviewLog(self.storage_dir / "review_log.jsonl")
         self._data: dict[str, Any] = {}
         self._load()
 
@@ -197,9 +199,12 @@ class LanguageStore:
         for card in vocab:
             if card.get("id") != card_id:
                 continue
+            before = snapshot(card)
             self._normalize_vocab(card)
+            state_before = card["state"]
             result = apply_review(card, grade)
             card.update(review_fields(result))
+            after = snapshot(card)
             # Track mastered cards
             stats = self._data.setdefault("stats", {})
             if result.reps >= 3 and result.stability >= 10:
@@ -209,8 +214,46 @@ class LanguageStore:
                 )
             self.add_xp(XP_VOCAB_REVIEW)
             self._save()
-            return dict(card)
+            entry = self.review_log.append({
+                "type": "review",
+                "deck": "language",
+                "card_id": card_id,
+                "grade": grade,
+                "rating": grade + 1,
+                "reviewed_at": result.last_review,
+                "local_date": str(date.today()),
+                "state_before": state_before,
+                "state_after": result.state,
+                "retrievability_before": result.retrievability,
+                "interval_days": result.interval,
+                "xp": XP_VOCAB_REVIEW,
+                "before": before,
+                "after": after,
+            })
+            return {**card, "review_id": entry["id"]}
         return None
+
+    def undo_last_review(self) -> dict[str, Any]:
+        entry = self.review_log.last_active_review()
+        if not entry:
+            return {"ok": False, "error": "nothing_to_undo"}
+        card = next((v for v in self._data.get("vocabulary", []) if v.get("id") == entry.get("card_id")), None)
+        if card is None:
+            return {"ok": False, "error": "card_not_found"}
+        if snapshot(card) != entry.get("after"):
+            return {"ok": False, "error": "stale"}
+        restore(card, entry.get("before") or {})
+        xp = int(entry.get("xp") or 0)
+        stats = self._data.setdefault("stats", {})
+        stats["total_xp"] = max(0, int(stats.get("total_xp", 0)) - xp)
+        stats["daily_xp"] = max(0, int(stats.get("daily_xp", 0)) - xp)
+        self._save()
+        self.review_log.append({
+            "type": "undo",
+            "target": entry["id"],
+            "undone_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return {"ok": True, "card": dict(card), "undone_review_id": entry["id"]}
 
     # ── Pronunciation ─────────────────────────────────────────────
 

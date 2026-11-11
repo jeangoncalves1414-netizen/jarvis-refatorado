@@ -4,6 +4,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.storage.tutor.fsrs import next_learning_due
+from app.ui.panel.api.tutor import undo_response
+
 
 def _store(handler: Any) -> Any | None:
     orch = getattr(handler, "orchestrator", None)
@@ -38,7 +41,10 @@ def handle_language_get(parts: list[str], handler: Any) -> tuple[int, dict[str, 
         return 200, {"cards": store.get_vocabulary()}
 
     if len(parts) == 4 and parts[2] == "vocabulary" and parts[3] == "due":
-        return 200, {"cards": store.get_due_vocabulary()}
+        return 200, {
+            "cards": store.get_due_vocabulary(),
+            "next_due_at": next_learning_due(store.get_vocabulary()),
+        }
 
     if len(parts) == 3 and parts[2] == "pronunciation":
         return 200, {"history": store.get_pronunciation_history()}
@@ -50,6 +56,7 @@ def handle_language_post(path: str, body: bytes, handler: Any) -> tuple[int, dic
     language_paths = {
         "/api/language/vocabulary",
         "/api/language/vocabulary/review",
+        "/api/language/vocabulary/undo",
         "/api/language/pronunciation",
         "/api/language/level",
         "/api/language/settings",
@@ -85,6 +92,9 @@ def handle_language_post(path: str, body: bytes, handler: Any) -> tuple[int, dic
         if not card:
             return 404, {"ok": False, "error": "card_not_found"}
         return 200, {"ok": True, "card": card}
+
+    if path == "/api/language/vocabulary/undo":
+        return undo_response(store.undo_last_review())
 
     if path == "/api/language/pronunciation":
         attempt_id = store.save_pronunciation_attempt(
