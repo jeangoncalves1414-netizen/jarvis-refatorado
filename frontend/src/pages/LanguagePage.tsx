@@ -1,8 +1,11 @@
 import { FormEvent, useState } from 'react'
 import type { VocabCard, PronunciationAttempt, LanguageDashboard, ChatMessage } from '../types'
-import type { LanguageMode } from '../hooks/useLanguage'
+import type { PronunciationKind } from '../hooks/useLanguage'
+import { useReviewShortcuts } from '../hooks/useReviewShortcuts'
+import { useNextDueRefresh } from '../hooks/useNextDueRefresh'
 import { MessageContent } from '../components/MessageContent'
-import { PomodoroTimer } from '../components/study/PomodoroTimer'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { languageName, speechLang } from '../utils/speechLang'
 
 const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
 const CATEGORIES = ['general', 'travel', 'work', 'food', 'health', 'technology', 'social', 'academic']
@@ -45,6 +48,12 @@ type LanguagePageProps = {
   vocabBackVisible: boolean
   setVocabBackVisible: (v: boolean | ((p: boolean) => boolean)) => void
   reviewVocab: (grade: number) => Promise<void>
+  undoVocabReview: () => Promise<void>
+  vocabUndoCount: number
+  nextVocabDueAt: string | null
+  refreshLanguage: () => Promise<unknown>
+  vocabulary: VocabCard[]
+  deleteVocabulary: (id: string) => Promise<void>
   addVocabulary: (e: FormEvent) => Promise<void>
   setCefrLevel: (level: string) => Promise<void>
   newWord: string; setNewWord: (v: string) => void
@@ -54,11 +63,12 @@ type LanguagePageProps = {
   pronTarget: string; setPronTarget: (v: string) => void
   pronTranscript: string; pronScore: number | null; pronListening: boolean
   pronWrongWords: string[]
-  startPronunciation: (target: string) => void
+  startPronunciation: (target: string, kind?: PronunciationKind) => void
   pronunciationHistory: PronunciationAttempt[]
   langMessages: ChatMessage[]
   langQuery: string; setLangQuery: (v: string) => void
   sendLanguageMessage: (e: FormEvent) => Promise<void>
+  endConversation: () => Promise<void>
   setNotice: (message: string) => void
 }
 
@@ -99,6 +109,30 @@ export function LanguagePage(props: LanguagePageProps) {
 
   const [activeTab, setActiveTab] = useState<LangTab>('home')
   const [shadowIdx, setShadowIdx] = useState(0)
+  const [pendingDelete, setPendingDelete] = useState<VocabCard | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const targetName = languageName(dashboard?.target_language)
+  const hasUserMessage = props.langMessages.some(m => m.role === 'user')
+
+  useReviewShortcuts({
+    enabled: activeTab === 'vocab' && !!currentCard && !pendingDelete,
+    revealed: props.vocabBackVisible,
+    onFlip: () => props.setVocabBackVisible(v => !v),
+    onGrade: grade => { props.reviewVocab(grade).catch(() => undefined) },
+    onUndo: () => { props.undoVocabReview().catch(() => undefined) },
+  })
+  const nextDueMinutes = useNextDueRefresh(props.nextVocabDueAt, activeTab === 'vocab' && !currentCard, props.refreshLanguage)
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return
+    setDeleting(true)
+    try {
+      await props.deleteVocabulary(pendingDelete.id)
+    } finally {
+      setDeleting(false)
+      setPendingDelete(null)
+    }
+  }
 
   const speakPhrase = (text: string) => {
     if (!window.speechSynthesis) {
@@ -107,7 +141,7 @@ export function LanguagePage(props: LanguagePageProps) {
     }
     window.speechSynthesis.cancel()
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = 'en-US'
+    utterance.lang = speechLang(dashboard?.target_language)
     utterance.rate = 0.85
     window.speechSynthesis.speak(utterance)
   }
@@ -165,7 +199,7 @@ export function LanguagePage(props: LanguagePageProps) {
                     <small>XP total</small>
                   </div>
                   <div className="lang-stat">
-                    <b>{dashboard.stats?.vocabulary_count ?? 0}</b>
+                    <b>{dashboard.stats?.total_vocab ?? 0}</b>
                     <small>palavras salvas</small>
                   </div>
                 </div>
@@ -178,8 +212,6 @@ export function LanguagePage(props: LanguagePageProps) {
               <button type="button" onClick={() => setActiveTab('conversation')}>💬 Conversar com tutor</button>
               <button type="button" onClick={() => setActiveTab('shadowing')}>🔊 Shadowing</button>
             </div>
-
-            <PomodoroTimer onComplete={() => props.setNotice('Pomodoro finalizado! Hora de uma pausa.')} />
           </>
         )}
 
@@ -200,23 +232,35 @@ export function LanguagePage(props: LanguagePageProps) {
                   )}
                 </button>
                 <div className="grade-actions">
-                  <button type="button" onClick={() => props.reviewVocab(0)}>Errei</button>
-                  <button type="button" onClick={() => props.reviewVocab(1)}>Difícil</button>
-                  <button type="button" onClick={() => props.reviewVocab(2)}>Bom</button>
-                  <button type="button" onClick={() => props.reviewVocab(3)}>Fácil</button>
+                  <button type="button" onClick={() => props.reviewVocab(0)}><kbd className="review-key">1</kbd> Errei</button>
+                  <button type="button" onClick={() => props.reviewVocab(1)}><kbd className="review-key">2</kbd> Difícil</button>
+                  <button type="button" onClick={() => props.reviewVocab(2)}><kbd className="review-key">3</kbd> Bom</button>
+                  <button type="button" onClick={() => props.reviewVocab(3)}><kbd className="review-key">4</kbd> Fácil</button>
                 </div>
-                <p style={{ color: '#8e8e9a', fontSize: 11, marginTop: 8 }}>
-                  {props.vocabIndex + 1} / {props.dueVocab.length} pendentes
-                </p>
               </>
             ) : (
-              <p className="empty-state">Nenhum vocabulário pendente para revisão hoje. 🎉</p>
+              <>
+                <p className="empty-state">Nenhum vocabulário pendente para revisão agora. 🎉</p>
+                {nextDueMinutes !== null && <p className="review-next-due">Próximo cartão em {nextDueMinutes} min</p>}
+              </>
             )}
+            <div className="review-footer">
+              <span>{currentCard ? `${props.dueVocab.length} pendentes · Espaço vira · 1-4 avaliam` : ''}</span>
+              <button
+                type="button"
+                className="review-undo"
+                onClick={() => { props.undoVocabReview().catch(() => undefined) }}
+                disabled={props.vocabUndoCount === 0}
+                title="Desfazer última revisão (Z)"
+              >
+                ↩ Desfazer
+              </button>
+            </div>
 
             <hr style={{ border: 'none', borderTop: '1px solid #292933', margin: '20px 0' }} />
             <p className="eyebrow">ADICIONAR VOCABULÁRIO</p>
             <form className="lang-add-form" onSubmit={props.addVocabulary}>
-              <input value={props.newWord} onChange={e => props.setNewWord(e.target.value)} placeholder="Palavra em inglês" />
+              <input value={props.newWord} onChange={e => props.setNewWord(e.target.value)} placeholder={`Palavra em ${targetName}`} />
               <input value={props.newTranslation} onChange={e => props.setNewTranslation(e.target.value)} placeholder="Tradução" />
               <input value={props.newExample} onChange={e => props.setNewExample(e.target.value)} placeholder="Frase de exemplo (opcional)" />
               <select value={props.newCategory} onChange={e => props.setNewCategory(e.target.value)}>
@@ -224,6 +268,20 @@ export function LanguagePage(props: LanguagePageProps) {
               </select>
               <button type="submit">Adicionar</button>
             </form>
+
+            <p className="eyebrow" style={{ marginTop: 20 }}>MINHAS PALAVRAS</p>
+            {props.vocabulary.length ? (
+              <div className="lang-vocab-list">
+                {props.vocabulary.map(card => (
+                  <div key={card.id} className="lang-vocab-row">
+                    <span><b>{card.word}</b> — {card.translation}</span>
+                    <button type="button" onClick={() => setPendingDelete(card)} aria-label={`Excluir ${card.word}`}>Excluir</button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="empty-state">Nenhuma palavra salva ainda.</p>
+            )}
           </>
         )}
 
@@ -323,16 +381,24 @@ export function LanguagePage(props: LanguagePageProps) {
                   <b>{m.role === 'user' ? 'VOCÊ' : 'TUTOR'}</b>
                   <MessageContent text={m.content} />
                 </div>
-              )) : <span>Converse em inglês com o tutor de idiomas. Ele adapta ao seu nível {level}.</span>}
+              )) : <span>Converse em {targetName} com o tutor de idiomas. Ele adapta ao seu nível {level}.</span>}
             </div>
             <form className="study-tutor-form" onSubmit={props.sendLanguageMessage}>
               <input
                 value={props.langQuery}
                 onChange={e => props.setLangQuery(e.target.value)}
-                placeholder="Type in English or Portuguese…"
+                placeholder={`Escreva em ${targetName} ou português…`}
               />
               <button type="submit">Enviar</button>
             </form>
+            <button
+              type="button"
+              className="lang-end-conversation"
+              disabled={!hasUserMessage}
+              onClick={() => { props.endConversation().catch(() => undefined) }}
+            >
+              Encerrar conversa
+            </button>
           </>
         )}
 
@@ -363,9 +429,10 @@ export function LanguagePage(props: LanguagePageProps) {
                 onClick={() => {
                   const phrase = phrases[shadowIdx % phrases.length]
                   props.setPronTarget(phrase)
-                  props.startPronunciation(phrase)
+                  props.startPronunciation(phrase, 'shadowing')
                 }}
                 disabled={props.pronListening}
+                title="Gravar shadowing"
               >
                 {props.pronListening ? '⏺' : '🎙'}
               </button>
@@ -411,16 +478,20 @@ export function LanguagePage(props: LanguagePageProps) {
                     <small>XP total</small>
                   </div>
                   <div className="lang-stat">
-                    <b>{dashboard.stats?.vocabulary_count ?? 0}</b>
+                    <b>{dashboard.stats?.total_vocab ?? 0}</b>
                     <small>palavras</small>
                   </div>
                   <div className="lang-stat">
-                    <b>{dashboard.stats?.pronunciation_attempts ?? 0}</b>
+                    <b>{dashboard.stats?.pronunciation_sessions ?? 0}</b>
                     <small>pronúncias</small>
                   </div>
                   <div className="lang-stat">
-                    <b>{dashboard.stats?.conversations ?? 0}</b>
+                    <b>{dashboard.stats?.conversation_sessions ?? 0}</b>
                     <small>conversas</small>
+                  </div>
+                  <div className="lang-stat">
+                    <b>{dashboard.stats?.shadowing_sessions ?? 0}</b>
+                    <small>shadowings</small>
                   </div>
                 </div>
 
@@ -454,6 +525,17 @@ export function LanguagePage(props: LanguagePageProps) {
           </>
         )}
       </div>
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Excluir palavra?"
+          message={`“${pendingDelete.word}” e o agendamento de revisão serão removidos. O histórico de revisões continua nas estatísticas.`}
+          confirmLabel="Excluir"
+          danger
+          busy={deleting}
+          onConfirm={() => { confirmDelete().catch(() => undefined) }}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   )
 }

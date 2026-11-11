@@ -31,12 +31,13 @@ export type WakeWord = { enabled?: boolean; available?: boolean; running?: boole
 export type Tray = { boot_enabled?: boolean }
 export type Metrics = { cpu?: number; ram_used?: number; ram_total?: number; ram_percent?: number; provider?: string; total_requests?: number; total_errors?: number; uptime_seconds?: number; tools_executed?: Record<string, number> }
 export type LogEntry = { level?: string; component?: string; message?: string; timestamp?: string }
-export type Flashcard = { id: string; front?: string; back?: string }
+export type ReviewState = 'new' | 'learning' | 'review' | 'relearning'
+export type Flashcard = { id: string; front?: string; back?: string; due?: string; reps?: number; state?: ReviewState; step?: number | null; last_review?: string | null; retrievability?: number | null }
 export type FeynmanAttempt = { id?: string; topic?: string; explanation?: string; grade?: number; date?: string }
 export type Assessment = { id?: string; stage_id?: string; correct?: number; total?: number; score?: number; date?: string }
 export type EnemQuestion = { id?: string; text?: string; subject?: string; year?: string | number; created?: string; image_base64?: string; preview?: string }
 /** Language learning types */
-export type VocabCard = { id: string; word: string; translation: string; example?: string; phonetic?: string; category?: string; cefr?: string; due?: string; reps?: number; difficulty?: number; stability?: number }
+export type VocabCard = { id: string; word: string; translation: string; example?: string; phonetic?: string; category?: string; cefr?: string; due?: string; reps?: number; difficulty?: number | null; stability?: number | null; state?: ReviewState; step?: number | null; last_review?: string | null; retrievability?: number | null }
 export type PronunciationAttempt = { id: string; target: string; transcript: string; score: number; confidence?: number; wrong_words?: string[]; date?: string }
 export type LanguageDashboard = { cefr_level: string; target_language: string; placement_done: boolean; stats: Record<string, number>; due_vocabulary: number; weak_phonemes: string[]; streak: number; daily_xp: number; daily_goal: number; total_xp: number }
 export type StreakInfo = { streak_count: number; last_study_date?: string; total_xp: number; daily_xp: number; daily_goal: number }

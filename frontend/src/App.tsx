@@ -107,7 +107,7 @@ export default function App() {
   const [notice, setNotice] = useState('')
   const [logLevel, setLogLevel] = useState('')
   const [logQuery, setLogQuery] = useState('')
-  const { addWhiteboardNote, addWhiteboardText, addWhiteboardImage, addWhiteboardImageData, updateWhiteboardElement, deleteWhiteboardElement, duplicateWhiteboardElement, clearWhiteboard, assessmentCorrect, assessmentTotal, assessments, cardBackVisible, createStudySession, dueCards, studyCategories, trashedStudySessions, renameStudySession, deleteStudySession, restoreStudySession, purgeStudySession, createStudyCategory, assignStudyCategory, enemImage, enemQuestions, enemSubject, enemText, enemYear, feynmanAttempts, feynmanExplanation, feynmanTopic, readEnemImage, reviewCard, saveAssessment, saveEnemQuestion, saveFeynman, selectStudySession, sendStudyMessage, sendTutorMessage, setAssessmentCorrect, setAssessmentTotal, setCardBackVisible, setEnemImage, setEnemSubject, setEnemText, setEnemYear, setFeynmanExplanation, setFeynmanTopic, setStudyQuery, setStudySessionId, setWhiteboardNote, studyCardIndex, studyEnemFromBank, studyEnemFromForm, studyMessages, studyProgress, studyQuery, studySessionId, tutorSessions, whiteboard, whiteboardNote } = useStudy(setNotice)
+  const { addWhiteboardNote, addWhiteboardText, addWhiteboardImage, addWhiteboardImageData, updateWhiteboardElement, deleteWhiteboardElement, duplicateWhiteboardElement, clearWhiteboard, assessmentCorrect, assessmentTotal, assessments, cardBackVisible, createStudySession, dueCards, studyCategories, trashedStudySessions, renameStudySession, deleteStudySession, restoreStudySession, purgeStudySession, createStudyCategory, assignStudyCategory, enemImage, enemQuestions, enemSubject, enemText, enemYear, feynmanAttempts, feynmanExplanation, feynmanTopic, readEnemImage, reviewCard, undoReview, studyUndoCount, nextCardDueAt, refreshStudy, saveAssessment, saveEnemQuestion, saveFeynman, selectStudySession, sendStudyMessage, sendTutorMessage, setAssessmentCorrect, setAssessmentTotal, setCardBackVisible, setEnemImage, setEnemSubject, setEnemText, setEnemYear, setFeynmanExplanation, setFeynmanTopic, setStudyQuery, setStudySessionId, setWhiteboardNote, studyCardIndex, studyEnemFromBank, studyEnemFromForm, studyMessages, studyProgress, studyQuery, studySessionId, tutorSessions, whiteboard, whiteboardNote } = useStudy(setNotice)
   const language = useLanguage(setNotice)
   const [taskTitle, setTaskTitle] = useState('')
   const [memories, setMemories] = useState<Memory[]>([])
@@ -885,6 +885,10 @@ export default function App() {
             cardBackVisible={cardBackVisible}
             setCardBackVisible={setCardBackVisible}
             reviewCard={reviewCard}
+            undoReview={undoReview}
+            studyUndoCount={studyUndoCount}
+            nextCardDueAt={nextCardDueAt}
+            refreshStudy={refreshStudy}
             enemQuestions={enemQuestions}
             feynmanTopic={feynmanTopic}
             feynmanExplanation={feynmanExplanation}

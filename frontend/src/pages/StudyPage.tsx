@@ -1,10 +1,13 @@
-import { FormEvent, useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import { FormEvent, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { EnemQuestion, StudyCategory, WhiteboardElement } from '../types'
 import type { StudyMode } from '../components/study/StudyToolbar'
 import { StudyCanvas } from '../components/study/StudyCanvas'
 import { StudySidebar } from '../components/study/StudySidebar'
 import { StudyToolbar } from '../components/study/StudyToolbar'
+import { PomodoroTimer } from '../components/study/PomodoroTimer'
 import { MessageContent } from '../components/MessageContent'
+import { useReviewShortcuts } from '../hooks/useReviewShortcuts'
+import { useNextDueRefresh } from '../hooks/useNextDueRefresh'
 import { LanguagePage } from './LanguagePage'
 
 type StudyPageProps = {
@@ -26,6 +29,10 @@ type StudyPageProps = {
   cardBackVisible: boolean
   setCardBackVisible: Dispatch<SetStateAction<boolean>>
   reviewCard: (grade: number) => Promise<void>
+  undoReview: () => Promise<void>
+  studyUndoCount: number
+  nextCardDueAt: string | null
+  refreshStudy: () => Promise<unknown>
   enemQuestions: EnemQuestion[]
   feynmanTopic: string
   feynmanExplanation: string
@@ -97,48 +104,63 @@ export function StudyPage(props: StudyPageProps) {
     }
   }
 
-  const handlePasteEvent = (e: ClipboardEvent) => {
-    if (activeMode !== 'questions') return
-    const items = e.clipboardData?.items
-    if (!items) return
-    for (const item of Array.from(items)) {
-      if (item.type.startsWith('image/')) {
-        e.preventDefault()
-        const file = item.getAsFile()
-        if (file) {
-          props.readEnemImage(file)
-          props.setNotice('Imagem colada. Clique em "Estudar agora" para começar.')
-        }
-        return
-      }
-    }
-    const text = e.clipboardData?.getData('text')
-    if (text && activeMode === 'questions') {
-      e.preventDefault()
-      setPasteText(text)
-    }
-  }
-
-  const handleDrop = (e: DragEvent) => {
-    if (activeMode !== 'questions') return
-    e.preventDefault()
-    const file = e.dataTransfer?.files?.[0]
-    if (file?.type.startsWith('image/')) {
-      props.readEnemImage(file)
-      props.setNotice('Imagem arrastada. Clique em "Estudar agora" para começar.')
-    }
-  }
+  // Callbacks das props lidos por ref: os listeners abaixo só são recriados quando o modo muda.
+  const callbacksRef = useRef({ readEnemImage: props.readEnemImage, setNotice: props.setNotice })
+  callbacksRef.current = { readEnemImage: props.readEnemImage, setNotice: props.setNotice }
 
   useEffect(() => {
+    const handlePasteEvent = (e: ClipboardEvent) => {
+      if (activeMode !== 'questions') return
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault()
+          const file = item.getAsFile()
+          if (file) {
+            callbacksRef.current.readEnemImage(file)
+            callbacksRef.current.setNotice('Imagem colada. Clique em "Estudar agora" para começar.')
+          }
+          return
+        }
+      }
+      const text = e.clipboardData?.getData('text')
+      if (text) {
+        e.preventDefault()
+        setPasteText(text)
+      }
+    }
+
+    const handleDrop = (e: DragEvent) => {
+      if (activeMode !== 'questions') return
+      e.preventDefault()
+      const file = e.dataTransfer?.files?.[0]
+      if (file?.type.startsWith('image/')) {
+        callbacksRef.current.readEnemImage(file)
+        callbacksRef.current.setNotice('Imagem arrastada. Clique em "Estudar agora" para começar.')
+      }
+    }
+
+    const handleDragOver = (e: DragEvent) => e.preventDefault()
+
     window.addEventListener('paste', handlePasteEvent)
     window.addEventListener('drop', handleDrop)
-    window.addEventListener('dragover', e => e.preventDefault())
+    window.addEventListener('dragover', handleDragOver)
     return () => {
       window.removeEventListener('paste', handlePasteEvent)
       window.removeEventListener('drop', handleDrop)
-      window.removeEventListener('dragover', e => e.preventDefault())
+      window.removeEventListener('dragover', handleDragOver)
     }
-  }, [activeMode, handlePasteEvent, handleDrop])
+  }, [activeMode])
+
+  useReviewShortcuts({
+    enabled: activeMode === 'review' && !!currentCard,
+    revealed: props.cardBackVisible,
+    onFlip: () => props.setCardBackVisible(v => !v),
+    onGrade: grade => { props.reviewCard(grade).catch(() => undefined) },
+    onUndo: () => { props.undoReview().catch(() => undefined) },
+  })
+  const nextDueMinutes = useNextDueRefresh(props.nextCardDueAt, activeMode === 'review' && !currentCard, props.refreshStudy)
 
   const openLearnAfterStudy = async (started: boolean) => {
     if (!started) return
@@ -239,13 +261,30 @@ export function StudyPage(props: StudyPageProps) {
                   <strong>{props.cardBackVisible ? currentCard.back : currentCard.front}</strong>
                 </button>
                 <div className="grade-actions">
-                  <button type="button" onClick={() => props.reviewCard(0)}>Errei</button>
-                  <button type="button" onClick={() => props.reviewCard(1)}>Difícil</button>
-                  <button type="button" onClick={() => props.reviewCard(2)}>Bom</button>
-                  <button type="button" onClick={() => props.reviewCard(3)}>Fácil</button>
+                  <button type="button" onClick={() => props.reviewCard(0)}><kbd className="review-key">1</kbd> Errei</button>
+                  <button type="button" onClick={() => props.reviewCard(1)}><kbd className="review-key">2</kbd> Difícil</button>
+                  <button type="button" onClick={() => props.reviewCard(2)}><kbd className="review-key">3</kbd> Bom</button>
+                  <button type="button" onClick={() => props.reviewCard(3)}><kbd className="review-key">4</kbd> Fácil</button>
                 </div>
               </>
-            ) : <p className="empty-state">Nenhum flashcard pendente hoje.</p>}
+            ) : (
+              <>
+                <p className="empty-state">Nenhum flashcard pendente agora.</p>
+                {nextDueMinutes !== null && <p className="review-next-due">Próximo cartão em {nextDueMinutes} min</p>}
+              </>
+            )}
+            <div className="review-footer">
+              <span>{currentCard ? `${props.dueCards.length} pendentes · Espaço vira · 1-4 avaliam` : ''}</span>
+              <button
+                type="button"
+                className="review-undo"
+                onClick={() => { props.undoReview().catch(() => undefined) }}
+                disabled={props.studyUndoCount === 0}
+                title="Desfazer última revisão (Z)"
+              >
+                ↩ Desfazer
+              </button>
+            </div>
           </div>
         )}
         {activeMode === 'feynman' && (
@@ -360,6 +399,9 @@ export function StudyPage(props: StudyPageProps) {
         {activeMode === 'language' && props.languageProps && (
           <LanguagePage {...props.languageProps as any} />
         )}
+        <div className="study-pomodoro-dock">
+          <PomodoroTimer onComplete={() => props.setNotice('Pomodoro concluído! Hora de uma pausa.')} />
+        </div>
       </div>
     </section>
   )

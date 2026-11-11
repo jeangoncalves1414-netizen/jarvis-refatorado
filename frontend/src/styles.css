@@ -5144,13 +5144,38 @@ body.floating-overlay-active {
 .lang-play-btn { border:1px solid var(--jarvis-cyan); border-radius:8px; padding:8px 16px; color:var(--jarvis-cyan); background:rgba(0,218,248,0.06); font-size:12px; cursor:pointer; }
 .lang-play-btn:hover { background:rgba(0,218,248,0.12); }
 /* ── Pomodoro Timer ───────────────────────────────────── */
-.pomodoro-container { display:flex; flex-direction:column; align-items:center; gap:12px; padding:16px; border-radius:12px; background:#111117; margin-top:14px; }
+.pomodoro-timer { display:flex; flex-direction:column; align-items:center; gap:10px; padding:12px; border-radius:12px; background:#111117; }
 .pomodoro-ring { position:relative; width:100px; height:100px; }
-.pomodoro-ring svg { transform:rotate(-90deg); }
+.pomodoro-ring svg { display:block; transform:rotate(-90deg); }
 .pomodoro-ring circle { fill:none; stroke-width:4; }
 .pomodoro-ring .pomodoro-track { stroke:#2a2a35; }
-.pomodoro-ring .pomodoro-progress { stroke:var(--jarvis-cyan); stroke-linecap:round; transition:stroke-dashoffset 1s linear; }
-.pomodoro-inner { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:700; color:#e8e8f0; }
+.pomodoro-ring .pomodoro-progress { stroke:var(--jarvis-cyan); stroke-linecap:round; transition:stroke-dashoffset .5s linear; }
+.pomodoro-inner { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; color:#e8e8f0; }
+.pomodoro-time { font:700 18px 'DM Mono', monospace; letter-spacing:.5px; }
+.pomodoro-label { color:#9696a2; font-size:9px; letter-spacing:1px; }
+.pomodoro-count { color:#9696a2; font-size:11px; }
+.pomodoro-controls .pomodoro-settings-btn { padding:6px 9px; }
+.study-pomodoro-dock { position:absolute; left:12px; bottom:12px; z-index:9; border:1px solid #393944; border-radius:14px; background:rgba(10,10,16,0.92); backdrop-filter:blur(16px); }
+.study-pomodoro-dock .pomodoro-timer { padding:10px; gap:8px; background:transparent; }
+@media (max-width: 760px) {
+  .study-pomodoro-dock { left:8px; bottom:auto; top:56px; transform:scale(.8); transform-origin:top left; }
+}
+/* ── Revisão: atalhos, desfazer, lista de palavras ─────────── */
+.review-key { display:inline-block; min-width:14px; margin-right:4px; padding:0 4px; border:1px solid #393944; border-radius:4px; color:var(--jarvis-cyan); background:#0d0d12; font:9px 'DM Mono', monospace; line-height:14px; text-align:center; }
+.review-footer { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; color:#8e8e9a; font-size:10px; }
+.review-undo { border:1px solid #393944; border-radius:8px; padding:5px 10px; color:#cfcfd7; background:#111117; font-size:11px; cursor:pointer; }
+.review-undo:hover:not(:disabled) { border-color:var(--jarvis-cyan); color:var(--jarvis-cyan); }
+.review-undo:disabled { opacity:.45; cursor:default; }
+.review-next-due { margin:6px 0 0; color:var(--jarvis-cyan); font-size:11px; }
+.lang-vocab-list { display:grid; gap:6px; margin-top:10px; }
+.lang-vocab-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px; border-radius:8px; background:#111117; color:#b4b4be; font-size:12px; }
+.lang-vocab-row span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.lang-vocab-row b { color:#e8e8f0; }
+.lang-vocab-row button { flex-shrink:0; border:1px solid #393944; border-radius:6px; padding:3px 8px; color:#a0a0aa; background:transparent; font-size:10px; cursor:pointer; }
+.lang-vocab-row button:hover { border-color:#a93642; color:#ffb0b0; }
+.lang-end-conversation { margin-top:8px; border:1px solid #393944; border-radius:8px; padding:6px 12px; color:#cfcfd7; background:#111117; font-size:11px; cursor:pointer; }
+.lang-end-conversation:hover:not(:disabled) { border-color:var(--jarvis-cyan); color:var(--jarvis-cyan); }
+.lang-end-conversation:disabled { opacity:.45; cursor:default; }
 .pomodoro-controls { display:flex; gap:8px; }
 .pomodoro-controls button { border:1px solid #393944; border-radius:8px; padding:6px 12px; color:#cfcfd7; background:#111117; font-size:11px; cursor:pointer; }
 .pomodoro-controls button:hover { border-color:var(--jarvis-cyan); color:var(--jarvis-cyan); }
