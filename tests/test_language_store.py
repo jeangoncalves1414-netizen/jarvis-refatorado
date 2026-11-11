@@ -192,4 +192,4 @@ class TestDashboard:
         assert d["target_language"] == "en"
         assert d["placement_done"] is False
         assert d["due_vocabulary"] == 0
-        assert d["daily_goal"] == 50
+        assert d["daily_goal"] == 100  # unified study goal (StudyXP)

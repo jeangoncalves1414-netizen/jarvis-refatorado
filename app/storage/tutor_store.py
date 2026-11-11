@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.storage.study_xp import XP_REVIEW, StudyXP, get_study_xp
 from app.storage.tutor.review_log import ReviewLog, restore, snapshot
 from app.storage.tutor.fsrs import (
     apply_review,
@@ -54,13 +55,24 @@ DEFAULT_PROGRESS: dict[str, Any] = {
 
 
 class TutorStore:
-    def __init__(self, storage_dir: str | None = None) -> None:
+    def __init__(self, storage_dir: str | None = None, xp: StudyXP | None = None) -> None:
         self.storage_dir = Path(storage_dir or "data/tutor")
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.progress_path = self.storage_dir / "progress.json"
         self.review_log = ReviewLog(self.storage_dir / "review_log.jsonl")
+        if xp is None:
+            xp = get_study_xp(Path("data/study") if storage_dir is None else Path(storage_dir) / "study")
+        self.xp = xp
         self._data: dict[str, Any] = {}
         self._load()
+        self.xp.import_legacy(
+            "tutor",
+            total_xp=self._data.get("total_xp", 0),
+            daily_xp=self._data.get("daily_xp", 0),
+            last_study_date=self._data.get("last_study_date"),
+            streak_count=self._data.get("streak_count", 0),
+            daily_goal=self._data.get("daily_goal"),
+        )
 
     def _load(self) -> None:
         if self.progress_path.exists():
@@ -176,6 +188,7 @@ class TutorStore:
             after = snapshot(card)
             self._refresh_flashcard_stats()
             self._save()
+            self.xp.add(XP_REVIEW, "tutor")
             entry = self.review_log.append({
                 "type": "review",
                 "deck": "tutor",
@@ -188,7 +201,7 @@ class TutorStore:
                 "state_after": result.state,
                 "retrievability_before": result.retrievability,
                 "interval_days": result.interval,
-                "xp": 0,
+                "xp": XP_REVIEW,
                 "before": before,
                 "after": after,
             })
@@ -207,6 +220,7 @@ class TutorStore:
         restore(card, entry.get("before") or {})
         self._refresh_flashcard_stats()
         self._save()
+        self.xp.revoke(int(entry.get("xp") or 0), entry.get("local_date"))
         self.review_log.append({
             "type": "undo",
             "target": entry["id"],
@@ -291,38 +305,15 @@ class TutorStore:
 
     # ── Streak & XP ──────────────────────────────────────────────
 
-    def _update_streak(self) -> None:
-        today_str = str(date.today())
-        last = self._data.get("last_study_date")
-        if last == today_str:
-            return
-        if last:
-            try:
-                last_date = date.fromisoformat(last)
-                diff = (date.today() - last_date).days
-                if diff == 1:
-                    self._data["streak_count"] = int(self._data.get("streak_count", 0)) + 1
-                elif diff > 1:
-                    self._data["streak_count"] = 1
-            except (ValueError, TypeError):
-                self._data["streak_count"] = 1
-        else:
-            self._data["streak_count"] = 1
-        self._data["last_study_date"] = today_str
-        self._data["daily_xp"] = 0
-
     def add_xp(self, amount: int) -> int:
-        self._update_streak()
-        self._data["total_xp"] = int(self._data.get("total_xp", 0)) + amount
-        self._data["daily_xp"] = int(self._data.get("daily_xp", 0)) + amount
-        self._save()
-        return self._data["total_xp"]
+        return self.xp.add(amount, "tutor")
 
     def get_streak_info(self) -> dict[str, Any]:
+        summary = self.xp.summary()
         return {
-            "streak_count": self._data.get("streak_count", 0),
-            "last_study_date": self._data.get("last_study_date"),
-            "total_xp": self._data.get("total_xp", 0),
-            "daily_xp": self._data.get("daily_xp", 0),
-            "daily_goal": self._data.get("daily_goal", 100),
+            "streak_count": summary["streak"],
+            "last_study_date": summary["last_study_date"],
+            "total_xp": summary["total_xp"],
+            "daily_xp": summary["daily_xp"],
+            "daily_goal": summary["daily_goal"],
         }

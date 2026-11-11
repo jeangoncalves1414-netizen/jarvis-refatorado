@@ -178,7 +178,7 @@ class AgentOrchestrator:
         self.productivity_service = productivity_service if productivity_service is not None else task_store
         self.tutor_store = tutor_store or TutorStore()
         self.enem_store = enem_store or EnemStore()
-        self.language_store = language_store or LanguageStore()
+        self.language_store = language_store or LanguageStore(xp=getattr(self.tutor_store, "xp", None))
         self.agent_manager = agent_manager or AgentManager()
         self.semantic_memory = semantic_memory or SemanticMemory()
         self.profile_memory = profile_memory

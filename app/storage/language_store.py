@@ -8,6 +8,14 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.storage.study_xp import (
+    XP_CONVERSATION,
+    XP_PRONUNCIATION,
+    XP_REVIEW,
+    XP_SHADOWING,
+    StudyXP,
+    get_study_xp,
+)
 from app.storage.tutor.review_log import ReviewLog, restore, snapshot
 from app.storage.tutor.fsrs import (
     apply_review,
@@ -46,23 +54,32 @@ DEFAULT_LANGUAGE_PROGRESS: dict[str, Any] = {
     "topics_completed": [],
 }
 
-# XP rewards
-XP_VOCAB_REVIEW = 10
-XP_PRONUNCIATION = 15
-XP_CONVERSATION = 25
-XP_SHADOWING = 20
+# XP rewards (XP_PRONUNCIATION/XP_CONVERSATION/XP_SHADOWING re-exported from study_xp)
+XP_VOCAB_REVIEW = XP_REVIEW
 XP_QUIZ_CORRECT = 5
 XP_STREAK_BONUS = 10
 
 
 class LanguageStore:
-    def __init__(self, storage_dir: str | None = None) -> None:
+    def __init__(self, storage_dir: str | None = None, xp: StudyXP | None = None) -> None:
         self.storage_dir = Path(storage_dir or "data/language")
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.progress_path = self.storage_dir / "progress.json"
         self.review_log = ReviewLog(self.storage_dir / "review_log.jsonl")
+        if xp is None:
+            xp = get_study_xp(Path("data/study") if storage_dir is None else Path(storage_dir) / "study")
+        self.xp = xp
         self._data: dict[str, Any] = {}
         self._load()
+        stats = self._data.get("stats") or {}
+        self.xp.import_legacy(
+            "language",
+            total_xp=stats.get("total_xp", 0),
+            daily_xp=stats.get("daily_xp", 0),
+            last_study_date=stats.get("last_study_date"),
+            streak_count=stats.get("streak_count", 0),
+            daily_goal=stats.get("daily_goal"),
+        )
 
     def _load(self) -> None:
         if self.progress_path.exists():
@@ -90,12 +107,13 @@ class LanguageStore:
         level = self._data.get("cefr_level", "A1")
         lang = self._data.get("target_language", "en")
         weak = ", ".join(self._data.get("weak_phonemes", [])[:5]) or "nenhum"
+        xp = self.xp.summary()
         lines = [
             f"Idioma alvo: {lang} | Nível CEFR: {level}",
             f"Vocabulário: {stats.get('total_vocab', 0)} total, {stats.get('vocab_mastered', 0)} dominado",
             f"Pronúncia: {stats.get('pronunciation_sessions', 0)} sessões",
             f"Conversação: {stats.get('conversation_sessions', 0)} sessões",
-            f"XP: {stats.get('total_xp', 0)} total | Streak: {stats.get('streak_count', 0)} dias",
+            f"XP: {xp['total_xp']} total | Streak: {xp['streak']} dias",
             f"Fonemas fracos: {weak}",
         ]
         return "\n".join(lines)
@@ -112,41 +130,11 @@ class LanguageStore:
 
     # ── Streak & XP ───────────────────────────────────────────────
 
-    def _update_streak(self) -> None:
-        stats = self._data.setdefault("stats", {})
-        today_str = str(date.today())
-        last = stats.get("last_study_date")
-
-        if last == today_str:
-            return  # already counted today
-
-        if last:
-            try:
-                last_date = date.fromisoformat(last)
-                diff = (date.today() - last_date).days
-                if diff == 1:
-                    stats["streak_count"] = int(stats.get("streak_count", 0)) + 1
-                elif diff > 1:
-                    stats["streak_count"] = 1  # streak broken
-            except (ValueError, TypeError):
-                stats["streak_count"] = 1
-        else:
-            stats["streak_count"] = 1
-
-        stats["last_study_date"] = today_str
-        stats["daily_xp"] = 0  # reset daily XP
-
     def add_xp(self, amount: int) -> int:
-        self._update_streak()
-        stats = self._data.setdefault("stats", {})
-        stats["total_xp"] = int(stats.get("total_xp", 0)) + amount
-        stats["daily_xp"] = int(stats.get("daily_xp", 0)) + amount
-        self._save()
-        return stats["total_xp"]
+        return self.xp.add(amount, "language")
 
     def set_daily_goal(self, xp: int) -> None:
-        self._data.setdefault("stats", {})["daily_goal"] = max(10, min(500, xp))
-        self._save()
+        self.xp.set_daily_goal(xp)
 
     # ── Vocabulary ────────────────────────────────────────────────
 
@@ -208,12 +196,9 @@ class LanguageStore:
             # Track mastered cards
             stats = self._data.setdefault("stats", {})
             if result.reps >= 3 and result.stability >= 10:
-                stats["vocab_mastered"] = sum(
-                    1 for v in vocab
-                    if (v.get("reps") or 0) >= 3 and (v.get("stability") or 0) >= 10
-                )
-            self.add_xp(XP_VOCAB_REVIEW)
+                stats["vocab_mastered"] = self._count_mastered()
             self._save()
+            self.add_xp(XP_VOCAB_REVIEW)
             entry = self.review_log.append({
                 "type": "review",
                 "deck": "language",
@@ -233,6 +218,24 @@ class LanguageStore:
             return {**card, "review_id": entry["id"]}
         return None
 
+    def _count_mastered(self) -> int:
+        return sum(
+            1 for v in self._data.get("vocabulary", [])
+            if (v.get("reps") or 0) >= 3 and (v.get("stability") or 0) >= 10
+        )
+
+    def delete_vocabulary(self, card_id: str) -> bool:
+        vocab = self._data.setdefault("vocabulary", [])
+        remaining = [v for v in vocab if v.get("id") != card_id]
+        if len(remaining) == len(vocab):
+            return False
+        self._data["vocabulary"] = remaining
+        stats = self._data.setdefault("stats", {})
+        stats["total_vocab"] = len(remaining)
+        stats["vocab_mastered"] = self._count_mastered()
+        self._save()
+        return True
+
     def undo_last_review(self) -> dict[str, Any]:
         entry = self.review_log.last_active_review()
         if not entry:
@@ -243,11 +246,8 @@ class LanguageStore:
         if snapshot(card) != entry.get("after"):
             return {"ok": False, "error": "stale"}
         restore(card, entry.get("before") or {})
-        xp = int(entry.get("xp") or 0)
-        stats = self._data.setdefault("stats", {})
-        stats["total_xp"] = max(0, int(stats.get("total_xp", 0)) - xp)
-        stats["daily_xp"] = max(0, int(stats.get("daily_xp", 0)) - xp)
         self._save()
+        self.xp.revoke(int(entry.get("xp") or 0), entry.get("local_date"))
         self.review_log.append({
             "type": "undo",
             "target": entry["id"],
@@ -279,8 +279,8 @@ class LanguageStore:
         self._data["pronunciation_history"] = attempts[-100:]
         stats = self._data.setdefault("stats", {})
         stats["pronunciation_sessions"] = int(stats.get("pronunciation_sessions", 0)) + 1
-        self.add_xp(XP_PRONUNCIATION)
         self._save()
+        self.add_xp(XP_PRONUNCIATION)
         return attempt_id
 
     def get_pronunciation_history(self) -> list[dict[str, Any]]:
@@ -306,32 +306,44 @@ class LanguageStore:
         session_id = f"conv-{uuid.uuid4().hex[:8]}"
         history.append({
             "id": session_id,
-            "topic": topic,
-            "corrections": corrections,
-            "new_vocab": new_vocab or [],
-            "duration": duration_minutes,
+            "topic": str(topic)[:120],
+            "corrections": max(0, int(corrections)),
+            "new_vocab": [str(word) for word in (new_vocab or [])][:50],
+            "duration": max(0, int(duration_minutes)),
             "date": str(date.today()),
         })
         self._data["conversation_history"] = history[-50:]
         stats = self._data.setdefault("stats", {})
         stats["conversation_sessions"] = int(stats.get("conversation_sessions", 0)) + 1
-        self.add_xp(XP_CONVERSATION)
         self._save()
+        self.add_xp(XP_CONVERSATION)
         return session_id
 
     # ── Shadowing ─────────────────────────────────────────────────
 
-    def log_shadowing_session(self, text: str, score: float = 0.0, speed: float = 1.0) -> None:
+    def log_shadowing_session(self, text: str, score: float = 0.0, speed: float = 1.0) -> str:
+        history = self._data.setdefault("shadowing_history", [])
+        session_id = f"shd-{uuid.uuid4().hex[:8]}"
+        history.append({
+            "id": session_id,
+            "text": str(text)[:300],
+            "score": round(max(0.0, min(100.0, float(score))), 1),
+            "speed": max(0.5, min(2.0, float(speed))),
+            "date": str(date.today()),
+        })
+        self._data["shadowing_history"] = history[-100:]
         stats = self._data.setdefault("stats", {})
         stats["shadowing_sessions"] = int(stats.get("shadowing_sessions", 0)) + 1
-        self.add_xp(XP_SHADOWING)
         self._save()
+        self.add_xp(XP_SHADOWING)
+        return session_id
 
     # ── Dashboard ─────────────────────────────────────────────────
 
     def get_dashboard(self) -> dict[str, Any]:
         progress = self.get_progress()
-        stats = progress.get("stats", {})
+        stats = {"shadowing_sessions": 0, **progress.get("stats", {})}
+        xp = self.xp.summary()
         return {
             "cefr_level": progress.get("cefr_level", "A1"),
             "target_language": progress.get("target_language", "en"),
@@ -340,9 +352,9 @@ class LanguageStore:
             "due_vocabulary": len(self.get_due_vocabulary()),
             "weak_phonemes": progress.get("weak_phonemes", []),
             "recent_pronunciation": self.get_pronunciation_history()[-5:],
-            "streak": stats.get("streak_count", 0),
-            "daily_xp": stats.get("daily_xp", 0),
-            "daily_goal": stats.get("daily_goal", 50),
-            "total_xp": stats.get("total_xp", 0),
+            "streak": xp["streak"],
+            "daily_xp": xp["daily_xp"],
+            "daily_goal": xp["daily_goal"],
+            "total_xp": xp["total_xp"],
         }
 

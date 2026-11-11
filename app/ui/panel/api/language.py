@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import math
+import urllib.parse
 from typing import Any
 
 from app.storage.tutor.fsrs import next_learning_due
@@ -52,16 +54,33 @@ def handle_language_get(parts: list[str], handler: Any) -> tuple[int, dict[str, 
     return 404, {"error": "not_found"}
 
 
+def _number(payload: dict[str, Any], key: str, default: float) -> float:
+    """JSON number field (bool/str/NaN rejected with ValueError)."""
+    value = payload.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(key)
+    return value
+
+
 def handle_language_post(path: str, body: bytes, handler: Any) -> tuple[int, dict[str, Any]] | None:
     language_paths = {
         "/api/language/vocabulary",
         "/api/language/vocabulary/review",
         "/api/language/vocabulary/undo",
         "/api/language/pronunciation",
+        "/api/language/shadowing",
+        "/api/language/conversation",
         "/api/language/level",
         "/api/language/settings",
     }
-    if path not in language_paths:
+    path_parts = path.split("/")
+    is_vocab_delete = (
+        len(path_parts) == 6
+        and path_parts[:4] == ["", "api", "language", "vocabulary"]
+        and bool(path_parts[4])
+        and path_parts[5] == "delete"
+    )
+    if path not in language_paths and not is_vocab_delete:
         return None
 
     store = _store(handler)
@@ -72,6 +91,42 @@ def handle_language_post(path: str, body: bytes, handler: Any) -> tuple[int, dic
         payload = json.loads(body.decode("utf-8") or "{}")
     except Exception:
         payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    if is_vocab_delete:
+        if not store.delete_vocabulary(urllib.parse.unquote(path_parts[4])):
+            return 404, {"ok": False, "error": "card_not_found"}
+        return 200, {"ok": True}
+
+    if path == "/api/language/shadowing":
+        try:
+            score = _number(payload, "score", 0.0)
+            speed = _number(payload, "speed", 1.0)
+        except ValueError:
+            return 400, {"ok": False, "error": "invalid_payload"}
+        session_id = store.log_shadowing_session(str(payload.get("text", "")), score=score, speed=speed)
+        return 200, {"ok": True, "id": session_id}
+
+    if path == "/api/language/conversation":
+        topic = str(payload.get("topic") or "").strip()
+        if not topic:
+            return 400, {"ok": False, "error": "topic_required"}
+        new_vocab = payload.get("new_vocab") or []
+        try:
+            corrections = _number(payload, "corrections", 0)
+            duration = _number(payload, "duration_minutes", 0)
+            if not isinstance(new_vocab, list):
+                raise ValueError("new_vocab")
+        except ValueError:
+            return 400, {"ok": False, "error": "invalid_payload"}
+        session_id = store.log_conversation_session(
+            topic=topic,
+            corrections=int(corrections),
+            new_vocab=[str(word) for word in new_vocab],
+            duration_minutes=int(duration),
+        )
+        return 200, {"ok": True, "id": session_id}
 
     if path == "/api/language/vocabulary":
         card_id = store.add_vocabulary(

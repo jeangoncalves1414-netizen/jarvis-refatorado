@@ -38,6 +38,17 @@ def test_good_on_new_flashcard_stays_in_learning_today(tmp_path) -> None:
     assert store.get_due_flashcards() == []
 
 
+def test_review_awards_xp(tmp_path) -> None:
+    store = TutorStore(storage_dir=_store_dir(tmp_path))
+    card_id = store.add_flashcard("4+4?", "8")
+    store.review_flashcard(card_id, 2)
+    summary = store.xp.summary()
+    assert summary["total_xp"] == 10
+    assert summary["daily_xp"] == 10
+    assert summary["streak"] == 1
+    assert store.get_streak_info()["total_xp"] == 10
+
+
 def test_invalid_grade_raises(tmp_path) -> None:
     store = TutorStore(storage_dir=_store_dir(tmp_path))
     card_id = store.add_flashcard("Q", "A")
