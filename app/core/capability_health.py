@@ -5,6 +5,7 @@ Nenhuma chamada de rede é feita aqui; "alcançável" vem do resultado da últim
 """
 from __future__ import annotations
 
+import re
 import sys
 import threading
 import time
@@ -14,16 +15,61 @@ from typing import Any, Callable
 
 from app.core.runs import RunCancelled, current_run
 
+# Código de erro do provedor só entra no motivo se for um identificador simples (nunca texto livre).
+_ERROR_CODE = re.compile(r"^[a-z0-9_]{1,40}$")
+
+
+def _http_status(exc: BaseException) -> int | None:
+    """Status HTTP lido dos atributos da exceção (SDKs Groq/OpenAI/Gemini), nunca da mensagem."""
+    candidates = (getattr(exc, "status_code", None), getattr(getattr(exc, "response", None), "status_code", None), getattr(exc, "code", None))
+    for value in candidates:
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    return None
+
+
+def _error_code(exc: BaseException) -> str | None:
+    """Código do provedor (``body["error"]["code"]``, ``body["code"]`` ou ``exc.code``) só se casar com a lista branca."""
+    body = getattr(exc, "body", None)
+    candidates: list[Any] = []
+    if isinstance(body, dict):
+        error = body.get("error")
+        if isinstance(error, dict):
+            candidates.append(error.get("code"))
+        candidates.append(body.get("code"))
+    candidates.append(getattr(exc, "code", None))
+    for value in candidates:
+        if isinstance(value, str) and _ERROR_CODE.match(value):
+            return value
+    return None
+
 
 def failure_reason(exc: BaseException | None) -> str:
-    """Motivo curto e seguro de uma falha de provedor: nunca copia a mensagem crua (pode ter chave)."""
+    """Motivo curto e seguro de uma falha de provedor: nunca copia a mensagem crua (pode ter chave).
+
+    Inclui o status HTTP e o código do provedor quando a exceção os traz como atributos.
+    """
     if exc is None:
         return "Falha sem detalhe."
+    status, code = _http_status(exc), _error_code(exc)
+    detail = f", {code}" if code else ""
+    if status is not None:
+        if status == 429:
+            return f"Limite de uso do provedor (429{detail})."
+        if status in (401, 403):
+            return "Chave recusada pelo provedor."
+        if status == 413 or code == "request_too_large":
+            return "Pedido grande demais para o limite do provedor (413)."
+        if status == 400:
+            return f"Pedido recusado pelo provedor (400{detail})."
+        return f"Erro do provedor (HTTP {status}{detail})."
     text = str(exc).lower()
     if "429" in text or "resource_exhausted" in text or "rate limit" in text or "quota" in text:
-        return "Limite de uso do provedor (429)."
+        return f"Limite de uso do provedor (429{detail})."
     if "401" in text or "403" in text or "unauthorized" in text or "permission" in text or "api key" in text or "api_key" in text:
         return "Chave recusada pelo provedor."
+    if "413" in text or "too large" in text or code == "request_too_large":
+        return "Pedido grande demais para o limite do provedor (413)."
     if "timeout" in text or "timed out" in text or isinstance(exc, TimeoutError):
         return "O provedor não respondeu a tempo."
     if isinstance(exc, (ConnectionError, OSError)) or "connection" in text:

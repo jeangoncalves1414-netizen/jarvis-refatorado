@@ -75,6 +75,40 @@ def test_failure_reason_never_copies_raw_message():
     assert failure_reason(ValueError("algo")) == "Erro do provedor (ValueError)."
 
 
+class FakeStatusError(Exception):
+    """Como APIStatusError do SDK Groq/OpenAI: status e corpo como atributos, segredo na mensagem."""
+
+    def __init__(self, status, code="tool_use_failed", *, on_response=False):
+        super().__init__(f"Error code: {status} - {{'error': {{'message': 'sk-segredo'}}}}")
+        self.body = {"error": {"code": code, "message": "sk-segredo"}}
+        if on_response:
+            self.response = type("Response", (), {"status_code": status})()
+        else:
+            self.status_code = status
+
+
+@pytest.mark.parametrize("status, code, expected", [
+    (429, "rate_limit_exceeded", "Limite de uso do provedor (429, rate_limit_exceeded)."),
+    (413, "request_too_large", "Pedido grande demais para o limite do provedor (413)."),
+    (400, "tool_use_failed", "Pedido recusado pelo provedor (400, tool_use_failed)."),
+    (500, "internal_error", "Erro do provedor (HTTP 500, internal_error)."),
+    (400, "Tool Use Failed", "Pedido recusado pelo provedor (400)."),
+    (503, "x" * 41, "Erro do provedor (HTTP 503)."),
+])
+def test_failure_reason_shows_status_and_whitelisted_code_without_secret(status, code, expected):
+    for exc in (FakeStatusError(status, code), FakeStatusError(status, code, on_response=True)):
+        reason = failure_reason(exc)
+        assert reason == expected
+        assert "sk-" not in reason
+
+
+def test_failure_reason_reads_code_attribute_and_message_413():
+    exc = RuntimeError("Request too large for model sk-segredo")
+    exc.code = "request_too_large"
+    assert failure_reason(exc) == "Pedido grande demais para o limite do provedor (413)."
+    assert failure_reason(RuntimeError("413 sk-segredo")) == "Pedido grande demais para o limite do provedor (413)."
+
+
 def test_fallback_records_who_answered_and_why(journal):
     with background_run(mode="general", source="conversation", origin="chat"):
         run_id = current_run.get()[1]

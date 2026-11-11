@@ -22,6 +22,7 @@ from app.agent import turn_meta
 from app.agent.turn_context import build_turn_sections
 from app.agent.context_policy import chat_history_reply, context_preferences, explicit_preference, is_chat_history_request, requests_saved_memory
 from app.core.runs import REQUEST_ORIGINS, RunCancelled, check_run_cancelled, current_origin, current_run
+from app.core.capability_health import failure_reason
 from app.core.actions import ToolMetadata
 from app.agent.tools.base import ToolResult
 from app.storage.session_store import get_session_history, save_session_history
@@ -1289,7 +1290,7 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                 print(f"[Orchestrator] Falha LLM: {e}")
                 print(f"[Orchestrator] Traceback: {traceback.format_exc()}")
                 # Retorna erro mais detalhado para debug
-                error_msg = f"Erro ao processar: {str(e)}"
+                error_msg = "N?o consegui gerar a resposta. " + failure_reason(e)
                 if "API key" in str(e).lower() or "401" in str(e) or "403" in str(e):
                     error_msg = "Erro de autenticação com a API. Verifique as chaves no .env."
                 elif "429" in str(e):
@@ -1360,7 +1361,7 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                 import traceback
                 print(f"[Orchestrator] Falha LLM Stream: {e}")
                 print(f"[Orchestrator] Traceback: {traceback.format_exc()}")
-                error_msg = f"Erro ao processar: {str(e)}"
+                error_msg = "N?o consegui gerar a resposta. " + failure_reason(e)
                 if "tool choice is none" in str(e).lower() or "model called a tool" in str(e).lower():
                     error_msg = "O Groq encontrou uma incompatibilidade ao chamar uma ferramenta. Tente novamente ou altere o provedor para Gemini."
                 plan = AgentPlan(intent="error", summary=error_msg, actions=[])
