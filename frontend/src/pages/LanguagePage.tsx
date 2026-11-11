@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import type { VocabCard, PronunciationAttempt, LanguageDashboard, ChatMessage } from '../types'
 import type { PronunciationKind } from '../hooks/useLanguage'
 import { useReviewShortcuts } from '../hooks/useReviewShortcuts'
@@ -70,9 +70,12 @@ type LanguagePageProps = {
   sendLanguageMessage: (e: FormEvent) => Promise<void>
   endConversation: () => Promise<void>
   setNotice: (message: string) => void
+  initialTab?: LangTab
+  // Chamado depois que uma atividade de idiomas foi salva (o painel recarrega), para atualizar XP e estatísticas.
+  onStudyActivity?: () => void
 }
 
-type LangTab = 'home' | 'vocab' | 'pronunciation' | 'conversation' | 'shadowing' | 'progress'
+export type LangTab = 'home' | 'vocab' | 'pronunciation' | 'conversation' | 'shadowing' | 'progress'
 
 const LANG_MODES: { id: LangTab; label: string; icon: string }[] = [
   { id: 'home', label: 'Início', icon: '🏠' },
@@ -107,12 +110,23 @@ export function LanguagePage(props: LanguagePageProps) {
   const phrases = PRONUNCIATION_PHRASES[level] || PRONUNCIATION_PHRASES.A1
   const currentCard = props.dueVocab[props.vocabIndex]
 
-  const [activeTab, setActiveTab] = useState<LangTab>('home')
+  const [activeTab, setActiveTab] = useState<LangTab>(props.initialTab || 'home')
   const [shadowIdx, setShadowIdx] = useState(0)
   const [pendingDelete, setPendingDelete] = useState<VocabCard | null>(null)
   const [deleting, setDeleting] = useState(false)
   const targetName = languageName(dashboard?.target_language)
   const hasUserMessage = props.langMessages.some(m => m.role === 'user')
+
+  // Toda atividade salva (revisão, desfazer, exclusão, conversa, pronúncia, shadowing) termina em
+  // refreshLanguage, que entrega um novo dashboard: é o sinal para atualizar XP e estatísticas.
+  const lastDashboard = useRef(dashboard)
+  const onStudyActivityRef = useRef(props.onStudyActivity)
+  onStudyActivityRef.current = props.onStudyActivity
+  useEffect(() => {
+    if (lastDashboard.current === dashboard) return
+    lastDashboard.current = dashboard
+    onStudyActivityRef.current?.()
+  }, [dashboard])
 
   useReviewShortcuts({
     enabled: activeTab === 'vocab' && !!currentCard && !pendingDelete,

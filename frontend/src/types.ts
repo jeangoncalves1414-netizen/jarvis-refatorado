@@ -41,6 +41,19 @@ export type VocabCard = { id: string; word: string; translation: string; example
 export type PronunciationAttempt = { id: string; target: string; transcript: string; score: number; confidence?: number; wrong_words?: string[]; date?: string }
 export type LanguageDashboard = { cefr_level: string; target_language: string; placement_done: boolean; stats: Record<string, number>; due_vocabulary: number; weak_phonemes: string[]; streak: number; daily_xp: number; daily_goal: number; total_xp: number }
 export type StreakInfo = { streak_count: number; last_study_date?: string; total_xp: number; daily_xp: number; daily_goal: number }
+/** Painel de estudos unificado (app/storage/study_stats.py) */
+export type StudyXpSummary = { total_xp: number; daily_xp: number; daily_goal: number; goal_met: boolean; studied_today: boolean; streak: number; best_streak: number; pomodoros: number; last_study_date?: string | null }
+export type StudyLevel = { level: number; name: string; xp_into_level: number; xp_for_next: number; next_threshold: number }
+export type StudyBadge = { id: string; label: string; description: string; earned: boolean }
+export type StudyDashboardData = { today: string; due: { flashcards: number; vocabulary: number; next_due_at?: string | null }; xp: StudyXpSummary; level: StudyLevel; badges: StudyBadge[] }
+export type StudyStateCounts = { new: number; learning: number; review: number; relearning: number }
+export type StudyStatsData = {
+  heatmap: { date: string; reviews: number; xp: number }[]
+  daily_reviews: { date: string; tutor: number; language: number }[]
+  retention: { rate: number | null; correct: number; total: number; window_days: number }
+  states: Record<'tutor' | 'language' | 'total', StudyStateCounts>
+  totals: { reviews: number; pomodoros: number; vocabulary: number; flashcards: number }
+}
 export type WhiteboardElement = {
   id?: string
   type?: 'text' | 'image'
