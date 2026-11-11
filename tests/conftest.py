@@ -8,6 +8,41 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+def _import_vault_outside_project_data() -> None:
+    """``app.services.memory_vault`` cria data/vault/ (com o perfil modelo) ao ser importado.
+
+    O módulo é importado com o cwd num diretório temporário e os caminhos ficam fixos lá,
+    para nenhum teste criar nem alterar o cofre em data/ do projeto. ``isolated_lote6_data``
+    continua trocando os caminhos por teste.
+    """
+    import atexit
+    import importlib
+    import os
+    import shutil
+    import tempfile
+
+    import app.services  # noqa: F401  (o pacote importa com o cwd real)
+
+    root = Path(tempfile.mkdtemp(prefix="jarvis-tests-vault-"))
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    cwd = os.getcwd()
+    os.chdir(root)
+    try:
+        vault = importlib.import_module("app.services.memory_vault")
+    finally:
+        os.chdir(cwd)
+    base = root / "data" / "vault"
+    vault.VAULT_DIR = base
+    vault.DAILY_NOTES_DIR = base / "01-Daily-Notes"
+    vault.PROFILE_DIR = base / "02-User-Profile"
+    vault.PRIMING_DIR = base / "03-Priming-Notes"
+    vault.PROJECTS_DIR = base / "04-Projects"
+    vault.PROFILE_FILE = vault.PROFILE_DIR / "USER-PROFILE.md"
+
+
+_import_vault_outside_project_data()
+
+
 @pytest.fixture(autouse=True)
 def isolated_persona(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_DATA_DIR", str(tmp_path / "persona"))

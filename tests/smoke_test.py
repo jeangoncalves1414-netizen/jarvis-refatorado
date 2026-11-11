@@ -7,16 +7,37 @@ import unittest
 import os
 import sys
 import json
+import tempfile
+from unittest import mock
 
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import app.agent.tools.clipboard as clipboard_module
+import app.core.logger as logger_module
+import app.storage.session_store as session_store_module
 from app.core.logger import logger
 from app.storage.user_preferences import preference_store
 from app.agent.tools.clipboard import add_clipboard_history, get_clipboard_history
 from app.storage.session_store import save_session_history, get_session_history
 
 class TestJarvisSmoke(unittest.TestCase):
+
+    def setUp(self):
+        """Preferências, sessões, clipboard, logs e índices vão para um diretório temporário, nunca para data/."""
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        self.tmp_dir = tmp.name
+        for target, attribute, value in (
+            (preference_store, "file_path", os.path.join(self.tmp_dir, "preferences.json")),
+            (session_store_module, "SESSIONS_FILE", os.path.join(self.tmp_dir, "sessions.json")),
+            (clipboard_module, "DATA_DIR", self.tmp_dir),
+            (clipboard_module, "CLIPBOARD_FILE", os.path.join(self.tmp_dir, "clipboard_history.json")),
+            (logger_module, "LOGS_FILE", os.path.join(self.tmp_dir, "logs.jsonl")),
+        ):
+            patcher = mock.patch.object(target, attribute, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def test_01_logger_structured(self):
         """Verifica se o logger grava e recupera logs corretamente."""
@@ -78,7 +99,7 @@ class TestJarvisSmoke(unittest.TestCase):
     def test_07_semantic_memory(self):
         """Verifica adição e busca na memória vetorial (ChromaDB)."""
         from app.storage.vector.semantic_memory import SemanticMemory
-        sm = SemanticMemory(persist_dir="data/test_vector_db")
+        sm = SemanticMemory(persist_dir=os.path.join(self.tmp_dir, "test_vector_db"))
         self.assertTrue(sm.is_available())
         
         test_text = f"Memória de teste {os.urandom(4).hex()}"
@@ -170,7 +191,7 @@ class TestJarvisSmoke(unittest.TestCase):
         from app.agent.tools.proactive_agent import ProactiveAgentTool
         from app.services.proactive import ProactiveService
 
-        service = ProactiveService(config_path="data/test_proactive_config.json")
+        service = ProactiveService(config_path=os.path.join(self.tmp_dir, "test_proactive_config.json"))
         tool = ProactiveAgentTool(service=service)
         self.assertEqual(tool.name, "proactive_agent")
 
