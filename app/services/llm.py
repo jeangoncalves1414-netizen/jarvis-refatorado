@@ -113,6 +113,21 @@ class KeyRotator:
 _key_rotator = KeyRotator()
 
 
+class ProviderErrorText(str):
+    """Texto de falha devolvido por ``ask`` no lugar da resposta do modelo.
+
+    Continua sendo ``str`` para quem só exibe o texto; quem interpreta a resposta (loop
+    agêntico, extração de memória) testa ``isinstance`` e usa ``reason``, que é seguro.
+    """
+
+    reason: str
+
+    def __new__(cls, text: str, reason: str | None = None) -> "ProviderErrorText":
+        value = super().__new__(cls, text)
+        value.reason = reason if reason is not None else text
+        return value
+
+
 @dataclass(slots=True)
 class LLMResponse:
     text: str | None = None
@@ -189,14 +204,14 @@ class LLMService:
         active = self.get_active_provider(provider)
         api_key = self._api_key_for(active)
         if not api_key:
-            return self.unavailable_reason(active) or f"Chave {active.upper()}_API_KEY não encontrada no .env. Configure-a para conversar com o Jarvis."
+            return ProviderErrorText(self.unavailable_reason(active) or f"Chave {active.upper()}_API_KEY não encontrada no .env. Configure-a para conversar com o Jarvis.")
 
         try:
             response = self.generate(prompt, system_instruction=system_instruction, provider=active)
             return response.text or "Sem resposta gerada pelo modelo."
         except Exception as e:
             label = "Groq" if active == "groq" else "Gemini"
-            return f"Erro ao acessar a API do {label}: {e}"
+            return ProviderErrorText(f"Erro ao acessar a API do {label}: {e}", reason=failure_reason(e))
 
     @staticmethod
     def build_contents(history: list[dict], user_message: str) -> list[dict[str, str]]:

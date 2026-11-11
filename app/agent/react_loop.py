@@ -37,6 +37,10 @@ _DESCRIPTION_CHARS = 160
 WAITING_TEXT = "A etapa {n} precisa da sua aprovação na Central: {preview} Assim que você aprovar, eu continuo sozinho."
 
 
+class _PlanningFailed(RuntimeError):
+    """O provedor falhou no planejamento; a mensagem é o motivo seguro (``failure_reason``)."""
+
+
 @dataclass
 class ReActStep:
     step_number: int
@@ -234,10 +238,12 @@ class ReActLoopEngine:
                 decision, payload = self._plan_step(state)
             except RunCancelled:
                 raise
-            except Exception:
+            except Exception as exc:
                 t.stopped_reason = "invalid_plan"
                 t.success = False
                 t.final_output = "O planejamento ReAct falhou ou retornou uma ação inválida. Consulte as etapas na Central."
+                if isinstance(exc, _PlanningFailed):
+                    t.final_output = f"O planejamento falhou: {exc} Nada mais foi executado. Consulte as etapas na Central."
                 if hasattr(self.llm_service, "unavailable_reason") and hasattr(self.llm_service, "get_active_provider"):
                     reason = self.llm_service.unavailable_reason(self.llm_service.get_active_provider())
                     if reason:
@@ -664,6 +670,10 @@ class ReActLoopEngine:
     def _plan_step(self, state: _LoopState) -> tuple[str, Any]:
         """Lê o plano; argumentos malformados nunca viram execução."""
         raw = self.llm_service.ask(self._build_prompt(state))
+        from app.services.llm import ProviderErrorText
+        if isinstance(raw, ProviderErrorText):
+            # Texto de erro do provedor nunca é lido como plano.
+            raise _PlanningFailed(raw.reason)
         if not isinstance(raw, str) or not raw.strip():
             raise ValueError("Resposta de planejamento vazia.")
         return parse_plan(raw)
