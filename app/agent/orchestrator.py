@@ -9,6 +9,7 @@ from app.domain.actions import FileActionService
 from app.storage import task_store
 from app.agent.tools.registry import ToolRegistry
 from app.agent.modes.tutor import build_tutor_system
+from app.agent.modes.language import build_language_system
 from app.agent.tool_markers import parse_tool_markers, ToolStep
 from app.agent.prompts import build_marker_agent_system_prompt, build_function_calling_system_prompt, AGENT_SYSTEM_CORE
 from app.storage.runtime_settings import resolve_ai_routes
@@ -462,6 +463,15 @@ class AgentOrchestrator:
                 text,
                 enem_question=enem_question,
             )
+        elif mode == "language":
+            progress = self.language_store.get_progress()
+            system = build_language_system(
+                target_language=progress.get("target_language", "en"),
+                native_language=progress.get("native_language", "pt-BR"),
+                cefr_level=progress.get("cefr_level", "A1"),
+                weak_phonemes=list(progress.get("weak_phonemes") or []),
+                progress_summary=self.language_store.get_summary_for_llm(),
+            )
         else:
             evolution_notes = []
             lookup_memory = requests_saved_memory(text)
@@ -771,7 +781,7 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             if script_marker:
                 summary = f"{summary.rstrip()}\n\n{script_marker}" if summary.strip() else script_marker
             return AgentPlan(
-                intent="tool_execution" if executed_actions else ("tutor" if mode == "tutor" else "general"),
+                intent="tool_execution" if executed_actions else (mode if mode in {"tutor", "language"} else "general"),
                 summary=summary,
                 actions=executed_actions,
                 context={
@@ -880,7 +890,7 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                 context_data["tool_results"] = ui_results
             
             return AgentPlan(
-                intent="tool_execution" if tool_steps else ("tutor" if mode == "tutor" else "general"),
+                intent="tool_execution" if tool_steps else (mode if mode in {"tutor", "language"} else "general"),
                 summary=final_summary,
                 actions=actions,
                 context=context_data,
@@ -1181,7 +1191,7 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                 return plan
 
         # Se o modo Racing estiver ativado e for uma pergunta geral
-        if racing_mode and mode not in {"tutor", "planning", "thinking", "research", "coder", "lifeos"} and self.llm_service:
+        if racing_mode and mode not in {"tutor", "language", "planning", "thinking", "research", "coder", "lifeos"} and self.llm_service:
             try:
                 from app.services.llm_racing import MultiLLMRacingService
                 racing_svc = MultiLLMRacingService(llm_service=self.llm_service)

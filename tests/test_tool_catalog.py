@@ -217,6 +217,24 @@ def test_every_general_tool_has_catalog_entry_and_no_declared_operation_is_criti
                 assert metadata.effect_for(arguments), f"{name}.{operation}"
 
 
+def test_every_study_tool_has_catalog_entry_and_is_not_critical(tmp_path):
+    from app.agent.tools.registry import LANGUAGE_TOOL_NAMES, TUTOR_TOOL_NAMES, ToolRegistry
+    from app.storage.enem_store import EnemStore
+    from app.storage.language_store import LanguageStore
+    from app.storage.tutor_store import TutorStore
+
+    registry = ToolRegistry(
+        base_folder=str(tmp_path),
+        tutor_store=TutorStore(str(tmp_path / "tutor")),
+        language_store=LanguageStore(str(tmp_path / "language")),
+        enem_store=EnemStore(str(tmp_path / "enem")),
+    )
+    for name in sorted(TUTOR_TOOL_NAMES | LANGUAGE_TOOL_NAMES):
+        assert registry.get_tool(name) is not None, name
+        assert name in TOOL_CATALOG, name
+        assert TOOL_CATALOG[name].risk_for({}) != "critical", name
+
+
 def test_orphan_notes_entry_was_removed():
     assert "notes" not in TOOL_CATALOG
 
