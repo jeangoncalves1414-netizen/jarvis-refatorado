@@ -22,6 +22,23 @@ _TECHNICAL_ERROR_MARKERS = (
 )
 
 
+# Distância cosseno máxima aceita na busca de ``user_memory`` (medida com all-MiniLM-L6-v2).
+USER_MEMORY_MAX_DISTANCE = 0.45
+# Coleções que guardam fatos duradouros e por isso não expiram por idade.
+_NO_EXPIRY_COLLECTIONS = frozenset({"user_memory"})
+
+
+def embedding_function() -> Any:
+    """Ponto único de escolha do modelo de embedding de todas as coleções.
+
+    ``None`` mantém o padrão do Chroma (all-MiniLM-L6-v2, ONNX local). Trocar o modelo
+    (ex.: paraphrase-multilingual-MiniLM-L12-v2) exige reindexar as coleções existentes,
+    porque vetores de modelos diferentes não são comparáveis; reajuste também
+    ``USER_MEMORY_MAX_DISTANCE``.
+    """
+    return None
+
+
 def is_technical_error_memory(text: str) -> bool:
     """Retorna se um texto descreve uma falha operacional, não uma memória do usuário."""
     normalized = " ".join((text or "").lower().split())
@@ -65,10 +82,11 @@ class SemanticMemory:
         
         if name not in self._collections:
             try:
-                self._collections[name] = self.client.get_or_create_collection(
-                    name=name,
-                    metadata={"hnsw:space": "cosine"}
-                )
+                options: dict[str, Any] = {"name": name, "metadata": {"hnsw:space": "cosine"}}
+                embedder = embedding_function()
+                if embedder is not None:
+                    options["embedding_function"] = embedder
+                self._collections[name] = self.client.get_or_create_collection(**options)
             except Exception as e:
                 logger.error(f"Falha ao criar coleção {name}: {e}")
                 return None
@@ -113,9 +131,14 @@ class SemanticMemory:
         collection_name: str,
         query: str,
         n_results: int = 5,
-        filter_expired: bool = True
+        filter_expired: bool = True,
+        max_distance: float | None = None,
     ) -> List[dict[str, Any]]:
-        """Busca memórias similares, incrementando access_count."""
+        """Busca memórias similares, incrementando access_count.
+
+        ``max_distance`` descarta resultados mais distantes que o limite; ``user_memory``
+        nunca expira por idade.
+        """
         if not self.client:
             return []
         
@@ -134,13 +157,17 @@ class SemanticMemory:
             
             memories = []
             current_time = time.time()
+            expires = filter_expired and collection_name not in _NO_EXPIRY_COLLECTIONS
+            ids = (results.get("ids") or [[]])[0] or []
             
             for i, doc in enumerate(results["documents"][0]):
-                metadata = results["metadatas"][0][i] if results["metadatas"] else {}
+                metadata = (results["metadatas"][0][i] if results["metadatas"] else None) or {}
                 distance = results["distances"][0][i] if results["distances"] else 0
                 
+                if max_distance is not None and distance > max_distance:
+                    continue
                 # Filtra memórias expiradas
-                if filter_expired:
+                if expires:
                     timestamp = metadata.get("timestamp", current_time)
                     age_days = (current_time - timestamp) / 86400
                     if age_days > self.max_age_days:
@@ -152,15 +179,15 @@ class SemanticMemory:
                     "distance": distance
                 })
                 
-                # Incrementa access_count
-                if metadata.get("id"):
+                # Incrementa access_count pelo id que o Chroma devolveu
+                if i < len(ids):
                     try:
                         collection.update(
-                            ids=[metadata["id"]],
+                            ids=[ids[i]],
                             metadatas=[{**metadata, "access_count": metadata.get("access_count", 0) + 1}]
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("Falha ao atualizar access_count de %s: %s", ids[i], exc)
             
             # Ordena por relevância (distância + importância)
             memories.sort(key=lambda m: m["distance"] / (m["metadata"].get("importance", 1.0) + 0.1))
@@ -170,6 +197,22 @@ class SemanticMemory:
             logger.error(f"Falha ao buscar memórias: {e}")
             return []
     
+    def delete_where(self, collection_name: str, where: dict[str, Any]) -> int:
+        """Remove os itens cujo metadata casa com ``where``. Retorna quantos saíram."""
+        if not self.client or not where:
+            return 0
+        collection = self.get_or_create_collection(collection_name)
+        if not collection:
+            return 0
+        try:
+            ids = (collection.get(where=where) or {}).get("ids") or []
+            if ids:
+                collection.delete(ids=ids)
+            return len(ids)
+        except Exception as e:
+            logger.error(f"Falha ao remover memórias de {collection_name}: {e}")
+            return 0
+
     def delete_collection(self, collection_name: str) -> bool:
         """Deleta uma coleção."""
         if not self.client:
