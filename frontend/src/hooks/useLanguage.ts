@@ -1,6 +1,7 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import type { ChatMessage, VocabCard, PronunciationAttempt, LanguageDashboard } from '../types'
 import { speechLang } from '../utils/speechLang'
+import { alignWords } from '../utils/pronunciation'
 
 type SetNotice = (message: string) => void
 
@@ -136,38 +137,18 @@ export function useLanguage(setNotice: SetNotice) {
 
   // ── Pronunciation via Web Speech API ───────────────────────
 
-  const levenshteinSimilarity = (a: string, b: string): number => {
-    const la = a.toLowerCase().replace(/[.,!?;:'"()\-]/g, '').trim()
-    const lb = b.toLowerCase().replace(/[.,!?;:'"()\-]/g, '').trim()
-    if (!la || !lb) return 0
-    const longer = la.length > lb.length ? la : lb
-    const shorter = la.length > lb.length ? lb : la
-    if (longer.length === 0) return 1
-    const matrix: number[][] = []
-    for (let i = 0; i <= shorter.length; i++) {
-      matrix[i] = [i]
-      for (let j = 1; j <= longer.length; j++) {
-        if (i === 0) { matrix[0][j] = j; continue }
-        matrix[i][j] = shorter[i - 1] === longer[j - 1]
-          ? matrix[i - 1][j - 1]
-          : Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1)
-      }
+  const recognitionRef = useRef<any>(null)
+  useEffect(() => () => {
+    const recognition = recognitionRef.current
+    if (recognition) {
+      recognition.onresult = recognition.onerror = recognition.onend = null
+      recognition.abort()
     }
-    const dist = matrix[shorter.length][longer.length]
-    return (longer.length - dist) / longer.length
-  }
-
-  const findWrongWords = (target: string, transcript: string): string[] => {
-    const targetWords = target.toLowerCase().replace(/[.,!?;:'"()\-]/g, '').split(/\s+/).filter(Boolean)
-    const spokenWords = transcript.toLowerCase().replace(/[.,!?;:'"()\-]/g, '').split(/\s+/).filter(Boolean)
-    const wrong: string[] = []
-    for (const tw of targetWords) {
-      if (!spokenWords.includes(tw)) wrong.push(tw)
-    }
-    return wrong
-  }
+  }, [])
 
   const startPronunciation = (target: string, kind: PronunciationKind = 'pronunciation') => {
+    if (!target.trim() || recognitionRef.current) return
+    window.speechSynthesis?.cancel()
     setPronTarget(target)
     setPronTranscript('')
     setPronScore(null)
@@ -182,6 +163,7 @@ export function useLanguage(setNotice: SetNotice) {
     }
 
     const recognition = new SpeechRecognition()
+    recognitionRef.current = recognition
     recognition.lang = speechLang(dashboard?.target_language)
     recognition.interimResults = false
     recognition.maxAlternatives = 1
@@ -189,10 +171,10 @@ export function useLanguage(setNotice: SetNotice) {
     recognition.onresult = async (event: any) => {
       const result = event.results[0][0]
       const transcript = (result.transcript || '').trim()
-      const confidence = result.confidence || 0.8
-      const similarity = levenshteinSimilarity(target, transcript)
-      const score = Math.round((similarity * 0.7 + confidence * 0.3) * 100)
-      const wrong = findWrongWords(target, transcript)
+      const confidence = result.confidence ?? 0
+      const words = alignWords(target, transcript)
+      const score = words.length ? Math.round(words.reduce((total, word) => total + word.score, 0) / words.length) : 0
+      const wrong = words.filter(word => word.score < 80).map(word => word.word)
 
       setPronTranscript(transcript)
       setPronScore(score)
@@ -202,17 +184,19 @@ export function useLanguage(setNotice: SetNotice) {
       // Save to backend
       try {
         if (kind === 'shadowing') {
-          await fetch('/api/language/shadowing', {
+          const response = await fetch('/api/language/shadowing', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text: target, score, speed: 0.85 }),
           })
+          if (!response.ok) throw new Error('save_failed')
         } else {
-          await fetch('/api/language/pronunciation', {
+          const response = await fetch('/api/language/pronunciation', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ target, transcript, score, confidence, wrong_words: wrong }),
           })
+          if (!response.ok) throw new Error('save_failed')
         }
       } catch {
         setNotice('Não foi possível salvar a prática.')
@@ -226,7 +210,12 @@ export function useLanguage(setNotice: SetNotice) {
     }
 
     recognition.onspeechend = () => recognition.stop()
-    recognition.start()
+    recognition.onend = () => { recognitionRef.current = null; setPronListening(false) }
+    try { recognition.start() } catch {
+      recognitionRef.current = null
+      setPronListening(false)
+      setNotice('Não foi possível acessar o microfone.')
+    }
   }
 
   // ── Conversation with AI ───────────────────────────────────

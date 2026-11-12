@@ -6,6 +6,7 @@ import { useNextDueRefresh } from '../hooks/useNextDueRefresh'
 import { MessageContent } from '../components/MessageContent'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { languageName, speechLang } from '../utils/speechLang'
+import { PronunciationFeedback } from '../components/study/PronunciationFeedback'
 
 const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
 const CATEGORIES = ['general', 'travel', 'work', 'food', 'health', 'technology', 'social', 'academic']
@@ -38,6 +39,16 @@ const PRONUNCIATION_PHRASES: Record<string, string[]> = {
     'She thoroughly thought through the methodology before proceeding.',
     'The entrepreneurial ecosystem has grown substantially in recent years.',
     'Psychological research suggests that multilingualism enhances cognitive flexibility.',
+  ],
+  C1: [
+    'Notwithstanding the compelling evidence, the committee remained reluctant to endorse the proposal.',
+    'The implications of this unprecedented development warrant a thorough reassessment of our assumptions.',
+    'Had the negotiations proceeded differently, a mutually beneficial compromise might have been reached.',
+  ],
+  C2: [
+    'The ostensibly innocuous remark belied a profound ambivalence towards institutional accountability.',
+    'Seldom has the interplay between linguistic nuance and cultural identity been so eloquently articulated.',
+    'Her perspicacious critique exposed the inherent contradictions underpinning the prevailing orthodoxy.',
   ],
 }
 
@@ -114,6 +125,14 @@ export function LanguagePage(props: LanguagePageProps) {
   const [shadowIdx, setShadowIdx] = useState(0)
   const [pendingDelete, setPendingDelete] = useState<VocabCard | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const speechSequence = useRef(0)
+  const [speaking, setSpeaking] = useState(false)
+  useEffect(() => {
+    speechSequence.current++
+    window.speechSynthesis?.cancel()
+    setSpeaking(false)
+    return () => { speechSequence.current++; window.speechSynthesis?.cancel() }
+  }, [activeTab])
   const targetName = languageName(dashboard?.target_language)
   const hasUserMessage = props.langMessages.some(m => m.role === 'user')
 
@@ -148,15 +167,23 @@ export function LanguagePage(props: LanguagePageProps) {
     }
   }
 
-  const speakPhrase = (text: string) => {
+  const speakPhrase = (text: string, thenRecord = false) => {
     if (!window.speechSynthesis) {
       props.setNotice('Seu navegador não suporta síntese de voz.')
       return
     }
+    const sequence = ++speechSequence.current
     window.speechSynthesis.cancel()
     const utterance = new SpeechSynthesisUtterance(text)
     utterance.lang = speechLang(dashboard?.target_language)
     utterance.rate = 0.85
+    setSpeaking(true)
+    utterance.onend = () => {
+      if (sequence !== speechSequence.current) return
+      setSpeaking(false)
+      if (thenRecord) props.startPronunciation(text, activeTab === 'shadowing' ? 'shadowing' : 'pronunciation')
+    }
+    utterance.onerror = () => { if (sequence === speechSequence.current) { setSpeaking(false); props.setNotice('Não foi possível reproduzir a referência. Tente novamente.') } }
     window.speechSynthesis.speak(utterance)
   }
 
@@ -349,6 +376,7 @@ export function LanguagePage(props: LanguagePageProps) {
 
             {props.pronScore !== null && (
               <div className="lang-score">
+                <PronunciationFeedback target={props.pronTarget} transcript={props.pronTranscript} onRepeat={text => speakPhrase(text, true)} />
                 <span className={`lang-score-value ${scoreClass(props.pronScore)}`}>
                   {props.pronScore}%
                 </span>
@@ -443,10 +471,10 @@ export function LanguagePage(props: LanguagePageProps) {
                 onClick={() => {
                   const phrase = phrases[shadowIdx % phrases.length]
                   props.setPronTarget(phrase)
-                  props.startPronunciation(phrase, 'shadowing')
+                  speakPhrase(phrase, true)
                 }}
-                disabled={props.pronListening}
-                title="Gravar shadowing"
+                disabled={props.pronListening || speaking}
+                title="Ouvir referência e depois gravar shadowing"
               >
                 {props.pronListening ? '⏺' : '🎙'}
               </button>
@@ -461,6 +489,7 @@ export function LanguagePage(props: LanguagePageProps) {
 
             {props.pronScore !== null && (
               <div className="lang-score" style={{ textAlign: 'center' }}>
+                <PronunciationFeedback target={props.pronTarget} transcript={props.pronTranscript} onRepeat={text => speakPhrase(text, true)} />
                 <span className={`lang-score-value ${scoreClass(props.pronScore)}`}>{props.pronScore}%</span>
                 <div className="lang-transcript">
                   <p style={{ margin: '4px 0 0' }}>
