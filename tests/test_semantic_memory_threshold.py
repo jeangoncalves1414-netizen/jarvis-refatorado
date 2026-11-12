@@ -54,6 +54,7 @@ def test_embedding_function_is_single_switch_point(monkeypatch, tmp_path):
 
     memory = SemanticMemory.__new__(SemanticMemory)
     memory.client, memory._collections = Client(), {}
+    monkeypatch.setattr(module, "embedding_function", lambda: None)
     memory.get_or_create_collection("a")
     assert "embedding_function" not in calls[-1]
     sentinel = object()
@@ -62,7 +63,7 @@ def test_embedding_function_is_single_switch_point(monkeypatch, tmp_path):
     assert calls[-1]["embedding_function"] is sentinel
 
 
-_ONNX = Path.home() / ".cache" / "chroma" / "onnx_models" / "all-MiniLM-L6-v2"
+_ONNX = Path(__file__).resolve().parents[1] / "data/models/multilingual-minilm/onnx/model.onnx"
 
 
 @pytest.mark.skipif(not module.CHROMADB_AVAILABLE or not _ONNX.exists(), reason="Chroma ou modelo ONNX ausente")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 import time
 from pathlib import Path
 from typing import Any, List
@@ -28,15 +29,11 @@ USER_MEMORY_MAX_DISTANCE = 0.45
 _NO_EXPIRY_COLLECTIONS = frozenset({"user_memory"})
 
 
+@lru_cache(maxsize=1)
 def embedding_function() -> Any:
-    """Ponto único de escolha do modelo de embedding de todas as coleções.
-
-    ``None`` mantém o padrão do Chroma (all-MiniLM-L6-v2, ONNX local). Trocar o modelo
-    (ex.: paraphrase-multilingual-MiniLM-L12-v2) exige reindexar as coleções existentes,
-    porque vetores de modelos diferentes não são comparáveis; reajuste também
-    ``USER_MEMORY_MAX_DISTANCE``.
-    """
-    return None
+    """Modelo multilíngue local; nunca baixa pesos durante um turno."""
+    from app.storage.vector.multilingual_embedding import MultilingualEmbedding
+    return MultilingualEmbedding()
 
 
 def is_technical_error_memory(text: str) -> bool:
