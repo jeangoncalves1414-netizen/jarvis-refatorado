@@ -251,15 +251,14 @@ export function useChat(options: UseChatOptions = {}) {
     }, 18)
   }
 
-  const refreshSessions = async () => {
-    const requestMutation = sessionMutationRef.current
+  const listMutation = useRef(0)
+  const refreshSessions = async (): Promise<ChatSession[]> => {
+    const requestMutation = listMutation.current
     const response = await fetch('/api/sessions')
     const data = await response.json()
     const items = (data.sessions || []).filter(sessionFilter) as ChatSession[]
-    setSessions(previous => {
-      if (requestMutation === sessionMutationRef.current) return items
-      return previous
-    })
+    if (requestMutation !== listMutation.current) return refreshSessions()
+    setSessions(items)
     return items as ChatSession[]
   }
 
@@ -331,6 +330,7 @@ export function useChat(options: UseChatOptions = {}) {
     const data = await response.json().catch(() => ({}))
     if (!response.ok || !data.id) throw new Error(data.error || 'Não foi possível criar uma sessão.')
     const created = (data.session || { id: data.id, title, type: 'chat' }) as ChatSession
+    listMutation.current += 1
     setSessions(previous => [created, ...previous.filter(item => item.id !== created.id)])
     setSessionId(data.id)
     if (forSend) writeDraft(draftSession.current, '')
@@ -349,6 +349,7 @@ export function useChat(options: UseChatOptions = {}) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
     })
     sessionMutationRef.current += 1
+    listMutation.current += 1
     if (restore) await refreshSessions()
     else {
       setSessions(current => current.filter(row => !ids.includes(row.id)))
@@ -365,6 +366,7 @@ export function useChat(options: UseChatOptions = {}) {
       setAnswer('Não foi possível excluir a conversa.')
       return
     }
+    listMutation.current += 1
     setSessions(previous => previous.filter(item => item.id !== id))
     sessionMutationRef.current += 1
     if (activeSessionRef.current === id) {

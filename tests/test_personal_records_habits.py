@@ -159,3 +159,20 @@ def test_real_payload_from_report_works():
     
     assert result.ok
     assert len(result.data.get("habit_ids", [])) >= 2
+
+
+def test_delete_selected_habits_validates_all_ids_and_supports_undo():
+    tool = ToolRegistry().get_tool("personal_records")
+    created = tool.execute({"action": "create", "kind": "habit", "fields": {
+        "habits": [{"name": name} for name in ("Ler", "Meditar", "Caminhar")]}})
+    ids = created.data["habit_ids"]
+    def remove(selected):
+        return tool.execute({"action": "delete_many", "kind": "habit", "record_ids": selected})
+    def live_ids():
+        return {row["id"] for row in tool.execute({"action": "list", "kind": "habit"}).data["results"]}
+    assert not remove([ids[0], "inexistente"]).ok
+    assert set(ids) <= live_ids()
+    result = remove(ids[:2])
+    assert result.ok and ids[2] in live_ids() and not set(ids[:2]) & live_ids()
+    assert tool.execute({"action": "undo", "receipt_id": result.data["personal_receipt"]["id"]}).ok
+    assert set(ids) <= live_ids()
