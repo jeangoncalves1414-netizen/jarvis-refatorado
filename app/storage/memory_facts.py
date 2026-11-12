@@ -194,6 +194,8 @@ def delete(fact_id: str) -> dict[str, Any]:
         if fact is None:
             raise ValueError("Memória não encontrada.")
         fact["deleted_at"] = fact["updated_at"] = time.time()
+        from app.storage import sync_tombstones
+        sync_tombstones.record("memory_facts", fact_id, fact["deleted_at"])
         _write(facts)
         return dict(fact)
 

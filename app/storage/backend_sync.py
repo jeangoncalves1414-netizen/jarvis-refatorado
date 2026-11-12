@@ -272,10 +272,12 @@ def _union(first: list[Any], second: list[Any]) -> list[Any]:
     return result
 
 
-def merge_memory(local: Any, remote: Any) -> dict[str, list[Any]]:
+def merge_memory(local: Any, remote: Any, tombstones: tomb.Tombstones | None = None) -> dict[str, list[Any]]:
     left, right = _dict(local), _dict(remote)
     return {
-        name: _union(_list(left.get(name)), _list(right.get(name)))
+        name: [item for item in _union(_list(left.get(name)), _list(right.get(name)))
+               if not tomb.covers(tombstones or {}, "memory." + name, tomb.memory_key(item),
+                                  _latest_stamp(item, _TASK_STAMPS) if isinstance(item, dict) else 0)]
         for name in ("facts", "preferences", "user_preferences")
     }
 
@@ -583,6 +585,7 @@ def _apply_lifestyle(merged: dict[str, list[dict[str, Any]]]) -> int:
 # Snapshot completo
 # ---------------------------------------------------------------------------
 def collect_snapshot() -> dict[str, Any]:
+    from app.storage import memory_facts
     return {
         "schema": SCHEMA_VERSION,
         "collected_at": int(time.time() * 1000),
@@ -590,6 +593,7 @@ def collect_snapshot() -> dict[str, Any]:
         "tasks": _collect_tasks(),
         "goals": _collect_goals(),
         "memory": _collect_memory(),
+        "memory_facts": {f["id"]: f for f in memory_facts.list_facts(include_deleted=True)},
         "notes": _collect_notes(),  # antes das lápides: registra notas apagadas na pasta
         "lifestyle": _collect_lifestyle(),
         "tombstones": tomb.load(),
@@ -605,7 +609,8 @@ def merge_snapshots(local: Any, remote: Any) -> dict[str, Any]:
         "settings": merge_settings_fields(_dict(left.get("settings")), _dict(right.get("settings"))),
         "tasks": drop_deleted_records(merge_records(left.get("tasks"), right.get("tasks")), tombstones, "tasks"),
         "goals": merge_records(left.get("goals"), right.get("goals")),
-        "memory": merge_memory(left.get("memory"), right.get("memory")),
+        "memory": merge_memory(left.get("memory"), right.get("memory"), tombstones),
+        "memory_facts": drop_deleted_records(merge_records(left.get("memory_facts"), right.get("memory_facts")), tombstones, "memory_facts"),
         "notes": drop_deleted_notes(merge_notes(left.get("notes"), right.get("notes")), tombstones),
         "lifestyle": drop_deleted_rows(merge_lifestyle(left.get("lifestyle"), right.get("lifestyle")), tombstones),
         "tombstones": tombstones,
@@ -624,7 +629,12 @@ def apply_snapshot(snapshot: dict[str, Any]) -> dict[str, int]:
     }
     _apply_tasks(drop_deleted_records(_dict(snapshot.get("tasks")), tombstones, "tasks"))
     _apply_goals(_dict(snapshot.get("goals")))
-    _apply_memory(merge_memory(snapshot.get("memory"), {}))
+    _apply_memory(merge_memory(snapshot.get("memory"), {}, tombstones))
+    if "memory_facts" in snapshot:
+        from app.storage import memory_facts
+        with memory_facts._lock:
+            facts = drop_deleted_records(_dict(snapshot.get("memory_facts")), tombstones, "memory_facts")
+            memory_facts._write(list(facts.values()))
     summary["notes_deleted"] = _apply_notes(drop_deleted_notes(_dict(snapshot.get("notes")), tombstones), tombstones)
     summary["lifestyle_rows_deleted"] = _delete_lifestyle_rows(tombstones)
     summary["lifestyle_rows_written"] = _apply_lifestyle(drop_deleted_rows(_dict(snapshot.get("lifestyle")), tombstones))

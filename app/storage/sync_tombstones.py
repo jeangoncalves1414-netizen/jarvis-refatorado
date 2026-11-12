@@ -19,6 +19,7 @@ Regras:
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import math
@@ -35,6 +36,7 @@ TOMBSTONES_FILE = Path("data/sync_tombstones.json")
 KINDS = frozenset(
     {
         "tasks",  # tarefas de data/tasks.json (id)
+        "memory.facts", "memory.preferences", "memory.user_preferences", "memory_facts",
         "notes",  # notas do cofre (caminho relativo .md)
         "lifestyle.habits",  # hábitos (JSON da identidade da linha)
         "lifestyle.habit_logs",
@@ -94,6 +96,10 @@ def merge(first: Any, second: Any, now: float | None = None) -> Tombstones:
 def row_key(*parts: Any) -> str:
     """Chave de uma linha do SQLite: lista JSON dos valores de identidade (mesma de backend_sync)."""
     return json.dumps(list(parts), ensure_ascii=False)
+
+
+def memory_key(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 def covers(tombstones: Tombstones, kind: str, key: str, stamp: float) -> bool:
