@@ -130,14 +130,14 @@ def test_voice_phrase_runs_routine_without_calling_the_model(registry, quiet_run
     assert plan.context["routine_run_id"].startswith("run_")
     assert agent._run_routine_phrase("o que √© modo foco?", "general") is None
 def test_routine_not_offered_for_habit_without_rotina(registry):
-    '''C3: routine absent for 'Crie o h·bito de acordar ‡s 5:00 todo dia' (groq and narrow).'''
+    '''C3: routine absent for 'Crie o h√°bito de acordar √†s 5:00 todo dia' (groq and narrow).'''
     # Groq provider
-    allowed_groq = registry.allowed_tool_names(mode='general', provider='groq', user_text='Crie o h·bito de acordar ‡s 5:00 todo dia')
+    allowed_groq = registry.allowed_tool_names(mode='general', provider='groq', user_text='Crie o h√°bito de acordar √†s 5:00 todo dia')
     assert 'routine' not in allowed_groq
     assert 'personal_records' in allowed_groq or 'habit_tool' in allowed_groq
     
     # Narrow (loop) mode
-    allowed_narrow = registry.allowed_tool_names(mode='general', provider='gemini', user_text='Crie o h·bito de acordar ‡s 5:00 todo dia', narrow=True)
+    allowed_narrow = registry.allowed_tool_names(mode='general', provider='gemini', user_text='Crie o h√°bito de acordar √†s 5:00 todo dia', narrow=True)
     assert 'routine' not in allowed_narrow
 
 

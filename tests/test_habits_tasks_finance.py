@@ -229,22 +229,22 @@ def test_habit_creation_idempotent(isolated_lote6_data):
     '''C1: Creating same habit twice (by normalize_name) returns existing.'''
     tool = HabitTool()
     
-    # Create 'Beber 2\u202fL de água'
-    res1 = tool.run(action='create', name='Beber 2\u202fL de água', habit_id='h_water1')
+    # Create 'Beber 2\u202fL de Ã¡gua'
+    res1 = tool.run(action='create', name='Beber 2\u202fL de Ã¡gua', habit_id='h_water1')
     assert res1['ok']
     id1 = res1['habit_ids'][0]
     
     # Create 'beber 2 L de agua' (same normalized) - should return existing
     res2 = tool.run(action='create', name='beber 2 L de agua')
     assert res2['ok']
-    assert 'já existia' in res2['message']
+    assert 'jÃ¡ existia' in res2['message']
     assert res2['habit_ids'][0] == id1
     
     # create_many with repeated names within batch
     res3 = tool.run(action='create_many', habits=[
         {'name': 'Teste Repetido'},
         {'name': 'Teste repetido'},  # Same normalized name
-        {'name': 'Outro Hábito'},
+        {'name': 'Outro HÃ¡bito'},
     ])
     assert res3['ok']
     # Should create only 2 (deduped within batch)
