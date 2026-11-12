@@ -188,7 +188,7 @@ export function LanguagePage(props: LanguagePageProps) {
   }
 
   return (
-    <div className="study-overlay-panel" style={{ maxHeight: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <div className="study-overlay-panel language-page-overlay" style={{ maxHeight: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       {/* Toolbar */}
       <nav className="lang-toolbar" aria-label="Modos de idioma">
         {LANG_MODES.map(mode => (
@@ -463,7 +463,11 @@ export function LanguagePage(props: LanguagePageProps) {
             </p>
 
             <div className="lang-shadowing-phrase">
-              {phrases[shadowIdx % phrases.length]}
+              {props.pronAttempt?.kind === 'shadowing' && props.pronAttempt.target === phrases[shadowIdx % phrases.length]
+                ? <PronunciationFeedback target={props.pronAttempt.target} transcript={props.pronTranscript} threshold={threshold} onRepeat={text => speakPhrase(text)} />
+                : phrases[shadowIdx % phrases.length].split(/(\s+)/).map((part, index) => /\s/.test(part)
+                  ? part
+                  : <button type="button" className="lang-word-feedback lang-word-neutral" key={index} onClick={() => speakPhrase(part)}>{part}</button>)}
             </div>
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14 }}>
@@ -499,8 +503,8 @@ export function LanguagePage(props: LanguagePageProps) {
 
             {props.pronAttempt?.kind === activeTab && props.pronScore !== null && (
               <div className="lang-score" style={{ textAlign: 'center' }}>
-                <PronunciationFeedback target={props.pronAttempt.target} transcript={props.pronTranscript} threshold={threshold} onRepeat={text => speakPhrase(text, true)} />
                 <span className={`lang-score-value ${scoreClass(props.pronScore, threshold)}`}>{props.pronScore}%</span>
+                <p className="lang-transcript">Você disse: {props.pronTranscript || 'Nenhuma palavra detectada.'}</p>
               </div>
             )}
           </>

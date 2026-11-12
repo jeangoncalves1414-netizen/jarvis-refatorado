@@ -1864,6 +1864,7 @@ form button,.source-row button { border:0; border-radius:11px; padding:0 20px; f
 .study-context-menu button { border:0; border-radius:8px; padding:9px 10px; color:#e6e8ee; text-align:left; background:transparent; font:600 12px Manrope,sans-serif; }.study-context-menu button:hover { color:#071216; background:var(--jarvis-cyan); }.study-context-menu .study-context-danger { color:#ffb0b0; }.study-context-menu .study-context-danger:hover { color:white; background:#a93642; }.study-context-separator { height:1px; margin:4px 2px; background:#ffffff16; }
 @keyframes study-context-in { from { opacity:0; transform:translateY(4px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
 .study-overlay-panel { position: absolute; bottom: 12px; right: 12px; width: min(360px, calc(100% - 24px)); max-height: 50%; overflow-y: auto; padding: 14px; border-radius: 14px; border: 1px solid rgba(0,218,248,0.25); background: rgba(10,10,16,0.92); backdrop-filter: blur(16px); z-index: 10; }
+.language-page-overlay { top:50%; right:auto; bottom:auto; left:50%; width:min(680px, calc(100% - 48px)); max-height:calc(100% - 48px); padding:0; transform:translate(-50%, -50%); }
 .study-enem-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
 .study-enem-tabs button { flex: 1; border: 0; border-radius: 8px; padding: 6px 10px; font-size: 11px; color: #888; background: rgba(255,255,255,0.05); cursor: pointer; }
 .study-enem-tabs button.study-tab-active { background: var(--jarvis-accent-soft); color: var(--jarvis-cyan); }
@@ -5167,6 +5168,7 @@ body.floating-overlay-active {
 .lang-toolbar button { border:0; border-radius:8px; padding:6px 10px; font-size:11px; color:#888; background:transparent; cursor:pointer; display:flex; align-items:center; gap:4px; }
 .lang-toolbar button.lang-mode-active { background:var(--jarvis-accent-soft); color:var(--jarvis-cyan); }
 .lang-panel { padding:20px; overflow-y:auto; max-height:520px; }
+.language-page-overlay .lang-panel { flex:1; max-height:none; }
 .lang-dashboard-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:14px; }
 .lang-stat { padding:14px; border-radius:12px; background:#111117; text-align:center; }
 .lang-stat b { display:block; color:var(--jarvis-cyan); font-size:20px; }
@@ -5191,8 +5193,10 @@ body.floating-overlay-active {
 .lang-score-good { color:#4caf50; }
 .lang-score-ok { color:#ff9800; }
 .lang-score-bad { color:#f44336; }
-.lang-word-feedback { border:0; border-radius:7px; padding:5px 7px; background:#191923; cursor:pointer; font:inherit; }
-.lang-word-feedback:hover { outline:1px solid currentColor; }
+.lang-feedback-phrase { display:inline; }
+.lang-word-feedback { border:0; border-radius:5px; padding:0 2px; background:transparent; cursor:pointer; font:inherit; line-height:inherit; }
+.lang-word-feedback:hover { background:color-mix(in srgb, currentColor 12%, transparent); text-decoration:underline; }
+.lang-word-neutral { color:#e8e8f0; }
 .lang-threshold { display:grid; gap:6px; margin:10px 0 14px; color:#cfcfd7; font-size:12px; }
 .lang-threshold input { accent-color:var(--jarvis-cyan); }
 .lang-threshold small,.lang-coach-copy { color:#9696a2; font-size:12px; line-height:1.55; }
@@ -5205,7 +5209,7 @@ body.floating-overlay-active {
 .lang-streak b { color:var(--jarvis-cyan); font-size:16px; }
 .lang-xp-bar { height:6px; border-radius:3px; background:#1a1a24; margin-top:8px; overflow:hidden; }
 .lang-xp-fill { height:100%; border-radius:3px; background:var(--jarvis-cyan); transition:width 0.3s; }
-.lang-shadowing-phrase { padding:20px; border-radius:12px; background:#111117; font-size:18px; color:#e8e8f0; line-height:1.6; margin-top:14px; text-align:center; }
+.lang-shadowing-phrase { padding:20px; border-radius:12px; background:#111117; font-size:18px; color:#e8e8f0; line-height:1.8; margin-top:14px; text-align:center; }
 .lang-play-btn { border:1px solid var(--jarvis-cyan); border-radius:8px; padding:8px 16px; color:var(--jarvis-cyan); background:rgba(0,218,248,0.06); font-size:12px; cursor:pointer; }
 .lang-play-btn:hover { background:rgba(0,218,248,0.12); }
 /* ── Pomodoro Timer ───────────────────────────────────── */
