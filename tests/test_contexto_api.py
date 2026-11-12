@@ -140,3 +140,15 @@ def test_home_entities_and_action_routes(isolated_lote6_data, monkeypatch):
     status, data = home_action_post({"operation": "turn_on", "entity": "lock.porta"})
     assert status == 200 and data["pending"] is True
     assert data["pending_action_id"] is not None
+
+
+def test_delete_selected_memories_cleans_index_and_keeps_other_facts(isolated_lote6_data):
+    from app.ui.panel.api.contexto import _facts_post
+    from unittest.mock import Mock
+    ids = [facts_post({"operation": "save", "text": text})[1]["fact"]["id"]
+           for text in ("Gosto de azul", "Coleciono livros", "Tenho um gato")]
+    index = Mock()
+    status, result = _facts_post({"operation": "delete_many", "ids": [ids[0], ids[0], ids[1]]}, index)
+    assert status == 200 and result["ids"] == ids[:2]
+    assert index.delete_where.call_count == 2
+    assert [f["id"] for f in handle_contexto_get(["api", "memories", "facts"], None)[1]["facts"]] == ids[2:]

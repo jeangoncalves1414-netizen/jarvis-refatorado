@@ -60,7 +60,7 @@ def _json(body: bytes) -> Any:
         raise ValueError("JSON inválido.") from None
 
 
-def _facts_post(payload: Any) -> tuple[int, dict[str, Any]]:
+def _facts_post(payload: Any, semantic=None) -> tuple[int, dict[str, Any]]:
     from app.services import memory_kernel
     from app.storage import memory_facts
 
@@ -69,13 +69,29 @@ def _facts_post(payload: Any) -> tuple[int, dict[str, Any]]:
     operation = payload.get("operation")
     text = payload.get("text")
     fact_id = payload.get("id")
+    if operation in ("delete", "delete_many"):
+        ids = [fact_id] if operation == "delete" else payload.get("ids")
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
+            return 400, {"ok": False, "error": "Selecione memórias válidas."}
+        live_ids = {f["id"] for f in memory_facts.list_facts()}
+        if any(i not in live_ids for i in ids):
+            return 400, {"ok": False, "error": "Memória não encontrada."}
+        removed = []
+        for item in dict.fromkeys(ids):
+            result = memory_kernel.delete_via_kernel(item, origin="window")
+            if not result.get("ok"):
+                return 400, {**result, "error": f"{len(removed)} removida(s). {result.get('error', 'Falha ao remover.')}", "ids": removed}
+            removed.append(item)
+            if semantic is not None:
+                semantic.delete_where("user_memory", {"fact_id": item})
+        return 200, {**result, "ids": removed}
     if operation in ("save", "update"):
         clean = " ".join(str(text or "").split()) if isinstance(text, str) else ""
         if not clean:
             return 400, {"ok": False, "error": "Escreva o texto da memória."}
         if len(clean) > memory_facts.MAX_TEXT:
             return 400, {"ok": False, "error": f"A memória pode ter no máximo {memory_facts.MAX_TEXT} caracteres."}
-    if operation in ("update", "delete"):
+    if operation == "update":
         live = memory_facts.get(fact_id) if isinstance(fact_id, str) else None
         if live is None or live.get("deleted_at"):
             return 400, {"ok": False, "error": "Memória não encontrada."}
@@ -83,8 +99,6 @@ def _facts_post(payload: Any) -> tuple[int, dict[str, Any]]:
         result = memory_kernel.save_via_kernel(clean, kind="manual", session_id="", origin="window")
     elif operation == "update":
         result = memory_kernel.update_via_kernel(fact_id, clean, origin="window")
-    elif operation == "delete":
-        result = memory_kernel.delete_via_kernel(fact_id, origin="window")
     else:
         return 400, {"ok": False, "error": "Operação desconhecida: use save, update ou delete."}
     return (200 if result.get("ok") else 400), result
@@ -103,7 +117,8 @@ def handle_contexto_post(path: str, body: bytes, handler: Any) -> tuple[int, dic
             return 400, {"ok": False, "error": str(exc)}
     if path in _FACTS_PATHS:
         try:
-            return _facts_post(_json(body))
+            from app.ui.panel import server
+            return _facts_post(_json(body), getattr(server._orchestrator, "semantic_memory", None))
         except ValueError as exc:
             return 400, {"ok": False, "error": str(exc)}
     if path in _HA_SETTINGS_PATHS:

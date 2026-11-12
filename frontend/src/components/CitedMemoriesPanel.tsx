@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ConfirmDialog } from './ConfirmDialog'
+import { confirmRemoval } from './AutoApprovals'
 
 /** Memória com fonte (fase contexto 2): mesmo formato de data/memory_facts.json. */
 type CitedFact = {
@@ -33,7 +33,9 @@ export function CitedMemoriesPanel() {
   const [info, setInfo] = useState('')
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string[]>([])
+  const [filter, setFilter] = useState('')
+  const visible = facts.filter(fact => fact.text.toLocaleLowerCase().includes(filter.trim().toLocaleLowerCase()))
   const [focusId, setFocusId] = useState<string | null>(() => {
     try {
       const value = sessionStorage.getItem(MEMORY_FOCUS_KEY)
@@ -78,7 +80,7 @@ export function CitedMemoriesPanel() {
     document.getElementById(`mem-fact-${focusId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }, [focusId, loading])
 
-  const send = async (payload: Record<string, string>, done: string) => {
+  const send = async (payload: Record<string, unknown>, done: string) => {
     setBusy(true)
     setInfo('')
     try {
@@ -94,6 +96,20 @@ export function CitedMemoriesPanel() {
       return false
     } finally {
       setBusy(false)
+    }
+  }
+
+  const remove = async (ids: string[]) => {
+    if (!ids.length || busy) return
+    if (!await confirmRemoval(ids.length, `Remover ${ids.length} memória(s) selecionada(s)?`)) return
+    if (await send({ operation: 'delete_many', ids }, `${ids.length} memória(s) removida(s).`)) setSelected([])
+    else {
+      const response = await fetch('/api/memories/facts').catch(() => null)
+      if (response?.ok) {
+        const { facts: current } = await response.json()
+        setFacts(current)
+        setSelected(previous => previous.filter(id => current.some((item: CitedFact) => item.id === id)))
+      }
     }
   }
 
@@ -113,34 +129,30 @@ export function CitedMemoriesPanel() {
       {info && !error && <p className="mem-info">{info}</p>}
       {loading ? <p className="empty-state">Carregando…</p> : facts.length ? (
         <div className="mem-list">
-          {facts.map(fact => {
+          <label>Buscar memórias <input type="search" value={filter} onChange={e => setFilter(e.target.value)} /></label>
+          <div className="mem-actions">
+            <button disabled={busy || !visible.length} onClick={() => setSelected(visible.map(f => f.id))}>Selecionar resultados ({visible.length})</button>
+            <button disabled={!selected.length || busy} onClick={() => setSelected([])}>Limpar seleção</button>
+            <button disabled={!selected.length || busy} onClick={() => void remove(selected)}>Excluir selecionadas ({selected.length})</button>
+          </div>
+          {visible.map(fact => {
             const draft = drafts[fact.id] ?? fact.text
             const changed = draft.trim() !== fact.text
             return (
               <article key={fact.id} id={`mem-fact-${fact.id}`} className={`mem-item ${focusId === fact.id ? 'mem-item-focus' : ''}`}>
+                <label><input type="checkbox" checked={selected.includes(fact.id)} onChange={e => setSelected(current => e.target.checked ? [...current, fact.id] : current.filter(id => id !== fact.id))} /> Selecionar memória</label>
                 <span className="mem-source">{sourceLine(fact)}</span>
                 <textarea value={draft} maxLength={300} aria-label="Texto da memória" onChange={event => setDrafts(current => ({ ...current, [fact.id]: event.target.value }))} />
                 {fact.slot && fact.value && <span className="mem-slot">Preenche: {fact.slot === 'music' ? 'música' : fact.slot === 'city' ? 'cidade' : 'app'} = {fact.value}{fact.when ? ` (${fact.when === 'manha' ? 'manhã' : fact.when})` : ''}</span>}
                 <div className="mem-actions">
                   <button type="button" className="ws-button" disabled={busy || !changed || !draft.trim()} onClick={() => void send({ operation: 'update', id: fact.id, text: draft }, 'Memória atualizada.')}>Salvar</button>
-                  <button type="button" className="ws-button danger" disabled={busy} onClick={() => setConfirmId(fact.id)}>Remover</button>
+                  <button type="button" className="ws-button danger" disabled={busy} onClick={() => void remove([fact.id])}>Remover</button>
                 </div>
               </article>
             )
           })}
         </div>
       ) : <p className="empty-state">Nenhuma memória com fonte ainda. Diga "lembra que…" ou "prefiro…" no chat, ou adicione aqui.</p>}
-      {confirmId && (
-        <ConfirmDialog
-          title="Remover memória?"
-          message="O Jarvis deixa de usar esta preferência. A remoção fica registrada na Central."
-          confirmLabel="Remover"
-          danger
-          busy={busy}
-          onCancel={() => setConfirmId(null)}
-          onConfirm={async () => { await send({ operation: 'delete', id: confirmId }, 'Memória removida.'); setConfirmId(null) }}
-        />
-      )}
     </div>
   )
 }

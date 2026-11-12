@@ -161,6 +161,12 @@ class SemanticMemory:
                 metadata = (results["metadatas"][0][i] if results["metadatas"] else None) or {}
                 distance = results["distances"][0][i] if results["distances"] else 0
                 
+                if collection_name == "user_memory" and metadata.get("fact_id"):
+                    from app.storage import memory_facts
+                    fact = memory_facts.get(metadata["fact_id"])
+                    from app.storage import sync_tombstones
+                    if (fact and fact.get("deleted_at")) or (fact is None and metadata["fact_id"] in sync_tombstones.load().get("memory_facts", {})):
+                        continue
                 if max_distance is not None and distance > max_distance:
                     continue
                 # Filtra memórias expiradas
