@@ -169,6 +169,7 @@ def handle_language_post(path: str, body: bytes, handler: Any) -> tuple[int, dic
             phonetic=str(payload.get("phonetic", "")),
             category=str(payload.get("category", "general")),
             cefr=str(payload.get("cefr", "")),
+            reversed_card=payload.get("reversed") is True,
         )
         return 200, {"ok": True, "id": card_id}
 

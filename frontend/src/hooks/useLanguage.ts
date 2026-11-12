@@ -114,6 +114,7 @@ export function useLanguage(setNotice: SetNotice) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        reversed: new FormData(e.currentTarget as HTMLFormElement).has("reversed"),
         word: newWord.trim(),
         translation: newTranslation.trim(),
         example: newExample.trim(),

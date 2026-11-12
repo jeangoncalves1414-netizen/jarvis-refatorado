@@ -152,26 +152,25 @@ class LanguageStore:
         phonetic: str = "",
         category: str = "general",
         cefr: str = "",
+        reversed_card: bool = False,
     ) -> str:
         vocab = self._data.setdefault("vocabulary", [])
-        # Avoid duplicates
-        for v in vocab:
-            if v.get("word", "").lower() == word.lower():
-                return v.get("id", "")
-        card_id = f"voc-{uuid.uuid4().hex[:8]}"
-        vocab.append(self._normalize_vocab({
-            "id": card_id,
-            "word": word,
-            "translation": translation,
-            "example": example,
-            "phonetic": phonetic,
-            "category": category or "general",
-            "cefr": cefr or self._data.get("cefr_level", "A1"),
-            "created": str(date.today()),
-            **new_card_fields(),
-        }))
+        original = next((v for v in vocab if not v.get("reverse_of") and
+                         v.get("word", "").casefold() == word.casefold()), None)
+        if original is None:
+            original = self._normalize_vocab({
+                "id": f"voc-{uuid.uuid4().hex}", "word": word, "translation": translation,
+                "example": example, "phonetic": phonetic, "category": category or "general",
+                "cefr": cefr or self._data.get("cefr_level", "A1"), "created": str(date.today()),
+                **new_card_fields(),
+            })
+            vocab.append(original)
+        card_id = original["id"]
+        if reversed_card and not any(v.get("reverse_of") == card_id for v in vocab):
+            vocab.append({**original, **new_card_fields(), "reverse_of": card_id,
+                          "id": f"voc-{uuid.uuid4().hex}"})
         stats = self._data.setdefault("stats", {})
-        stats["total_vocab"] = len(vocab)
+        stats["total_vocab"] = self._word_count()
         self._save()
         return card_id
 
@@ -219,20 +218,23 @@ class LanguageStore:
             return {**card, "review_id": entry["id"]}
         return None
 
+    def _word_count(self) -> int:
+        return len({v.get("reverse_of") or v["id"] for v in self._data.get("vocabulary", [])})
+
     def _count_mastered(self) -> int:
-        return sum(
-            1 for v in self._data.get("vocabulary", [])
+        return len({
+            v.get("reverse_of") or v["id"] for v in self._data.get("vocabulary", [])
             if (v.get("reps") or 0) >= 3 and (v.get("stability") or 0) >= 10
-        )
+        })
 
     def delete_vocabulary(self, card_id: str) -> bool:
         vocab = self._data.setdefault("vocabulary", [])
-        remaining = [v for v in vocab if v.get("id") != card_id]
+        remaining = [v for v in vocab if v.get("id") != card_id and v.get("reverse_of") != card_id]
         if len(remaining) == len(vocab):
             return False
         self._data["vocabulary"] = remaining
         stats = self._data.setdefault("stats", {})
-        stats["total_vocab"] = len(remaining)
+        stats["total_vocab"] = self._word_count()
         stats["vocab_mastered"] = self._count_mastered()
         self._save()
         return True
@@ -251,7 +253,7 @@ class LanguageStore:
             return {"ok": False, "error": "stale"}
         restore(card, entry.get("before") or {})
         stats = self._data.setdefault("stats", {})
-        stats["total_vocab"] = len(self._data.get("vocabulary", []))
+        stats["total_vocab"] = self._word_count()
         stats["vocab_mastered"] = self._count_mastered()
         self._save()
         self.xp.revoke(int(entry.get("xp") or 0), entry.get("local_date"))

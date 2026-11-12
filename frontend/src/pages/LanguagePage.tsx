@@ -105,23 +105,14 @@ function scoreClass(score: number) {
   return 'lang-score-bad'
 }
 
-function highlightTranscript(transcript: string, wrongWords: string[]) {
-  if (!wrongWords.length) return transcript
-  const words = transcript.split(/\s+/)
-  return words.map((w, i) => {
-    const clean = w.toLowerCase().replace(/[.,!?;:'"()\-]/g, '')
-    const isWrong = wrongWords.some(ww => ww.toLowerCase() === clean)
-    return isWrong
-      ? <span key={i} className="lang-wrong-word">{w} </span>
-      : <span key={i}>{w} </span>
-  })
-}
-
 export function LanguagePage(props: LanguagePageProps) {
   const { dashboard } = props
   const level = dashboard?.cefr_level || 'A1'
   const phrases = PRONUNCIATION_PHRASES[level] || PRONUNCIATION_PHRASES.A1
-  const currentCard = props.dueVocab[props.vocabIndex]
+  const currentCard = props.dueVocab[props.vocabIndex] as (VocabCard & {reverse_of?: string}) | undefined
+  const showTranslation = Boolean(currentCard?.reverse_of) !== props.vocabBackVisible
+  const words = props.vocabulary.filter(card => !('reverse_of' in card) || !props.vocabulary.some(v => v.id === card.reverse_of))
+  const [wordLimit, setWordLimit] = useState(30)
 
   const [activeTab, setActiveTab] = useState<LangTab>(props.initialTab || 'home')
   const [shadowIdx, setShadowIdx] = useState(0)
@@ -266,8 +257,8 @@ export function LanguagePage(props: LanguagePageProps) {
             {currentCard ? (
               <>
                 <button type="button" className="lang-card" onClick={() => props.setVocabBackVisible((v: boolean) => !v)}>
-                  <small>{props.vocabBackVisible ? 'TRADUÇÃO' : 'PALAVRA'} · clique para virar</small>
-                  <strong>{props.vocabBackVisible ? currentCard.translation : currentCard.word}</strong>
+                  <small>{showTranslation ? 'TRADUÇÃO' : 'PALAVRA'} · clique para virar</small>
+                  <strong>{showTranslation ? currentCard.translation : currentCard.word}</strong>
                   {props.vocabBackVisible && currentCard.example && (
                     <span style={{ color: '#9696a2', fontSize: 12, fontStyle: 'italic' }}>{currentCard.example}</span>
                   )}
@@ -275,6 +266,7 @@ export function LanguagePage(props: LanguagePageProps) {
                     <span style={{ color: '#abbc7a', fontSize: 11 }}>/{currentCard.phonetic}/</span>
                   )}
                 </button>
+                <button type="button" onClick={() => speakPhrase(currentCard.word)}>Ouvir palavra</button>
                 <div className="grade-actions">
                   <button type="button" onClick={() => props.reviewVocab(0)}><kbd className="review-key">1</kbd> Errei</button>
                   <button type="button" onClick={() => props.reviewVocab(1)}><kbd className="review-key">2</kbd> Difícil</button>
@@ -310,13 +302,15 @@ export function LanguagePage(props: LanguagePageProps) {
               <select value={props.newCategory} onChange={e => props.setNewCategory(e.target.value)}>
                 {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
+              <label><input type="checkbox" name="reversed" defaultChecked /> Criar cartão inverso</label>
               <button type="submit">Adicionar</button>
             </form>
 
             <p className="eyebrow" style={{ marginTop: 20 }}>MINHAS PALAVRAS</p>
-            {props.vocabulary.length ? (
+            {words.length > wordLimit && <button onClick={() => setWordLimit(n => n + 30)}>Mostrar mais palavras</button>}
+            {words.length ? (
               <div className="lang-vocab-list">
-                {props.vocabulary.map(card => (
+                {words.slice(0, wordLimit).map(card => (
                   <div key={card.id} className="lang-vocab-row">
                     <span><b>{card.word}</b> — {card.translation}</span>
                     <button type="button" onClick={() => setPendingDelete(card)} aria-label={`Excluir ${card.word}`}>Excluir</button>
@@ -324,7 +318,7 @@ export function LanguagePage(props: LanguagePageProps) {
                 ))}
               </div>
             ) : (
-              <p className="empty-state">Nenhuma palavra salva ainda.</p>
+              <p className="empty-state">Adicione uma palavra e sua tradução para iniciar a revisão.</p>
             )}
           </>
         )}
@@ -387,12 +381,6 @@ export function LanguagePage(props: LanguagePageProps) {
                 <span style={{ color: '#9696a2', fontSize: 12, marginLeft: 8 }}>
                   {props.pronScore >= 80 ? 'Excelente!' : props.pronScore >= 50 ? 'Bom, continue praticando.' : 'Tente novamente.'}
                 </span>
-                <div className="lang-transcript">
-                  <small style={{ color: '#6e6e7a' }}>Você disse:</small>
-                  <p style={{ margin: '4px 0 0' }}>
-                    {highlightTranscript(props.pronTranscript, props.pronWrongWords)}
-                  </p>
-                </div>
                 {props.pronWrongWords.length > 0 && (
                   <p style={{ color: '#f44336', fontSize: 11, marginTop: 6 }}>
                     Palavras para melhorar: {props.pronWrongWords.join(', ')}
@@ -495,11 +483,6 @@ export function LanguagePage(props: LanguagePageProps) {
               <div className="lang-score" style={{ textAlign: 'center' }}>
                 <PronunciationFeedback target={props.pronTarget} transcript={props.pronTranscript} onRepeat={text => speakPhrase(text, true)} />
                 <span className={`lang-score-value ${scoreClass(props.pronScore)}`}>{props.pronScore}%</span>
-                <div className="lang-transcript">
-                  <p style={{ margin: '4px 0 0' }}>
-                    {highlightTranscript(props.pronTranscript, props.pronWrongWords)}
-                  </p>
-                </div>
               </div>
             )}
           </>
