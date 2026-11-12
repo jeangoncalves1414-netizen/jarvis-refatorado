@@ -9,12 +9,12 @@ import argparse
 import contextlib
 import hashlib
 import json
-import shutil
 import sqlite3
 import sys
 import os
 import stat
 import time
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -40,7 +40,7 @@ def digest(path: Path) -> str:
 
 
 def backup(data: Path, lock_handle=None) -> Path:
-    """Copia todos os arquivos existentes e verifica hashes antes de permitir exclusões."""
+    """Arquiva todos os arquivos e verifica hashes antes de permitir exclusões."""
     files = list(data.rglob("*"))
     for path in files:
         if path.is_symlink() or getattr(path.lstat(), "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
@@ -49,24 +49,36 @@ def backup(data: Path, lock_handle=None) -> Path:
     target = data / ("backup-pre-wipe-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
     target.mkdir()
     manifest = {}
-    for path in files:
-        relative = path.relative_to(data)
-        destination = target / relative
-        if path.is_dir():
-            destination.mkdir(parents=True, exist_ok=True)
-            continue
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if path.name == "action_journal.runtime.lock" and path.parent == data and lock_handle:
-            lock_handle.seek(0)
-            content = lock_handle.read()
-            destination.write_bytes(content)
-            manifest[relative.as_posix()] = hashlib.sha256(content).hexdigest()
-            continue
-        before = digest(path)
-        shutil.copy2(path, destination)
-        if before != digest(destination) or before != digest(path):
-            raise RuntimeError(f"Arquivo alterado durante backup: {relative}")
-        manifest[relative.as_posix()] = before
+    with zipfile.ZipFile(target / "data.zip", "w", compression=zipfile.ZIP_STORED) as archive:
+        for index, path in enumerate(files):
+            relative = path.relative_to(data).as_posix()
+            if path.is_dir():
+                archive.writestr(relative + "/", b"")
+                continue
+            before = path.stat()
+            checksum = hashlib.sha256()
+            with archive.open(relative, "w", force_zip64=True) as destination:
+                if path.name == "action_journal.runtime.lock" and path.parent == data and lock_handle:
+                    lock_handle.seek(0)
+                    content = lock_handle.read()
+                    destination.write(content)
+                    checksum.update(content)
+                else:
+                    with path.open("rb") as source:
+                        while chunk := source.read(1024 * 1024):
+                            destination.write(chunk)
+                            checksum.update(chunk)
+            after = path.stat()
+            if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                raise RuntimeError(f"Arquivo alterado durante backup: {relative}")
+            manifest[relative] = checksum.hexdigest()
+            if index % 10000 == 0:
+                print(f"Backup: {index}/{len(files)} entradas", flush=True)
+    with zipfile.ZipFile(target / "data.zip") as archive:
+        for relative, expected in manifest.items():
+            with archive.open(relative) as source:
+                if hashlib.file_digest(source, "sha256").hexdigest() != expected:
+                    raise RuntimeError(f"Falha na verificação do backup: {relative}")
     # A lista também deve ficar estável: interrompe se o aplicativo estiver gravando.
     current = {p.relative_to(data).as_posix() for p in data.rglob("*")
                if p.is_file() and not p.is_relative_to(target)}
@@ -195,7 +207,7 @@ def _apply(data: Path, actions: dict, *, chroma_client=None, lock_handle=None) -
             for row in actions["invalid_logs"]:
                 conn.execute("DELETE FROM habit_logs WHERE id=?", (row["id"],))
     history = data / "sessions.json"
-    if history.exists() and digest(history) != digest(saved / "sessions.json"):
+    if history.exists() and digest(history) != read_json(saved / "backup-manifest.json").get("sessions.json"):
         raise RuntimeError("O histórico mudou durante a limpeza; examine o backup.")
     return saved
 

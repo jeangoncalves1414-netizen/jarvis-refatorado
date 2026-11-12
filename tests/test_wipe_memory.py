@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import zipfile
 from datetime import datetime
 
 import pytest
@@ -40,8 +41,9 @@ def test_wipe_backs_up_every_file_preserves_history_and_prevents_resurrection(tm
     assert actions["duplicate_habits"] == ["dup"]
     client = Chroma()
     saved = wipe.apply(tmp_path, actions, chroma_client=client)
-    for relative, content in before.items():
-        assert (saved / relative).read_bytes() == content
+    with zipfile.ZipFile(saved / "data.zip") as archive:
+        for relative, content in before.items():
+            assert archive.read(relative.as_posix()) == content
     assert (tmp_path / "sessions.json").read_bytes() == before[next(p for p in before if str(p) == "sessions.json")]
     assert wipe.read_json(tmp_path / "memory.json")["sessions"] == ["legado"]
     assert client.names == {"documents"}
@@ -61,7 +63,7 @@ def test_wipe_backs_up_every_file_preserves_history_and_prevents_resurrection(tm
 def test_failed_backup_never_deletes(tmp_path, monkeypatch):
     seed(tmp_path)
     actions = wipe.plan(tmp_path)
-    monkeypatch.setattr(wipe.shutil, "copy2", lambda *args: (_ for _ in ()).throw(OSError("full")))
+    monkeypatch.setattr(wipe.zipfile, "ZipFile", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("full")))
     with pytest.raises(OSError):
         wipe.apply(tmp_path, actions)
     assert wipe.read_json(tmp_path / "memory.json")["facts"] == ["pizza"]
