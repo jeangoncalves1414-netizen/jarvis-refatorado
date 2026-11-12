@@ -127,11 +127,12 @@ export function useLanguage(setNotice: SetNotice) {
   }
 
   const setCefrLevel = async (level: string) => {
-    await fetch('/api/language/level', {
+    const response = await fetch('/api/language/level', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ level }),
     })
+    if (!response.ok) { setNotice('Falha ao salvar o nível.'); throw new Error('level_update_failed') }
     refreshLanguage().catch(() => undefined)
   }
 

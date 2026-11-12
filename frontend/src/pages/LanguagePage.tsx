@@ -6,6 +6,7 @@ import { useNextDueRefresh } from '../hooks/useNextDueRefresh'
 import { MessageContent } from '../components/MessageContent'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { languageName, speechLang } from '../utils/speechLang'
+import { Curriculum } from '../components/study/Curriculum'
 import { PronunciationFeedback } from '../components/study/PronunciationFeedback'
 
 const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
@@ -218,6 +219,7 @@ export function LanguagePage(props: LanguagePageProps) {
               </label>
             </div>
 
+            <Curriculum level={level} english={(dashboard?.target_language || "en").startsWith("en")} apply={props.setCefrLevel} />
             {dashboard && (
               <>
                 <div className="lang-streak">

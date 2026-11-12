@@ -9,6 +9,7 @@ import { MessageContent } from '../components/MessageContent'
 import { useReviewShortcuts } from '../hooks/useReviewShortcuts'
 import { useNextDueRefresh } from '../hooks/useNextDueRefresh'
 import { useStudyStats } from '../hooks/useStudyStats'
+import { StudyPlanner } from '../components/study/StudyPlanner'
 import { CardEditor } from '../components/study/CardEditor'
 import { StudyDashboard } from '../components/study/StudyDashboard'
 import { StudyProgress } from '../components/study/StudyProgress'
@@ -243,6 +244,7 @@ export function StudyPage(props: StudyPageProps) {
               onReviewVocabulary={openVocabularyReview}
               onRefresh={studyStats.refresh}
             />
+            <StudyPlanner />
           </div>
         )}
         {activeMode === 'learn' && (
