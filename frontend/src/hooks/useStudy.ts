@@ -142,6 +142,8 @@ export function useStudy(setNotice: SetNotice) {
   const [dueCards, setDueCards] = useState<Flashcard[]>([])
   const [studyCardIndex, setStudyCardIndex] = useState(0)
   const [cardBackVisible, setCardBackVisible] = useState(false)
+  const [studyUndoCount, setStudyUndoCount] = useState(0)
+  const [nextCardDueAt, setNextCardDueAt] = useState<string | null>(null)
   const [feynmanAttempts, setFeynmanAttempts] = useState<FeynmanAttempt[]>([])
   const [feynmanTopic, setFeynmanTopic] = useState('')
   const [feynmanExplanation, setFeynmanExplanation] = useState('')
@@ -179,13 +181,19 @@ export function useStudy(setNotice: SetNotice) {
       progressResponse.json(), cardsResponse.json(), feynmanResponse.json(), assessmentResponse.json(), enemResponse.json(), sessionsResponse.json(), categoriesResponse.json(), trashResponse.json(),
     ])
     setStudyProgress({ ...(progressData.progress || {}), weak_spots: progressData.weak_spots || progressData.progress?.weak_spots || [] })
-    setDueCards(cardsData.cards || [])
+    const cards = (cardsData.cards || []) as Flashcard[]
+    // O cartão revisado sai da fila, então o próximo é sempre o índice 0.
+    setDueCards(cards)
+    setStudyCardIndex(0)
+    setCardBackVisible(false)
+    setNextCardDueAt(cardsData.next_due_at || null)
     setFeynmanAttempts(feynmanData.attempts || [])
     setAssessments(assessmentData.assessments || [])
     setEnemQuestions(enemData.questions || [])
     setTutorSessions((sessionsData.sessions || []).filter((item: ChatSession) => item.type === 'tutor'))
     setStudyCategories(categoriesData.categories || [])
     setTrashedStudySessions(trashData.sessions || [])
+    return cards
   }
 
   const renameStudySession = async (id: string, title: string) => {
@@ -562,13 +570,42 @@ export function useStudy(setNotice: SetNotice) {
     const card = dueCards[studyCardIndex]
     if (!card) return
     const response = await fetch('/api/tutor/flashcards/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card_id: card.id, grade }) })
+    if (response.status === 400) {
+      setNotice('Nota inválida.')
+      return
+    }
     if (!response.ok) {
       setNotice('Não foi possível registrar a revisão.')
       return
     }
-    setStudyCardIndex(previous => previous + 1)
+    setStudyUndoCount(previous => previous + 1)
     setCardBackVisible(false)
     refreshStudy().catch(() => undefined)
+  }
+
+  const undoReview = async () => {
+    const response = await fetch('/api/tutor/flashcards/undo', { method: 'POST' })
+    if (response.status === 404) {
+      setStudyUndoCount(0)
+      setNotice('Nada para desfazer.')
+      return
+    }
+    if (response.status === 409) {
+      setNotice('Não foi possível desfazer: o cartão mudou ou foi excluído.')
+      return
+    }
+    if (!response.ok) {
+      setNotice('Não foi possível desfazer a revisão.')
+      return
+    }
+    const data = await response.json().catch(() => ({}))
+    const cards = await refreshStudy().catch(() => null)
+    const restoredId = data?.card?.id
+    const index = cards && restoredId ? cards.findIndex(item => item.id === restoredId) : -1
+    setStudyCardIndex(index >= 0 ? index : 0)
+    setCardBackVisible(false)
+    setStudyUndoCount(previous => Math.max(0, previous - 1))
+    setNotice('Revisão desfeita.')
   }
 
   const saveFeynman = async (event: FormEvent) => {
@@ -637,7 +674,7 @@ export function useStudy(setNotice: SetNotice) {
     addWhiteboardNote, addWhiteboardText, addWhiteboardImage, addWhiteboardImageData, updateWhiteboardElement, deleteWhiteboardElement, duplicateWhiteboardElement, clearWhiteboard, assessmentCorrect, assessmentTotal, assessments, cardBackVisible, createStudySession, dueCards,
     studyCategories, trashedStudySessions, renameStudySession, deleteStudySession, restoreStudySession, purgeStudySession, createStudyCategory, assignStudyCategory,
     enemImage, enemQuestions, enemSubject, enemText, enemYear, feynmanAttempts, feynmanExplanation, feynmanTopic,
-    readEnemImage, reviewCard, saveAssessment, saveEnemQuestion, saveFeynman, selectStudySession, sendStudyMessage, sendTutorMessage,
+    readEnemImage, reviewCard, undoReview, studyUndoCount, nextCardDueAt, refreshStudy, saveAssessment, saveEnemQuestion, saveFeynman, selectStudySession, sendStudyMessage, sendTutorMessage,
     setAssessmentCorrect, setAssessmentTotal, setCardBackVisible, setEnemImage, setEnemSubject, setEnemText, setEnemYear,
     setFeynmanExplanation, setFeynmanTopic, setStudyQuery, setStudySessionId, setWhiteboardNote, studyCardIndex, studyMessages,
     studyEnemFromBank, studyEnemFromForm, studyProgress, studyQuery, studySessionId, tutorSessions, whiteboard, whiteboardNote,

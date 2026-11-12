@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.agent.tools.catalog import TOOL_CATALOG
-from app.agent.tools.registry import GENERAL_TOOL_NAMES, TUTOR_TOOL_NAMES, ToolRegistry
+from app.agent.tools.registry import GENERAL_TOOL_NAMES, LANGUAGE_TOOL_NAMES, TUTOR_TOOL_NAMES, ToolRegistry
 
 # Argumentos que escolhem a operação, na ordem em que o catálogo os procura.
 _OPERATION_KEYS = ("action", "command", "source", "format")
@@ -55,6 +55,7 @@ def build_inventory(registry: ToolRegistry) -> list[dict[str, Any]]:
             "tool": tool.name,
             "general": tool.name in GENERAL_TOOL_NAMES,
             "tutor": tool.name in TUTOR_TOOL_NAMES,
+            "language": tool.name in LANGUAGE_TOOL_NAMES,
             "in_catalog": tool.name in TOOL_CATALOG,
             "default_risk": metadata.risk_for({}),
             "effect": metadata.effect_for({}) or metadata.effect,
@@ -87,7 +88,7 @@ def render_markdown(rows: list[dict[str, Any]]) -> str:
         "|---|---|---|---|---|",
     ]
     for row in rows:
-        visible = "geral" if row["general"] else ("tutor" if row["tutor"] else "não")
+        visible = "geral" if row["general"] else "tutor" if row["tutor"] else "idiomas" if row["language"] else "não"
         if row["operations"]:
             operations = ", ".join(f"{op['operation']} ({op['risk']})" for op in row["operations"])
         else:

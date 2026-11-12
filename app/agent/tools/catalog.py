@@ -637,6 +637,49 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         effect="Limpa todos os elementos do quadro.", reversibility="Não reversível: o quadro não oferece desfazer.",
         scope="Todos os elementos do quadro desta conversa.",
     ),
+    "language_add_vocabulary": ToolMetadata(
+        ("study", "language"), "low", reversible=True, default_target="vocabulário de idiomas",
+        effect="Adiciona uma palavra ao baralho de vocabulário.", reversibility="Reversível: exclua a palavra na aba Vocabulário.",
+        scope="Só o baralho de vocabulário de idiomas.",
+    ),
+    "language_save_pronunciation": ToolMetadata(
+        ("study", "language"), "low", default_target="histórico de pronúncia",
+        effect="Registra uma tentativa de pronúncia no histórico.", reversibility="Não reversível: o histórico de pronúncia não oferece desfazer.",
+        scope="Só o histórico de pronúncia de idiomas.",
+    ),
+    "language_add_weak_phoneme": ToolMetadata(
+        ("study", "language"), "low", reversible=True, default_target="fonemas fracos",
+        effect="Marca um fonema como ponto fraco para praticar.", reversibility="Reversível: remova o fonema da lista de pontos fracos.",
+        scope="Só a lista de fonemas fracos de idiomas.",
+    ),
+    "language_set_level": ToolMetadata(
+        ("study", "language"), "low", reversible=True, default_target="nível CEFR",
+        effect="Define o nível CEFR do aluno.", reversibility="Reversível: defina o nível de volta.",
+        scope="Só o nível do progresso de idiomas.",
+    ),
+    "tutor_save_progress": ToolMetadata(
+        ("study", "tutor"), "low", default_target="progresso de estudo",
+        effect="Registra etapa, conceito, resumo de sessão ou questão resolvida no progresso de estudo.",
+        reversibility="Não reversível: o progresso registrado não oferece desfazer.",
+        scope="Só o progresso de estudo do tutor.",
+    ),
+    "tutor_add_flashcard": ToolMetadata(
+        ("study", "tutor"), "low", reversible=True, default_target="flashcards de estudo",
+        effect="Cria um flashcard para revisão espaçada.", reversibility="Reversível: exclua o flashcard criado.",
+        scope="Só os flashcards do tutor.",
+    ),
+    "tutor_save_feynman": ToolMetadata(
+        ("study", "tutor"), "low", default_target="avaliações Feynman",
+        effect="Registra uma avaliação Feynman com nota e feedback.",
+        reversibility="Não reversível: a avaliação registrada não oferece desfazer.",
+        scope="Só as avaliações Feynman do tutor.",
+    ),
+    "enem_save_question": ToolMetadata(
+        ("study", "enem"), "low", default_target="banco de questões ENEM",
+        effect="Salva uma questão ENEM no banco local.",
+        reversibility="Não reversível: a questão salva não oferece desfazer por aqui.",
+        scope="Só o banco local de questões ENEM.",
+    ),
     "open_windows_app": ToolMetadata(
         ("desktop", "application"), "critical",
         operation_arguments=("action",), default_operation="open",

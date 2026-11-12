@@ -6,14 +6,21 @@ import pytest
 
 from app.agent.orchestrator import AgentOrchestrator
 from app.agent.tools.base import ToolResult
-from app.agent.tools.registry import GENERAL_TOOL_NAMES, TUTOR_TOOL_NAMES, ToolRegistry
+from app.agent.tools.registry import GENERAL_TOOL_NAMES, LANGUAGE_TOOL_NAMES, TUTOR_TOOL_NAMES, ToolRegistry
 from app.core.actions import ToolMetadata
 from app.storage.action_store import ActionStore
+from app.storage.language_store import LanguageStore
+from app.storage.tutor_store import TutorStore
 
 
 @pytest.fixture(scope="module")
 def registry(tmp_path_factory):
-    return ToolRegistry(base_folder=str(tmp_path_factory.mktemp("tools")))
+    tmp = tmp_path_factory.mktemp("tools")
+    return ToolRegistry(
+        base_folder=str(tmp),
+        tutor_store=TutorStore(str(tmp / "tutor")),
+        language_store=LanguageStore(str(tmp / "language")),
+    )
 
 
 @pytest.mark.parametrize("mode,provider,text", [
@@ -22,6 +29,8 @@ def registry(tmp_path_factory):
     ("research", "marker", "pesquise"),
     ("tutor", "gemini", "explique"),
     ("general", "groq", "abra o spotify e use habit tool"),
+    ("language", "gemini", "vamos praticar"),
+    ("language", "groq", "oi"),
 ])
 def test_allowed_names_match_what_the_model_receives(registry, mode, provider, text):
     declared = {item["name"] for item in registry.get_tool_declarations(mode=mode, provider=provider, user_text=text)}
@@ -36,6 +45,9 @@ def test_modes_do_not_share_tools(registry):
     assert general <= GENERAL_TOOL_NAMES and tutor <= TUTOR_TOOL_NAMES
     assert "system_control" in general and "system_control" not in tutor
     assert not (general & tutor)
+    language = registry.allowed_tool_names(mode="language")
+    assert language and language <= LANGUAGE_TOOL_NAMES
+    assert not (language & general) and not (language & tutor)
 
 
 def test_groq_turn_list_is_narrower_than_the_mode_list(registry):

@@ -55,9 +55,32 @@ class TestDueVocabulary:
 
     def test_reviewed_card_not_immediately_due(self, store: LanguageStore) -> None:
         card_id = store.add_vocabulary("moon", "lua")
-        store.review_vocabulary(card_id, 3)  # grade EASY → future due
+        result = store.review_vocabulary(card_id, 3)  # grade EASY → graduates to review
+        assert result is not None and result["state"] == "review"
         due = store.get_due_vocabulary()
         assert len(due) == 0
+
+    def test_good_on_new_card_stays_in_learning(self, store: LanguageStore) -> None:
+        card_id = store.add_vocabulary("star", "estrela")
+        result = store.review_vocabulary(card_id, 2)  # grade GOOD → next learning step
+        assert result is not None and result["state"] == "learning"
+        assert store.get_due_vocabulary() == []
+
+    def test_legacy_card_reviews_without_error(self, store: LanguageStore) -> None:
+        store._data["vocabulary"].append({
+            "id": "voc-legacy01", "word": "tree", "translation": "árvore",
+            "difficulty": 5.0, "stability": 4.0, "reps": 2, "lapses": 0,
+            "due": str(date.today()), "last_review": "2026-01-01",
+        })
+        assert [c["id"] for c in store.get_due_vocabulary()] == ["voc-legacy01"]
+        result = store.review_vocabulary("voc-legacy01", 2)
+        assert result is not None and result["state"] == "review"
+        assert result["reps"] == 3
+
+    def test_invalid_grade_raises(self, store: LanguageStore) -> None:
+        card_id = store.add_vocabulary("rain", "chuva")
+        with pytest.raises(ValueError):
+            store.review_vocabulary(card_id, 4)
 
 
 # ── Review vocabulary ────────────────────────────────────────────
@@ -169,4 +192,4 @@ class TestDashboard:
         assert d["target_language"] == "en"
         assert d["placement_done"] is False
         assert d["due_vocabulary"] == 0
-        assert d["daily_goal"] == 50
+        assert d["daily_goal"] == 100  # unified study goal (StudyXP)

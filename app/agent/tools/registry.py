@@ -170,8 +170,14 @@ GENERAL_TOOL_NAMES = {
 TUTOR_TOOL_NAMES = {
     "whiteboard_add_text", "whiteboard_add_image", "whiteboard_edit", "whiteboard_clear",
     "tutor_save_progress", "tutor_add_flashcard", "tutor_save_feynman", "enem_save_question",
+}
+
+LANGUAGE_TOOL_NAMES = {
     "language_add_vocabulary", "language_save_pronunciation", "language_add_weak_phoneme", "language_set_level",
 }
+
+# Modos de estudo: só recebem as próprias ferramentas (sem MCP, lista Groq ou roteamento de vídeo).
+STUDY_MODES = frozenset({"tutor", "language"})
 
 
 class DynamicMCPTool(BaseTool):
@@ -390,16 +396,16 @@ class ToolRegistry:
         ``narrow=True`` (loop agêntico) aplica a filtragem por palavras do pedido a qualquer
         provedor, mantendo sempre as ferramentas de dados (``LOOP_DATA_TOOLS``).
         """
-        allowed = set(TUTOR_TOOL_NAMES if mode == "tutor" else GENERAL_TOOL_NAMES)
+        allowed = set(TUTOR_TOOL_NAMES if mode == "tutor" else LANGUAGE_TOOL_NAMES if mode == "language" else GENERAL_TOOL_NAMES)
         mcp_tools = {name for name in self.tools if name.startswith("mcp_")}
-        if mode != "tutor":
+        if mode not in STUDY_MODES:
             allowed.update(mcp_tools)
 
         # Roteamento exclusivo para análise de vídeos (YouTube e arquivos locais)
         is_video_req = is_video_analysis_request(user_text)
 
         # Otimização de TPM para provedores com limite estrito de taxa (ex: Groq)
-        if (provider == "groq" or narrow) and mode != "tutor":
+        if (provider == "groq" or narrow) and mode not in STUDY_MODES:
             core_groq = {
                 "personal_records", "memory",
                 "web_search", "system_control", "open_windows_app", "timer", "wait",
@@ -443,7 +449,7 @@ class ToolRegistry:
         # Discard routine when request has \bhabit but no \brotina
         if re.search(r'\bhabit', normalize_name(user_text)) and not re.search(r'\brotina', normalize_name(user_text)):
             allowed_set.discard('routine')
-        if is_video_req and mode != "tutor":
+        if is_video_req and mode not in STUDY_MODES:
             if "video_analyst" in self.tools:
                 allowed_set.add("video_analyst")
             # URLs com youtube.com/youtu.be ou pedidos de análise de vídeo roteiam exclusivamente para video_analyst

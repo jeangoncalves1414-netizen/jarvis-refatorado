@@ -3,6 +3,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.storage.tutor.fsrs import next_learning_due
+
+
+def undo_response(result: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    if result.get("ok"):
+        return 200, result
+    return (404 if result.get("error") == "nothing_to_undo" else 409), result
+
 
 def _store(handler: Any) -> Any | None:
     orch = getattr(handler, "orchestrator", None)
@@ -43,7 +51,10 @@ def handle_tutor_get(parts: list[str], handler: Any) -> tuple[int, dict[str, Any
         }
 
     if len(parts) == 4 and parts[2] == "flashcards" and parts[3] == "due":
-        return 200, {"cards": store.get_due_flashcards()}
+        return 200, {
+            "cards": store.get_due_flashcards(),
+            "next_due_at": next_learning_due(store.get_flashcards()),
+        }
 
     if len(parts) == 3 and parts[2] == "flashcards":
         return 200, {"cards": store.get_flashcards()}
@@ -60,6 +71,7 @@ def handle_tutor_get(parts: list[str], handler: Any) -> tuple[int, dict[str, Any
 def handle_tutor_post(path: str, body: bytes, handler: Any) -> tuple[int, dict[str, Any]] | None:
     tutor_paths = {
         "/api/tutor/flashcards/review",
+        "/api/tutor/flashcards/undo",
         "/api/tutor/feynman",
         "/api/tutor/assessments",
     }
@@ -76,10 +88,16 @@ def handle_tutor_post(path: str, body: bytes, handler: Any) -> tuple[int, dict[s
         payload = {}
 
     if path == "/api/tutor/flashcards/review":
-        card = store.review_flashcard(str(payload.get("card_id", "")), int(payload.get("grade", 2)))
+        try:
+            card = store.review_flashcard(str(payload.get("card_id", "")), payload.get("grade"))
+        except ValueError:
+            return 400, {"ok": False, "error": "invalid_grade"}
         if not card:
             return 404, {"ok": False, "error": "card_not_found"}
         return 200, {"ok": True, "card": card}
+
+    if path == "/api/tutor/flashcards/undo":
+        return undo_response(store.undo_last_review())
 
     if path == "/api/tutor/feynman":
         attempt_id = store.add_feynman_attempt(

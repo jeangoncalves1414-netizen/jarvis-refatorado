@@ -1,11 +1,17 @@
-import { FormEvent, useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import { FormEvent, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { EnemQuestion, StudyCategory, WhiteboardElement } from '../types'
 import type { StudyMode } from '../components/study/StudyToolbar'
 import { StudyCanvas } from '../components/study/StudyCanvas'
 import { StudySidebar } from '../components/study/StudySidebar'
 import { StudyToolbar } from '../components/study/StudyToolbar'
+import { PomodoroTimer } from '../components/study/PomodoroTimer'
 import { MessageContent } from '../components/MessageContent'
-import { LanguagePage } from './LanguagePage'
+import { useReviewShortcuts } from '../hooks/useReviewShortcuts'
+import { useNextDueRefresh } from '../hooks/useNextDueRefresh'
+import { useStudyStats } from '../hooks/useStudyStats'
+import { StudyDashboard } from '../components/study/StudyDashboard'
+import { StudyProgress } from '../components/study/StudyProgress'
+import { LanguagePage, type LangTab } from './LanguagePage'
 
 type StudyPageProps = {
   tutorSessions: { id: string; title?: string }[]
@@ -26,6 +32,10 @@ type StudyPageProps = {
   cardBackVisible: boolean
   setCardBackVisible: Dispatch<SetStateAction<boolean>>
   reviewCard: (grade: number) => Promise<void>
+  undoReview: () => Promise<void>
+  studyUndoCount: number
+  nextCardDueAt: string | null
+  refreshStudy: () => Promise<unknown>
   enemQuestions: EnemQuestion[]
   feynmanTopic: string
   feynmanExplanation: string
@@ -77,7 +87,23 @@ export function StudyPage(props: StudyPageProps) {
   const [selectedEnemId, setSelectedEnemId] = useState('')
   const [pasteText, setPasteText] = useState('')
   const [pasteImage, setPasteImage] = useState('')
+  const [languageTab, setLanguageTab] = useState<LangTab>('home')
+  const studyStats = useStudyStats(props.setNotice)
   const currentCard = props.dueCards[props.studyCardIndex]
+
+  // Revisões e desfazer mudam XP, sequência e estatísticas: recarrega o painel depois de cada uma.
+  const reviewCard = (grade: number) => props.reviewCard(grade).then(() => studyStats.refresh())
+  const undoReview = () => props.undoReview().then(() => studyStats.refresh())
+
+  const changeMode = (mode: StudyMode) => {
+    if (mode === 'language') setLanguageTab('home')
+    setActiveMode(mode)
+  }
+
+  const openVocabularyReview = () => {
+    setLanguageTab('vocab')
+    setActiveMode('language')
+  }
   const selectedEnem = props.enemQuestions.find(item => item.id === selectedEnemId)
 
   const handlePaste = async () => {
@@ -97,48 +123,63 @@ export function StudyPage(props: StudyPageProps) {
     }
   }
 
-  const handlePasteEvent = (e: ClipboardEvent) => {
-    if (activeMode !== 'questions') return
-    const items = e.clipboardData?.items
-    if (!items) return
-    for (const item of Array.from(items)) {
-      if (item.type.startsWith('image/')) {
-        e.preventDefault()
-        const file = item.getAsFile()
-        if (file) {
-          props.readEnemImage(file)
-          props.setNotice('Imagem colada. Clique em "Estudar agora" para começar.')
-        }
-        return
-      }
-    }
-    const text = e.clipboardData?.getData('text')
-    if (text && activeMode === 'questions') {
-      e.preventDefault()
-      setPasteText(text)
-    }
-  }
-
-  const handleDrop = (e: DragEvent) => {
-    if (activeMode !== 'questions') return
-    e.preventDefault()
-    const file = e.dataTransfer?.files?.[0]
-    if (file?.type.startsWith('image/')) {
-      props.readEnemImage(file)
-      props.setNotice('Imagem arrastada. Clique em "Estudar agora" para começar.')
-    }
-  }
+  // Callbacks das props lidos por ref: os listeners abaixo só são recriados quando o modo muda.
+  const callbacksRef = useRef({ readEnemImage: props.readEnemImage, setNotice: props.setNotice })
+  callbacksRef.current = { readEnemImage: props.readEnemImage, setNotice: props.setNotice }
 
   useEffect(() => {
+    const handlePasteEvent = (e: ClipboardEvent) => {
+      if (activeMode !== 'questions') return
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault()
+          const file = item.getAsFile()
+          if (file) {
+            callbacksRef.current.readEnemImage(file)
+            callbacksRef.current.setNotice('Imagem colada. Clique em "Estudar agora" para começar.')
+          }
+          return
+        }
+      }
+      const text = e.clipboardData?.getData('text')
+      if (text) {
+        e.preventDefault()
+        setPasteText(text)
+      }
+    }
+
+    const handleDrop = (e: DragEvent) => {
+      if (activeMode !== 'questions') return
+      e.preventDefault()
+      const file = e.dataTransfer?.files?.[0]
+      if (file?.type.startsWith('image/')) {
+        callbacksRef.current.readEnemImage(file)
+        callbacksRef.current.setNotice('Imagem arrastada. Clique em "Estudar agora" para começar.')
+      }
+    }
+
+    const handleDragOver = (e: DragEvent) => e.preventDefault()
+
     window.addEventListener('paste', handlePasteEvent)
     window.addEventListener('drop', handleDrop)
-    window.addEventListener('dragover', e => e.preventDefault())
+    window.addEventListener('dragover', handleDragOver)
     return () => {
       window.removeEventListener('paste', handlePasteEvent)
       window.removeEventListener('drop', handleDrop)
-      window.removeEventListener('dragover', e => e.preventDefault())
+      window.removeEventListener('dragover', handleDragOver)
     }
-  }, [activeMode, handlePasteEvent, handleDrop])
+  }, [activeMode])
+
+  useReviewShortcuts({
+    enabled: activeMode === 'review' && !!currentCard,
+    revealed: props.cardBackVisible,
+    onFlip: () => props.setCardBackVisible(v => !v),
+    onGrade: grade => { reviewCard(grade).catch(() => undefined) },
+    onUndo: () => { undoReview().catch(() => undefined) },
+  })
+  const nextDueMinutes = useNextDueRefresh(props.nextCardDueAt, activeMode === 'review' && !currentCard, props.refreshStudy)
 
   const openLearnAfterStudy = async (started: boolean) => {
     if (!started) return
@@ -175,7 +216,7 @@ export function StudyPage(props: StudyPageProps) {
         enemCount={props.enemQuestions.length}
       />
       <div className="study-main">
-        <StudyToolbar activeMode={activeMode} onModeChange={setActiveMode} />
+        <StudyToolbar activeMode={activeMode} onModeChange={changeMode} />
         <StudyCanvas
           elements={props.whiteboard}
           sessionId={props.studySessionId}
@@ -190,22 +231,17 @@ export function StudyPage(props: StudyPageProps) {
         />
         {activeMode === 'plan' && (
           <div className="study-overlay-panel study-today">
-            <p className="eyebrow">PLANO DE HOJE</p>
-            <h2>{props.studyProgress.current_stage || 'Preparação para provas'}</h2>
-            <p className="study-today-copy">Comece pelo diagnóstico ou escolha uma prática. O Jarvis registra lacunas, questões e revisões para o próximo estudo.</p>
-            <div className="study-today-stats">
-              <span><b>{props.dueCards.length}</b> revisões</span>
-              <span><b>{props.enemQuestions.length}</b> questões salvas</span>
-              <span><b>{props.assessments.length}</b> simulados</span>
-            </div>
-            <div className="study-today-actions">
-              <button type="button" className="primary" onClick={() => beginGuidedStudy('diagnostico: quero iniciar meu diagnóstico para provas. Faça uma pergunta curta por vez, comece perguntando minha matéria mais difícil e espere minha resposta antes de corrigir.')}>Fazer diagnóstico</button>
-              <button type="button" onClick={() => beginGuidedStudy('Quero montar uma sessão de estudo para hoje. Pergunte primeiro qual prova, matéria e tempo disponível; depois proponha a primeira atividade.')}>Estudar um tema</button>
-              <button type="button" onClick={() => beginGuidedStudy('simulado: quero um mini simulado de 5 questões. Envie uma questão por vez, espere minha resposta e, no final, dê desempenho, erros e uma revisão indicada.')}>Mini simulado</button>
-              <button type="button" onClick={() => setActiveMode('review')}>Revisar agora</button>
-              <button type="button" onClick={() => setActiveMode('questions')}>Adicionar questão</button>
-              <button type="button" onClick={() => setActiveMode('feynman')}>Explicar de volta</button>
-            </div>
+            <StudyDashboard
+              dashboard={studyStats.dashboard}
+              stageTitle={props.studyProgress.current_stage}
+              dueCards={props.dueCards.length}
+              enemCount={props.enemQuestions.length}
+              assessmentCount={props.assessments.length}
+              onGuidedStudy={message => beginGuidedStudy(message)}
+              onOpenMode={setActiveMode}
+              onReviewVocabulary={openVocabularyReview}
+              onRefresh={studyStats.refresh}
+            />
           </div>
         )}
         {activeMode === 'learn' && (
@@ -239,13 +275,30 @@ export function StudyPage(props: StudyPageProps) {
                   <strong>{props.cardBackVisible ? currentCard.back : currentCard.front}</strong>
                 </button>
                 <div className="grade-actions">
-                  <button type="button" onClick={() => props.reviewCard(0)}>Errei</button>
-                  <button type="button" onClick={() => props.reviewCard(1)}>Difícil</button>
-                  <button type="button" onClick={() => props.reviewCard(2)}>Bom</button>
-                  <button type="button" onClick={() => props.reviewCard(3)}>Fácil</button>
+                  <button type="button" onClick={() => { reviewCard(0).catch(() => undefined) }}><kbd className="review-key">1</kbd> Errei</button>
+                  <button type="button" onClick={() => { reviewCard(1).catch(() => undefined) }}><kbd className="review-key">2</kbd> Difícil</button>
+                  <button type="button" onClick={() => { reviewCard(2).catch(() => undefined) }}><kbd className="review-key">3</kbd> Bom</button>
+                  <button type="button" onClick={() => { reviewCard(3).catch(() => undefined) }}><kbd className="review-key">4</kbd> Fácil</button>
                 </div>
               </>
-            ) : <p className="empty-state">Nenhum flashcard pendente hoje.</p>}
+            ) : (
+              <>
+                <p className="empty-state">Nenhum flashcard pendente agora.</p>
+                {nextDueMinutes !== null && <p className="review-next-due">Próximo cartão em {nextDueMinutes} min</p>}
+              </>
+            )}
+            <div className="review-footer">
+              <span>{currentCard ? `${props.dueCards.length} pendentes · Espaço vira · 1-4 avaliam` : ''}</span>
+              <button
+                type="button"
+                className="review-undo"
+                onClick={() => { undoReview().catch(() => undefined) }}
+                disabled={props.studyUndoCount === 0}
+                title="Desfazer última revisão (Z)"
+              >
+                ↩ Desfazer
+              </button>
+            </div>
           </div>
         )}
         {activeMode === 'feynman' && (
@@ -348,18 +401,32 @@ export function StudyPage(props: StudyPageProps) {
           </div>
         )}
         {activeMode === 'progress' && (
-          <div className="study-overlay-panel">
+          <div className="study-overlay-panel study-progress-panel">
             <p className="eyebrow">PROGRESSO</p>
             <div className="study-stats">
               <span><b>{props.dueCards.length}</b> cards</span>
               <span><b>{props.enemQuestions.length}</b> questões ENEM</span>
               <span><b>{props.studyProgress.stats?.feynman_attempts ?? props.feynmanAttempts.length}</b> explicações</span>
             </div>
+            <StudyProgress stats={studyStats.stats} dashboard={studyStats.dashboard} />
           </div>
         )}
         {activeMode === 'language' && props.languageProps && (
-          <LanguagePage {...props.languageProps as any} />
+          <LanguagePage
+            key={languageTab}
+            {...props.languageProps as any}
+            initialTab={languageTab}
+            onStudyActivity={() => { studyStats.refresh().catch(() => undefined) }}
+          />
         )}
+        <div className="study-pomodoro-dock">
+          <PomodoroTimer
+            onComplete={(phase, minutes) => {
+              if (phase === 'work') studyStats.awardPomodoro(minutes).catch(() => undefined)
+              else props.setNotice('Pausa concluída! Bora voltar ao foco.')
+            }}
+          />
+        </div>
       </div>
     </section>
   )

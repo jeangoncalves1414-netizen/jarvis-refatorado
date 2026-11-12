@@ -1,8 +1,7 @@
-"""Tests for FSRS (Free Spaced Repetition Scheduler) algorithm."""
+"""Tests for the py-fsrs scheduler adapter (app.storage.tutor.fsrs)."""
 from __future__ import annotations
 
-import math
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -13,101 +12,169 @@ from app.storage.tutor.fsrs import (
     GRADE_HARD,
     apply_review,
     is_due,
+    new_card_fields,
+    normalize_card,
+    parse_when,
     retrievability,
+    review_fields,
+    validate_grade,
 )
 
-
-# ── helpers ──────────────────────────────────────────────────────
-
-def _new_card(*, due: str | None = None) -> dict:
-    """Minimal fresh card dict."""
-    return {
-        "reps": 0,
-        "lapses": 0,
-        "difficulty": 5.0,
-        "stability": 1.0,
-        "due": due or str(date.today()),
-    }
+NOW = datetime(2026, 6, 1, 15, 0, tzinfo=timezone.utc)
 
 
-def _reviewed_card(grade: int = GRADE_GOOD, n: int = 3, today: date | None = None) -> dict:
-    """Build a card that has been reviewed *n* times with *grade*."""
-    today = today or date.today()
-    card = _new_card(due=str(today))
-    for _ in range(n):
-        r = apply_review(card, grade, today=today)
-        card.update(
-            reps=r.reps,
-            lapses=r.lapses,
-            difficulty=r.difficulty,
-            stability=r.stability,
-            due=r.due,
-        )
-        today = date.fromisoformat(r.due)
+def _new_card() -> dict:
+    card = new_card_fields()
+    card["due"] = NOW.isoformat()
     return card
 
 
-# ── apply_review — all four grades ──────────────────────────────
+def _review(card: dict, grade: int, now: datetime):
+    result = apply_review(card, grade, now=now)
+    card.update(review_fields(result))
+    return result
 
-class TestApplyReviewGrades:
-    """apply_review must handle grades 0-3 and return valid ReviewResult."""
 
-    @pytest.fixture()
-    def today(self) -> date:
-        return date(2026, 6, 1)
+def _review_card(now: datetime = NOW) -> dict:
+    card = _new_card()
+    result = _review(card, GRADE_EASY, now)
+    assert result.state == "review"
+    return card
 
-    @pytest.fixture()
-    def card(self, today: date) -> dict:
-        return _new_card(due=str(today))
 
-    def test_grade_again(self, card: dict, today: date) -> None:
-        r = apply_review(card, GRADE_AGAIN, today=today)
-        assert r.interval == 1
-        assert r.reps == 0
+# ── grade validation ────────────────────────────────────────────
+
+class TestValidateGrade:
+    @pytest.mark.parametrize("grade", [5, -1, True, "2", None, 2.0])
+    def test_rejects_invalid(self, grade) -> None:
+        with pytest.raises(ValueError):
+            validate_grade(grade)
+        with pytest.raises(ValueError):
+            apply_review(_new_card(), grade, now=NOW)
+
+    @pytest.mark.parametrize("grade", [GRADE_AGAIN, GRADE_HARD, GRADE_GOOD, GRADE_EASY])
+    def test_accepts_valid(self, grade: int) -> None:
+        assert validate_grade(grade) == grade
+
+
+# ── learning / relearning steps ─────────────────────────────────
+
+class TestLearningSteps:
+    def test_new_good_goes_to_second_learning_step(self) -> None:
+        r = apply_review(_new_card(), GRADE_GOOD, now=NOW)
+        assert r.state == "learning"
+        assert r.step == 1
+        assert parse_when(r.due) == NOW + timedelta(minutes=10)
+        assert r.interval == 0
+        assert r.reps == 1
+        assert r.lapses == 0
+
+    def test_second_good_graduates(self) -> None:
+        card = _new_card()
+        first = _review(card, GRADE_GOOD, NOW)
+        second = _review(card, GRADE_GOOD, parse_when(first.due))
+        assert second.state == "review"
+        assert second.step is None
+        assert second.interval >= 1
+        assert second.reps == 2
+
+    def test_again_on_new_restarts_first_step(self) -> None:
+        r = apply_review(_new_card(), GRADE_AGAIN, now=NOW)
+        assert r.state == "learning"
+        assert r.step == 0
+        assert parse_when(r.due) == NOW + timedelta(minutes=1)
+        assert r.lapses == 0
+
+    def test_again_on_review_card_relearns(self) -> None:
+        card = _review_card()
+        due = parse_when(card["due"])
+        r = _review(card, GRADE_AGAIN, due)
+        assert r.state == "relearning"
         assert r.lapses == 1
-        assert r.due == str(today + timedelta(days=1))
+        assert parse_when(r.due) == due + timedelta(minutes=10)
+        assert r.interval == 0
 
-    def test_grade_hard(self, card: dict, today: date) -> None:
-        r = apply_review(card, GRADE_HARD, today=today)
-        assert r.interval >= 1
-        assert r.reps == 1
-        assert r.lapses == 0
-
-    def test_grade_good(self, card: dict, today: date) -> None:
-        r = apply_review(card, GRADE_GOOD, today=today)
-        assert r.interval >= 1
-        assert r.reps == 1
-        assert r.lapses == 0
-
-    def test_grade_easy(self, card: dict, today: date) -> None:
-        r = apply_review(card, GRADE_EASY, today=today)
-        assert r.interval >= 1
-        assert r.reps == 1
-        assert r.lapses == 0
+    def test_intervals_capped_at_365_days(self) -> None:
+        card = _new_card()
+        now = NOW
+        for _ in range(30):
+            r = _review(card, GRADE_EASY, now)
+            assert r.interval <= 365
+            now = parse_when(r.due)
+        assert r.interval == 365
 
 
-# ── Stability dynamics ──────────────────────────────────────────
+# ── retrievability ──────────────────────────────────────────────
 
-class TestStabilityDynamics:
-    """Stability must change appropriately per grade."""
+class TestRetrievability:
+    def test_none_before_first_review(self) -> None:
+        assert apply_review(_new_card(), GRADE_GOOD, now=NOW).retrievability is None
 
-    @pytest.fixture()
-    def today(self) -> date:
-        return date(2026, 6, 1)
+    def test_pre_review_value_days_later(self) -> None:
+        card = _review_card()
+        later = parse_when(card["due"]) + timedelta(days=3)
+        r = apply_review(card, GRADE_GOOD, now=later)
+        assert r.retrievability is not None
+        assert 0.0 < r.retrievability < 1.0
+        assert r.retrievability != 1.0
 
-    def test_again_stability_decreases_or_resets(self, today: date) -> None:
-        card = _reviewed_card(GRADE_GOOD, n=3, today=today)
-        old_stability = card["stability"]
-        r = apply_review(card, GRADE_AGAIN, today=date.fromisoformat(card["due"]))
-        assert r.stability < old_stability
+    def test_curve_bounds(self) -> None:
+        for elapsed in (0, 1, 5, 30, 180):
+            assert 0.0 <= retrievability(10.0, elapsed) <= 1.0
 
-    def test_easy_stability_exceeds_good(self, today: date) -> None:
-        card_good = _new_card(due=str(today))
-        card_easy = _new_card(due=str(today))
+    def test_zero_elapsed_returns_1(self) -> None:
+        assert retrievability(5.0, 0) == pytest.approx(1.0)
 
-        r_good = apply_review(card_good, GRADE_GOOD, today=today)
-        r_easy = apply_review(card_easy, GRADE_EASY, today=today)
-        assert r_easy.stability > r_good.stability
+    def test_decreasing_in_time(self) -> None:
+        values = [retrievability(10.0, t) for t in (0, 1, 10, 100, 1000)]
+        assert values == sorted(values, reverse=True)
+        assert len(set(values)) == len(values)
+
+    def test_target_retention_at_stability(self) -> None:
+        assert retrievability(10.0, 10.0) == pytest.approx(0.9)
+
+    def test_zero_stability_returns_0(self) -> None:
+        assert retrievability(0.0, 5) == 0.0
+
+
+# ── lazy migration of stored cards ──────────────────────────────
+
+class TestMigration:
+    def test_legacy_sm2_card_keeps_due_day_and_keys(self) -> None:
+        card = {"ease": 2.5, "interval": 3, "reps": 2, "lapses": 0, "due": "2026-06-04"}
+        normalize_card(card)
+        assert card["state"] == "review"
+        assert parse_when(card["due"]).astimezone().date() == date(2026, 6, 4)
+        assert card["ease"] == 2.5
+        assert card["interval"] == 3
+        assert card["stability"] == 3.0
+        assert card["difficulty"] == 5.0
+        assert parse_when(card["last_review"]) == parse_when("2026-06-01")
+        r = apply_review(card, GRADE_GOOD, now=parse_when(card["due"]))
+        assert r.state == "review"
+        assert r.reps == 3
+        assert 0.0 < r.retrievability < 1.0
+
+    def test_old_fsrs_lite_unreviewed_card_is_new(self) -> None:
+        card = {"difficulty": 5, "stability": 1.0, "reps": 0, "lapses": 0, "due": str(date.today())}
+        normalize_card(card)
+        assert card["state"] == "new"
+        assert card["step"] == 0
+        assert card["due"] == str(date.today())
+        r = apply_review(card, GRADE_GOOD, now=NOW)
+        assert r.state == "learning"
+
+    def test_huge_legacy_stability_is_clamped(self) -> None:
+        card = {"stability": 5000, "difficulty": 4, "reps": 6, "lapses": 1, "due": "2026-06-01"}
+        normalize_card(card)
+        assert card["stability"] == 365.0
+        r = apply_review(card, GRADE_EASY, now=NOW)
+        assert r.interval <= 365
+
+    def test_normalize_is_idempotent(self) -> None:
+        card = {"ease": 2.5, "interval": 3, "reps": 2, "lapses": 0, "due": "2026-06-04"}
+        once = dict(normalize_card(card))
+        assert normalize_card(card) == once
 
 
 # ── is_due ──────────────────────────────────────────────────────
@@ -115,56 +182,29 @@ class TestStabilityDynamics:
 class TestIsDue:
     def test_past_due_returns_true(self) -> None:
         yesterday = date.today() - timedelta(days=1)
-        card = {"due": str(yesterday)}
-        assert is_due(card) is True
+        assert is_due({"due": str(yesterday)}) is True
 
     def test_today_due_returns_true(self) -> None:
-        card = {"due": str(date.today())}
-        assert is_due(card) is True
+        assert is_due({"due": str(date.today())}) is True
 
     def test_future_due_returns_false(self) -> None:
         tomorrow = date.today() + timedelta(days=1)
-        card = {"due": str(tomorrow)}
-        assert is_due(card) is False
+        assert is_due({"due": str(tomorrow)}) is False
 
+    def test_new_card_is_due(self) -> None:
+        assert is_due(_new_card(), now=NOW) is True
 
-# ── retrievability ──────────────────────────────────────────────
+    def test_learning_card_due_in_minutes(self) -> None:
+        card = {"state": "learning", "step": 1, "stability": 2.0, "difficulty": 5.0,
+                "reps": 1, "lapses": 0, "last_review": NOW.isoformat(),
+                "due": (NOW + timedelta(minutes=5)).isoformat()}
+        assert is_due(card, now=NOW) is False
+        assert is_due(card, now=NOW + timedelta(minutes=6)) is True
 
-class TestRetrievability:
-    def test_returns_between_0_and_1(self) -> None:
-        for elapsed in (0, 1, 5, 30, 180):
-            r = retrievability(10.0, elapsed)
-            assert 0.0 <= r <= 1.0
-
-    def test_zero_elapsed_returns_1(self) -> None:
-        assert retrievability(5.0, 0) == pytest.approx(1.0)
-
-    def test_large_elapsed_approaches_0(self) -> None:
-        r = retrievability(1.0, 1000)
-        assert r < 0.01
-
-    def test_zero_stability_returns_0(self) -> None:
-        assert retrievability(0.0, 5) == 0.0
-
-
-# ── Backward compatibility (SM-2 card without FSRS fields) ─────
-
-class TestBackwardCompatibility:
-    def test_card_without_difficulty_stability(self) -> None:
-        old_card: dict = {
-            "ease": 2.5,
-            "interval": 3,
-            "reps": 2,
-            "lapses": 0,
-            "due": str(date.today()),
-        }
-        r = apply_review(old_card, GRADE_GOOD)
-        assert r.reps == 3
-        assert r.difficulty > 0
-        assert r.stability > 0
-        assert r.due > str(date.today())
-
-    def test_completely_empty_card(self) -> None:
-        r = apply_review({}, GRADE_GOOD)
-        assert r.reps == 1
-        assert r.stability >= 1.0
+    def test_review_card_due_later_today_counts(self) -> None:
+        local_noon = datetime(2026, 6, 1, 12).astimezone().astimezone(timezone.utc)
+        card = {"state": "review", "step": None, "stability": 5.0, "difficulty": 5.0,
+                "reps": 3, "lapses": 0, "last_review": (local_noon - timedelta(days=5)).isoformat(),
+                "due": (local_noon + timedelta(hours=1)).isoformat()}
+        assert is_due(card, now=local_noon) is True
+        assert is_due(card, now=local_noon - timedelta(days=1)) is False

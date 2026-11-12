@@ -3,11 +3,21 @@ from __future__ import annotations
 import copy
 import json
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.storage.tutor.fsrs import apply_review, is_due
+from app.storage.study_xp import XP_REVIEW, StudyXP, get_study_xp
+from app.storage.tutor.review_log import ReviewLog, restore, snapshot
+from app.storage.tutor.fsrs import (
+    apply_review,
+    is_due,
+    new_card_fields,
+    normalize_card,
+    review_fields,
+    sort_due,
+    validate_grade,
+)
 
 
 DEFAULT_PROGRESS: dict[str, Any] = {
@@ -45,12 +55,24 @@ DEFAULT_PROGRESS: dict[str, Any] = {
 
 
 class TutorStore:
-    def __init__(self, storage_dir: str | None = None) -> None:
+    def __init__(self, storage_dir: str | None = None, xp: StudyXP | None = None) -> None:
         self.storage_dir = Path(storage_dir or "data/tutor")
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.progress_path = self.storage_dir / "progress.json"
+        self.review_log = ReviewLog(self.storage_dir / "review_log.jsonl")
+        if xp is None:
+            xp = get_study_xp(Path("data/study") if storage_dir is None else Path(storage_dir) / "study")
+        self.xp = xp
         self._data: dict[str, Any] = {}
         self._load()
+        self.xp.import_legacy(
+            "tutor",
+            total_xp=self._data.get("total_xp", 0),
+            daily_xp=self._data.get("daily_xp", 0),
+            last_study_date=self._data.get("last_study_date"),
+            streak_count=self._data.get("streak_count", 0),
+            daily_goal=self._data.get("daily_goal"),
+        )
 
     def _load(self) -> None:
         if self.progress_path.exists():
@@ -122,14 +144,7 @@ class TutorStore:
         self._save()
 
     def _normalize_card(self, card: dict[str, Any]) -> dict[str, Any]:
-        card.setdefault("difficulty", 5.0)
-        card.setdefault("stability", 1.0)
-        card.setdefault("ease", 2.3)
-        card.setdefault("interval", 0)
-        card.setdefault("reps", 0)
-        card.setdefault("lapses", 0)
-        card.setdefault("due", str(date.today()))
-        return card
+        return normalize_card(card)
 
     def _refresh_flashcard_stats(self) -> None:
         cards = self._data.setdefault("flashcards", [])
@@ -147,6 +162,7 @@ class TutorStore:
             "topic": topic or self._data.get("current_stage", ""),
             "stage": stage or self._data.get("current_stage", ""),
             "created": str(date.today()),
+            **new_card_fields(),
         }))
         self._refresh_flashcard_stats()
         self._save()
@@ -156,29 +172,61 @@ class TutorStore:
         return [self._normalize_card(dict(c)) for c in self._data.get("flashcards", [])]
 
     def get_due_flashcards(self) -> list[dict[str, Any]]:
-        return [c for c in self.get_flashcards() if is_due(c)]
+        return sort_due([c for c in self.get_flashcards() if is_due(c)])
 
     def review_flashcard(self, card_id: str, grade: int) -> dict[str, Any] | None:
+        validate_grade(grade)
         cards = self._data.setdefault("flashcards", [])
         for card in cards:
             if card.get("id") != card_id:
                 continue
+            before = snapshot(card)
             self._normalize_card(card)
+            state_before = card["state"]
             result = apply_review(card, grade)
-            card.update({
-                "interval": result.interval,
-                "ease": result.ease,
-                "reps": result.reps,
-                "lapses": result.lapses,
-                "due": result.due,
-                "difficulty": getattr(result, "difficulty", 5.0),
-                "stability": getattr(result, "stability", 1.0),
-                "last_review": str(date.today()),
-            })
+            card.update(review_fields(result))
+            after = snapshot(card)
             self._refresh_flashcard_stats()
             self._save()
-            return dict(card)
+            self.xp.add(XP_REVIEW, "tutor")
+            entry = self.review_log.append({
+                "type": "review",
+                "deck": "tutor",
+                "card_id": card_id,
+                "grade": grade,
+                "rating": grade + 1,
+                "reviewed_at": result.last_review,
+                "local_date": str(date.today()),
+                "state_before": state_before,
+                "state_after": result.state,
+                "retrievability_before": result.retrievability,
+                "interval_days": result.interval,
+                "xp": XP_REVIEW,
+                "before": before,
+                "after": after,
+            })
+            return {**card, "review_id": entry["id"]}
         return None
+
+    def undo_last_review(self) -> dict[str, Any]:
+        entry = self.review_log.last_active_review()
+        if not entry:
+            return {"ok": False, "error": "nothing_to_undo"}
+        card = next((c for c in self._data.get("flashcards", []) if c.get("id") == entry.get("card_id")), None)
+        if card is None:
+            return {"ok": False, "error": "card_not_found"}
+        if snapshot(card) != entry.get("after"):
+            return {"ok": False, "error": "stale"}
+        restore(card, entry.get("before") or {})
+        self._refresh_flashcard_stats()
+        self._save()
+        self.xp.revoke(int(entry.get("xp") or 0), entry.get("local_date"))
+        self.review_log.append({
+            "type": "undo",
+            "target": entry["id"],
+            "undone_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return {"ok": True, "card": dict(card), "undone_review_id": entry["id"]}
 
     def add_feynman_attempt(
         self,
@@ -257,38 +305,15 @@ class TutorStore:
 
     # ── Streak & XP ──────────────────────────────────────────────
 
-    def _update_streak(self) -> None:
-        today_str = str(date.today())
-        last = self._data.get("last_study_date")
-        if last == today_str:
-            return
-        if last:
-            try:
-                last_date = date.fromisoformat(last)
-                diff = (date.today() - last_date).days
-                if diff == 1:
-                    self._data["streak_count"] = int(self._data.get("streak_count", 0)) + 1
-                elif diff > 1:
-                    self._data["streak_count"] = 1
-            except (ValueError, TypeError):
-                self._data["streak_count"] = 1
-        else:
-            self._data["streak_count"] = 1
-        self._data["last_study_date"] = today_str
-        self._data["daily_xp"] = 0
-
     def add_xp(self, amount: int) -> int:
-        self._update_streak()
-        self._data["total_xp"] = int(self._data.get("total_xp", 0)) + amount
-        self._data["daily_xp"] = int(self._data.get("daily_xp", 0)) + amount
-        self._save()
-        return self._data["total_xp"]
+        return self.xp.add(amount, "tutor")
 
     def get_streak_info(self) -> dict[str, Any]:
+        summary = self.xp.summary()
         return {
-            "streak_count": self._data.get("streak_count", 0),
-            "last_study_date": self._data.get("last_study_date"),
-            "total_xp": self._data.get("total_xp", 0),
-            "daily_xp": self._data.get("daily_xp", 0),
-            "daily_goal": self._data.get("daily_goal", 100),
+            "streak_count": summary["streak"],
+            "last_study_date": summary["last_study_date"],
+            "total_xp": summary["total_xp"],
+            "daily_xp": summary["daily_xp"],
+            "daily_goal": summary["daily_goal"],
         }

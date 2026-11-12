@@ -1,102 +1,156 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-type PomodoroState = 'idle' | 'work' | 'shortBreak' | 'longBreak'
+export type PomodoroPhase = 'work' | 'shortBreak' | 'longBreak'
 
 type PomodoroTimerProps = {
-  onComplete?: (type: PomodoroState, minutes: number) => void
+  onComplete?: (phase: PomodoroPhase, minutes: number) => void
 }
 
 const DEFAULT_WORK = 25
 const DEFAULT_SHORT = 5
 const DEFAULT_LONG = 15
+const RING_RADIUS = 45
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
+
+// Valor inválido ou vazio enquanto o usuário digita: mantém o anterior.
+function parseMinutes(value: number, max: number) {
+  const minutes = Math.round(value)
+  if (!Number.isFinite(minutes) || minutes < 1) return null
+  return Math.min(max, minutes)
+}
 
 export function PomodoroTimer({ onComplete }: PomodoroTimerProps) {
-  const [state, setState] = useState<PomodoroState>('idle')
+  const [phase, setPhase] = useState<PomodoroPhase>('work')
+  const [running, setRunning] = useState(false)
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_WORK * 60)
+  const [phaseTotal, setPhaseTotal] = useState(DEFAULT_WORK * 60)
   const [workMinutes, setWorkMinutes] = useState(DEFAULT_WORK)
   const [shortMinutes, setShortMinutes] = useState(DEFAULT_SHORT)
   const [pomodoroCount, setPomodoroCount] = useState(0)
   const [editing, setEditing] = useState(false)
-  const intervalRef = useRef<number | null>(null)
-
-  const totalSeconds = state === 'work' ? workMinutes * 60
-    : state === 'shortBreak' ? shortMinutes * 60
-    : state === 'longBreak' ? DEFAULT_LONG * 60
-    : workMinutes * 60
+  const deadlineRef = useRef(0)
+  // Cada fase recebe um número; o onComplete só dispara uma vez por número (seguro no StrictMode).
+  const cycleRef = useRef(0)
+  const firedCycleRef = useRef(-1)
+  const onCompleteRef = useRef(onComplete)
+  onCompleteRef.current = onComplete
 
   useEffect(() => {
-    if (state === 'idle') return
-    intervalRef.current = window.setInterval(() => {
-      setSecondsLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(intervalRef.current!)
-          const finishedState = state
-          const minutes = state === 'work' ? workMinutes : state === 'shortBreak' ? shortMinutes : DEFAULT_LONG
+    if (!running) return
+    const tick = () => setSecondsLeft(Math.max(0, Math.ceil((deadlineRef.current - Date.now()) / 1000)))
+    tick()
+    const interval = window.setInterval(tick, 500)
+    return () => window.clearInterval(interval)
+  }, [running])
 
-          if (state === 'work') {
-            const newCount = pomodoroCount + 1
-            setPomodoroCount(newCount)
-            if (newCount % 4 === 0) {
-              setState('longBreak')
-              setSecondsLeft(DEFAULT_LONG * 60)
-            } else {
-              setState('shortBreak')
-              setSecondsLeft(shortMinutes * 60)
-            }
-          } else {
-            setState('work')
-            setSecondsLeft(workMinutes * 60)
-          }
+  useEffect(() => {
+    if (!running || secondsLeft > 0) return
+    if (firedCycleRef.current === cycleRef.current) return
+    firedCycleRef.current = cycleRef.current
+    onCompleteRef.current?.(phase, Math.round(phaseTotal / 60))
+    let next: PomodoroPhase = 'work'
+    if (phase === 'work') {
+      const count = pomodoroCount + 1
+      setPomodoroCount(count)
+      next = count % 4 === 0 ? 'longBreak' : 'shortBreak'
+    }
+    const total = (next === 'work' ? workMinutes : next === 'shortBreak' ? shortMinutes : DEFAULT_LONG) * 60
+    cycleRef.current += 1
+    deadlineRef.current = Date.now() + total * 1000
+    setPhase(next)
+    setPhaseTotal(total)
+    setSecondsLeft(total)
+  }, [running, secondsLeft, phase, phaseTotal, pomodoroCount, workMinutes, shortMinutes])
 
-          onComplete?.(finishedState, minutes)
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [state, workMinutes, shortMinutes, pomodoroCount])
+  const resume = () => {
+    deadlineRef.current = Date.now() + secondsLeft * 1000
+    setRunning(true)
+  }
+  const pause = () => {
+    setSecondsLeft(Math.max(0, Math.ceil((deadlineRef.current - Date.now()) / 1000)))
+    setRunning(false)
+  }
+  const extend = () => {
+    deadlineRef.current += 300 * 1000
+    setSecondsLeft(previous => previous + 300)
+    setPhaseTotal(previous => previous + 300)
+  }
+  const reset = () => {
+    cycleRef.current += 1
+    setRunning(false)
+    setPhase('work')
+    setPhaseTotal(workMinutes * 60)
+    setSecondsLeft(workMinutes * 60)
+  }
 
+  const changeWorkMinutes = (value: number) => {
+    const minutes = parseMinutes(value, 90)
+    if (minutes === null) return
+    setWorkMinutes(minutes)
+    if (!running) {
+      cycleRef.current += 1
+      setPhase('work')
+      setPhaseTotal(minutes * 60)
+      setSecondsLeft(minutes * 60)
+    }
+  }
+  const changeShortMinutes = (value: number) => {
+    const minutes = parseMinutes(value, 30)
+    if (minutes !== null) setShortMinutes(minutes)
+  }
+
+  const paused = !running && secondsLeft < phaseTotal
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0')
   const ss = String(secondsLeft % 60).padStart(2, '0')
-  const progress = totalSeconds > 0 ? ((totalSeconds - secondsLeft) / totalSeconds) * 100 : 0
+  const progress = phaseTotal > 0 ? Math.min(1, Math.max(0, (phaseTotal - secondsLeft) / phaseTotal)) : 0
 
-  const stateLabel = state === 'work' ? '🎯 FOCO'
-    : state === 'shortBreak' ? '☕ PAUSA'
-    : state === 'longBreak' ? '🌿 DESCANSO'
-    : '⏸ PRONTO'
-
-  const start = () => { setState('work'); setSecondsLeft(workMinutes * 60) }
-  const pause = () => { setState('idle'); if (intervalRef.current) clearInterval(intervalRef.current) }
-  const extend = () => setSecondsLeft(prev => prev + 300)
+  const phaseLabel = !running && !paused ? '⏸ PRONTO'
+    : phase === 'work' ? '🎯 FOCO'
+    : phase === 'shortBreak' ? '☕ PAUSA'
+    : '🌿 DESCANSO'
 
   return (
     <div className="pomodoro-timer">
-      <div className="pomodoro-ring" style={{ background: `conic-gradient(var(--accent, #00daf8) ${progress}%, transparent ${progress}%)` }}>
+      <div className="pomodoro-ring" role="timer" aria-label={`Tempo restante ${mm}:${ss}`}>
+        <svg viewBox="0 0 100 100" width={100} height={100} aria-hidden="true">
+          <circle className="pomodoro-track" cx={50} cy={50} r={RING_RADIUS} />
+          <circle
+            className="pomodoro-progress"
+            cx={50}
+            cy={50}
+            r={RING_RADIUS}
+            strokeDasharray={RING_CIRCUMFERENCE}
+            strokeDashoffset={RING_CIRCUMFERENCE * (1 - progress)}
+          />
+        </svg>
         <div className="pomodoro-inner">
           <span className="pomodoro-time">{mm}:{ss}</span>
-          <small className="pomodoro-label">{stateLabel}</small>
+          <small className="pomodoro-label">{phaseLabel}</small>
         </div>
       </div>
       <div className="pomodoro-controls">
-        {state === 'idle' ? (
-          <button type="button" className="primary" onClick={start}>Iniciar</button>
-        ) : (
+        {running ? (
           <>
             <button type="button" onClick={pause}>Pausar</button>
             <button type="button" onClick={extend}>+5 min</button>
           </>
+        ) : paused ? (
+          <>
+            <button type="button" className="primary" onClick={resume}>Continuar</button>
+            <button type="button" onClick={reset}>Reiniciar</button>
+          </>
+        ) : (
+          <button type="button" className="primary" onClick={resume}>Iniciar</button>
         )}
-        <button type="button" onClick={() => setEditing(!editing)} className="pomodoro-settings-btn">⚙</button>
+        <button type="button" onClick={() => setEditing(!editing)} className="pomodoro-settings-btn" aria-label="Configurar Pomodoro" title="Configurar Pomodoro">⚙</button>
       </div>
       <div className="pomodoro-count">{pomodoroCount} 🍅</div>
       {editing && (
         <div className="pomodoro-settings">
-          <label>Foco: <input type="number" min={5} max={90} value={workMinutes} onChange={e => { setWorkMinutes(+e.target.value); if (state === 'idle') setSecondsLeft(+e.target.value * 60) }} /> min</label>
-          <label>Pausa: <input type="number" min={1} max={30} value={shortMinutes} onChange={e => setShortMinutes(+e.target.value)} /> min</label>
+          <label>Foco: <input type="number" min={5} max={90} value={workMinutes} onChange={e => changeWorkMinutes(+e.target.value)} /> min</label>
+          <label>Pausa: <input type="number" min={1} max={30} value={shortMinutes} onChange={e => changeShortMinutes(+e.target.value)} /> min</label>
         </div>
       )}
     </div>
   )
 }
-
