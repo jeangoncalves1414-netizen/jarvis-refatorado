@@ -76,6 +76,7 @@ const NAV_SLASH: Record<string, { slash: string; aliases: string[] }> = {
   'Memórias': { slash: 'conhecimento', aliases: ['memorias', 'memoria'] },
   'Integrações': { slash: 'integracoes', aliases: [] },
   Estudos: { slash: 'estudos', aliases: ['estudo', 'flashcards'] },
+  'Inglês': { slash: 'ingles', aliases: ['inglês', 'idioma', 'pronuncia'] },
   'Evolução': { slash: 'lifeos', aliases: ['evolucao', 'habitos'] },
   'Calendário': { slash: 'calendario', aliases: ['agenda'] },
   'Painel pessoal': { slash: 'painel', aliases: ['tarefas', 'hoje'] },

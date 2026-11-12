@@ -14,7 +14,6 @@ import { StudyPlanner } from '../components/study/StudyPlanner'
 import { CardEditor } from '../components/study/CardEditor'
 import { StudyDashboard } from '../components/study/StudyDashboard'
 import { StudyProgress } from '../components/study/StudyProgress'
-import { LanguagePage, type LangTab } from './LanguagePage'
 
 type StudyPageProps = {
   tutorSessions: { id: string; title?: string }[]
@@ -82,7 +81,6 @@ type StudyPageProps = {
   duplicateWhiteboardElement: (id: string) => void
   clearWhiteboard: () => void
   setNotice: (message: string) => void
-  languageProps?: Record<string, any>
 }
 
 export function StudyPage(props: StudyPageProps) {
@@ -90,7 +88,6 @@ export function StudyPage(props: StudyPageProps) {
   const [selectedEnemId, setSelectedEnemId] = useState('')
   const [pasteText, setPasteText] = useState('')
   const [pasteImage, setPasteImage] = useState('')
-  const [languageTab, setLanguageTab] = useState<LangTab>('home')
   const studyStats = useStudyStats(props.setNotice)
   const currentCard = props.dueCards[props.studyCardIndex]
 
@@ -98,15 +95,7 @@ export function StudyPage(props: StudyPageProps) {
   const reviewCard = (grade: number) => props.reviewCard(grade).then(() => studyStats.refresh())
   const undoReview = () => props.undoReview().then(() => studyStats.refresh())
 
-  const changeMode = (mode: StudyMode) => {
-    if (mode === 'language') setLanguageTab('home')
-    setActiveMode(mode)
-  }
-
-  const openVocabularyReview = () => {
-    setLanguageTab('vocab')
-    setActiveMode('language')
-  }
+  const changeMode = (mode: StudyMode) => setActiveMode(mode)
   const selectedEnem = props.enemQuestions.find(item => item.id === selectedEnemId)
 
   const handlePaste = async () => {
@@ -244,7 +233,6 @@ export function StudyPage(props: StudyPageProps) {
               assessmentCount={props.assessments.length}
               onGuidedStudy={message => beginGuidedStudy(message)}
               onOpenMode={setActiveMode}
-              onReviewVocabulary={openVocabularyReview}
               onRefresh={studyStats.refresh}
             />
             <StudyPlanner />
@@ -418,14 +406,6 @@ export function StudyPage(props: StudyPageProps) {
             </div>
             <StudyProgress stats={studyStats.stats} dashboard={studyStats.dashboard} />
           </div>
-        )}
-        {activeMode === 'language' && props.languageProps && (
-          <LanguagePage
-            key={languageTab}
-            {...props.languageProps as any}
-            initialTab={languageTab}
-            onStudyActivity={() => { studyStats.refresh().catch(() => undefined) }}
-          />
         )}
         <div className="study-pomodoro-dock">
           <PomodoroTimer

@@ -47,6 +47,7 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage').then(module => 
 const MemoriesPage = lazy(() => import('./pages/MemoriesPage').then(module => ({ default: module.MemoriesPage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(module => ({ default: module.SettingsPage })))
 const StudyPage = lazy(() => import('./pages/StudyPage').then(module => ({ default: module.StudyPage })))
+const LanguagePage = lazy(() => import('./pages/LanguagePage').then(module => ({ default: module.LanguagePage })))
 const IdentityPage = lazy(() => import('./pages/IdentityPage').then(module => ({ default: module.IdentityPage })))
 const EvoluteHubPage = lazy(() => import('./pages/EvoluteHubPage').then(module => ({ default: module.EvoluteHubPage })))
 const MissionControlPage = lazy(() => import('./pages/MissionControlPage').then(module => ({ default: module.MissionControlPage })))
@@ -933,10 +934,10 @@ export default function App() {
             duplicateWhiteboardElement={duplicateWhiteboardElement}
             clearWhiteboard={clearWhiteboard}
             setNotice={setNotice}
-            languageProps={{...language, setNotice}}
           />
         )
       }
+      if (active === 'Inglês') return <LanguagePage {...language} setNotice={setNotice} />
       if (active === 'Calendário') return <CalendarSection onNotice={setNotice} />
       if (active === 'Configurações') {
         return (

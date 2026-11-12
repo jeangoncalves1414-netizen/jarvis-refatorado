@@ -145,6 +145,14 @@ class TestCEFR:
         assert store.get_progress()["cefr_level"] == "A1"  # unchanged
 
 
+class TestPronunciationThreshold:
+    def test_threshold_is_clamped_and_exposed_on_dashboard(self, store: LanguageStore) -> None:
+        store.set_pronunciation_threshold(130)
+        assert store.get_dashboard()["pronunciation_threshold"] == 100
+        store.set_pronunciation_threshold(20)
+        assert store.get_dashboard()["pronunciation_threshold"] == 50
+
+
 # ── Streak & XP ──────────────────────────────────────────────────
 
 class TestStreakAndXP:

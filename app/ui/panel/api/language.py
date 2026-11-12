@@ -204,6 +204,12 @@ def handle_language_post(path: str, body: bytes, handler: Any) -> tuple[int, dic
             store.set_target_language(str(payload["target_language"]))
         if payload.get("daily_goal"):
             store.set_daily_goal(int(payload["daily_goal"]))
+        if "pronunciation_threshold" in payload:
+            try:
+                threshold = _number(payload, "pronunciation_threshold", 80)
+            except ValueError:
+                return 400, {"ok": False, "error": "invalid_pronunciation_threshold"}
+            store.set_pronunciation_threshold(int(threshold))
         return 200, {"ok": True}
 
     return 404, {"error": "not_found"}

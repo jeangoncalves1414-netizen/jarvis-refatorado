@@ -41,6 +41,7 @@ export function useLanguage(setNotice: SetNotice) {
   const [pronAttempt, setPronAttempt] = useState<{target:string; kind:PronunciationKind} | null>(null)
   const [languageLoad, setLanguageLoad] = useState<'loading'|'ready'|'error'>('loading')
   const [pronWrongWords, setPronWrongWords] = useState<string[]>([])
+  const [pronunciationThreshold, setPronunciationThresholdState] = useState(80)
 
   // Vocab add form
   const [newWord, setNewWord] = useState('')
@@ -58,7 +59,10 @@ export function useLanguage(setNotice: SetNotice) {
     ])
     const [dashData, dueData, pronData, vocabData] = await Promise.all(results.map(readOkJson))
     setLanguageLoad(dashData && dueData && pronData && vocabData ? "ready" : "error")
-    if (dashData) setDashboard(dashData)
+    if (dashData) {
+      setDashboard(dashData)
+      setPronunciationThresholdState(Math.max(50, Math.min(100, Number(dashData.pronunciation_threshold) || 80)))
+    }
     let dueCards: VocabCard[] | null = null
     if (dueData) {
       dueCards = (dueData.cards || []) as VocabCard[]
@@ -141,6 +145,20 @@ export function useLanguage(setNotice: SetNotice) {
     refreshLanguage().catch(() => undefined)
   }
 
+  const setPronunciationThreshold = async (threshold: number) => {
+    const value = Math.max(50, Math.min(100, Math.round(threshold)))
+    setPronunciationThresholdState(value)
+    const response = await fetch('/api/language/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pronunciation_threshold: value }),
+    })
+    if (!response.ok) {
+      setNotice('Não foi possível salvar o nível de rigor da pronúncia.')
+      refreshLanguage().catch(() => undefined)
+    }
+  }
+
   // ── Pronunciation via Web Speech API ───────────────────────
 
   const recognitionRef = useRef<any>(null)
@@ -180,7 +198,7 @@ export function useLanguage(setNotice: SetNotice) {
       const confidence = result.confidence ?? 0
       const words = alignWords(target, transcript)
       const score = words.length ? Math.round(words.reduce((total, word) => total + word.score, 0) / words.length) : 0
-      const wrong = words.filter(word => word.score < 80).map(word => word.word)
+      const wrong = words.filter(word => word.score < pronunciationThreshold).map(word => word.word)
 
       setPronAttempt({target, kind})
       setPronTranscript(transcript)
@@ -305,6 +323,7 @@ export function useLanguage(setNotice: SetNotice) {
     newExample, setNewExample, newCategory, setNewCategory,
     pronTarget, setPronTarget, pronTranscript, pronScore, pronListening,
     pronWrongWords, pronAttempt, languageLoad, startPronunciation,
+    pronunciationThreshold, setPronunciationThreshold,
     pronunciationHistory,
     langMessages, langQuery, setLangQuery, sendLanguageMessage, endConversation,
     langSessionId,

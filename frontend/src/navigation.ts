@@ -1,4 +1,4 @@
-import { Activity, BookOpen, CalendarDays, ChartNoAxesCombined, Fingerprint, GraduationCap, House, LayoutDashboard, MessageSquare, Plug, Settings2, Sprout, Workflow } from 'lucide-react'
+import { Activity, BookOpen, CalendarDays, ChartNoAxesCombined, Fingerprint, GraduationCap, House, Languages, LayoutDashboard, MessageSquare, Plug, Settings2, Sprout, Workflow } from 'lucide-react'
 
 // Persisted IDs stay compatible with existing installations.
 export const navigation = [
@@ -10,6 +10,7 @@ export const navigation = [
   { id: 'Integrações', label: 'Integrações', icon: Plug, group: 'workspace', description: 'Disponibilidade das conexões' },
   { id: 'Saúde', label: 'Saúde do Jarvis', icon: Activity, group: 'workspace', description: 'Modelos, microfone, ferramentas e últimos erros' },
   { id: 'Estudos', label: 'Estudos', icon: GraduationCap, group: 'modules', description: 'Sessões, materiais e quadro de estudos' },
+  { id: 'Inglês', label: 'Inglês', icon: Languages, group: 'modules', description: 'Lições faladas, feedback e progresso pessoal' },
   { id: 'Evolução', label: 'Life OS', icon: Sprout, group: 'modules', description: 'Hábitos e evolução pessoal' },
   { id: 'Calendário', label: 'Calendário', icon: CalendarDays, group: 'modules', description: 'Sua agenda' },
   { id: 'Painel pessoal', label: 'Painel pessoal', icon: LayoutDashboard, group: 'modules', description: 'Indicadores pessoais e tarefas' },

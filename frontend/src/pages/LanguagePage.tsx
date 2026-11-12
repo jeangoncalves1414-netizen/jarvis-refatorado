@@ -76,6 +76,8 @@ type LanguagePageProps = {
   newCategory: string; setNewCategory: (v: string) => void
   pronTarget: string; setPronTarget: (v: string) => void
   pronTranscript: string; pronScore: number | null; pronListening: boolean
+  pronunciationThreshold: number
+  setPronunciationThreshold: (threshold: number) => Promise<void>
   languageLoad: string
   pronAttempt: { target:string; kind:PronunciationKind } | null
   pronWrongWords: string[]
@@ -102,15 +104,16 @@ const LANG_MODES: { id: LangTab; label: string; icon: string }[] = [
   { id: 'progress', label: 'Progresso', icon: '📊' },
 ]
 
-function scoreClass(score: number) {
-  if (score >= 80) return 'lang-score-good'
-  if (score >= 50) return 'lang-score-ok'
+function scoreClass(score: number, threshold = 80) {
+  if (score >= threshold) return 'lang-score-good'
+  if (score >= Math.max(50, threshold - 25)) return 'lang-score-ok'
   return 'lang-score-bad'
 }
 
 export function LanguagePage(props: LanguagePageProps) {
   const { dashboard } = props
   const level = dashboard?.cefr_level || 'A1'
+  const threshold = props.pronunciationThreshold
   const phrases = PRONUNCIATION_PHRASES[level] || PRONUNCIATION_PHRASES.A1
   const currentCard = props.dueVocab[props.vocabIndex] as (VocabCard & {reverse_of?: string}) | undefined
   const showTranslation = Boolean(currentCard?.reverse_of) !== props.vocabBackVisible
@@ -209,7 +212,9 @@ export function LanguagePage(props: LanguagePageProps) {
         {/* ── HOME ────────────────────────────────────────── */}
         {activeTab === 'home' && (
           <>
-            <p className="eyebrow">APRENDIZADO DE IDIOMAS</p>
+            <p className="eyebrow">SEU PROFESSOR DE INGLÊS</p>
+            <h2>Uma frase de cada vez.</h2>
+            <p className="lang-coach-copy">O agente propõe a frase, fala a referência, escuta você e registra o que precisa ser revisado no seu perfil de inglês.</p>
             <div className="lang-cefr-select">
               <label>
                 Nível CEFR:{' '}
@@ -250,10 +255,10 @@ export function LanguagePage(props: LanguagePageProps) {
             )}
 
             <div className="lang-quick-actions">
-              <button type="button" className="primary" onClick={() => setActiveTab('vocab')}>📚 Revisar vocabulário</button>
-              <button type="button" onClick={() => setActiveTab('pronunciation')}>🎤 Praticar pronúncia</button>
+              <button type="button" className="primary" onClick={() => setActiveTab('shadowing')}>🎙 Começar lição falada</button>
+              <button type="button" onClick={() => setActiveTab('vocab')}>📚 Revisar vocabulário</button>
               <button type="button" onClick={() => setActiveTab('conversation')}>💬 Conversar com tutor</button>
-              <button type="button" onClick={() => setActiveTab('shadowing')}>🔊 Shadowing</button>
+              <button type="button" onClick={() => setActiveTab('pronunciation')}>🔊 Treinar uma frase</button>
             </div>
           </>
         )}
@@ -336,6 +341,11 @@ export function LanguagePage(props: LanguagePageProps) {
           <>
             <IpaRecorder />
             <p className="eyebrow">PRONÚNCIA · NÍVEL {level}</p>
+            <label className="lang-threshold">
+              Rigor da correção <b>{threshold}%</b>
+              <input type="range" min="50" max="100" step="5" value={threshold} onChange={event => props.setPronunciationThreshold(Number(event.target.value)).catch(() => undefined)} />
+              <small>Palavras abaixo dessa nota entram na prática guiada.</small>
+            </label>
             <div className="lang-phrase-list">
               {phrases.map((phrase, i) => (
                 <button
@@ -382,12 +392,12 @@ export function LanguagePage(props: LanguagePageProps) {
 
             {props.pronAttempt?.kind === activeTab && props.pronScore !== null && (
               <div className="lang-score">
-                <PronunciationFeedback target={props.pronAttempt.target} transcript={props.pronTranscript} onRepeat={text => speakPhrase(text, true)} />
-                <span className={`lang-score-value ${scoreClass(props.pronScore)}`}>
+                <PronunciationFeedback target={props.pronAttempt.target} transcript={props.pronTranscript} threshold={threshold} onRepeat={text => speakPhrase(text, true)} />
+                <span className={`lang-score-value ${scoreClass(props.pronScore, threshold)}`}>
                   {props.pronScore}%
                 </span>
                 <span style={{ color: '#9696a2', fontSize: 12, marginLeft: 8 }}>
-                  {props.pronScore >= 80 ? 'Excelente!' : props.pronScore >= 50 ? 'Bom, continue praticando.' : 'Tente novamente.'}
+                  {props.pronScore >= threshold ? 'Meta atingida!' : 'Pratique as palavras marcadas e tente de novo.'}
                 </span>
                 {props.pronWrongWords.length > 0 && (
                   <p style={{ color: '#f44336', fontSize: 11, marginTop: 6 }}>
@@ -404,7 +414,7 @@ export function LanguagePage(props: LanguagePageProps) {
                   {props.pronunciationHistory.slice(0, 8).map(a => (
                     <div key={a.id} className="lang-history-item">
                       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.target}</span>
-                      <span className={scoreClass(a.score)}>{a.score}%</span>
+                      <span className={scoreClass(a.score, threshold)}>{a.score}%</span>
                     </div>
                   ))}
                 </div>
@@ -448,8 +458,8 @@ export function LanguagePage(props: LanguagePageProps) {
         {activeTab === 'shadowing' && (
           <>
             <p className="eyebrow">SHADOWING · NÍVEL {level}</p>
-            <p style={{ color: '#9696a2', fontSize: 12 }}>
-              Ouça a frase, depois repita imitando a pronúncia e o ritmo.
+            <p className="lang-coach-copy">
+              Atividade guiada: o agente fala primeiro, você repete e recebe o retorno de cada palavra.
             </p>
 
             <div className="lang-shadowing-phrase">
@@ -489,8 +499,8 @@ export function LanguagePage(props: LanguagePageProps) {
 
             {props.pronAttempt?.kind === activeTab && props.pronScore !== null && (
               <div className="lang-score" style={{ textAlign: 'center' }}>
-                <PronunciationFeedback target={props.pronAttempt.target} transcript={props.pronTranscript} onRepeat={text => speakPhrase(text, true)} />
-                <span className={`lang-score-value ${scoreClass(props.pronScore)}`}>{props.pronScore}%</span>
+                <PronunciationFeedback target={props.pronAttempt.target} transcript={props.pronTranscript} threshold={threshold} onRepeat={text => speakPhrase(text, true)} />
+                <span className={`lang-score-value ${scoreClass(props.pronScore, threshold)}`}>{props.pronScore}%</span>
               </div>
             )}
           </>
@@ -553,7 +563,7 @@ export function LanguagePage(props: LanguagePageProps) {
                   {props.pronunciationHistory.slice(0, wordLimit).map(a => (
                     <div key={a.id} className="lang-history-item">
                       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.target}</span>
-                      <span className={scoreClass(a.score)}>{a.score}%</span>
+                      <span className={scoreClass(a.score, threshold)}>{a.score}%</span>
                       {a.date && <span>{new Date(a.date).toLocaleDateString('pt-BR')}</span>}
                     </div>
                   ))}

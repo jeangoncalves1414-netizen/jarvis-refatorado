@@ -34,6 +34,7 @@ DEFAULT_LANGUAGE_PROGRESS: dict[str, Any] = {
     "target_language": "en",
     "native_language": "pt-BR",
     "cefr_level": "A1",
+    "pronunciation_threshold": 80,
     "placement_done": False,
     "stats": {
         "total_vocab": 0,
@@ -126,6 +127,11 @@ class LanguageStore:
 
     def set_target_language(self, lang: str) -> None:
         self._data["target_language"] = lang
+        self._save()
+
+    def set_pronunciation_threshold(self, threshold: int) -> None:
+        """Persiste o rigor mínimo da atividade de fala no perfil do idioma."""
+        self._data["pronunciation_threshold"] = max(50, min(100, int(threshold)))
         self._save()
 
     # ── Streak & XP ───────────────────────────────────────────────
@@ -357,6 +363,7 @@ class LanguageStore:
             "cefr_level": progress.get("cefr_level", "A1"),
             "target_language": progress.get("target_language", "en"),
             "placement_done": progress.get("placement_done", False),
+            "pronunciation_threshold": progress.get("pronunciation_threshold", 80),
             "stats": stats,
             "due_vocabulary": len(self.get_due_vocabulary()),
             "weak_phonemes": progress.get("weak_phonemes", []),

@@ -11,7 +11,6 @@ type StudyDashboardProps = {
   assessmentCount: number
   onGuidedStudy: (message: string) => void
   onOpenMode: (mode: StudyMode) => void
-  onReviewVocabulary: () => void
   onRefresh: () => unknown
 }
 
@@ -44,7 +43,6 @@ export function StudyDashboard(props: StudyDashboardProps) {
       <h2>{props.stageTitle || 'Preparação para provas'}</h2>
       <div className="study-today-stats">
         <span><b>{flashcards}</b> flashcards para revisar</span>
-        {dashboard && <span><b>{dashboard.due.vocabulary}</b> palavras para revisar</span>}
         {nextDueMinutes !== null && <span>Próximo cartão em <b>{nextDueMinutes}</b> min</span>}
         <span><b>{props.enemCount}</b> questões salvas</span>
         <span><b>{props.assessmentCount}</b> simulados</span>
@@ -97,7 +95,6 @@ export function StudyDashboard(props: StudyDashboardProps) {
         <button type="button" onClick={() => props.onGuidedStudy('Quero montar uma sessão de estudo para hoje. Pergunte primeiro qual prova, matéria e tempo disponível; depois proponha a primeira atividade.')}>Estudar um tema</button>
         <button type="button" onClick={() => props.onGuidedStudy('simulado: quero um mini simulado de 5 questões. Envie uma questão por vez, espere minha resposta e, no final, dê desempenho, erros e uma revisão indicada.')}>Mini simulado</button>
         <button type="button" onClick={() => props.onOpenMode('review')}>Revisar agora</button>
-        <button type="button" onClick={props.onReviewVocabulary}>Revisar vocabulário</button>
         <button type="button" onClick={() => props.onOpenMode('questions')}>Adicionar questão</button>
         <button type="button" onClick={() => props.onOpenMode('feynman')}>Explicar de volta</button>
       </div>

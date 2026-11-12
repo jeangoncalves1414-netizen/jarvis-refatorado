@@ -39,7 +39,7 @@ export type EnemQuestion = { id?: string; text?: string; subject?: string; year?
 /** Language learning types */
 export type VocabCard = { id: string; word: string; translation: string; example?: string; phonetic?: string; category?: string; cefr?: string; due?: string; reps?: number; difficulty?: number | null; stability?: number | null; state?: ReviewState; step?: number | null; last_review?: string | null; retrievability?: number | null }
 export type PronunciationAttempt = { id: string; target: string; transcript: string; score: number; confidence?: number; wrong_words?: string[]; date?: string }
-export type LanguageDashboard = { cefr_level: string; target_language: string; placement_done: boolean; stats: Record<string, number>; due_vocabulary: number; weak_phonemes: string[]; streak: number; daily_xp: number; daily_goal: number; total_xp: number }
+export type LanguageDashboard = { cefr_level: string; target_language: string; placement_done: boolean; pronunciation_threshold?: number; stats: Record<string, number>; due_vocabulary: number; weak_phonemes: string[]; streak: number; daily_xp: number; daily_goal: number; total_xp: number }
 export type StreakInfo = { streak_count: number; last_study_date?: string; total_xp: number; daily_xp: number; daily_goal: number }
 /** Painel de estudos unificado (app/storage/study_stats.py) */
 export type StudyXpSummary = { total_xp: number; daily_xp: number; daily_goal: number; goal_met: boolean; studied_today: boolean; streak: number; best_streak: number; pomodoros: number; last_study_date?: string | null }

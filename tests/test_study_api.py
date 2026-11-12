@@ -191,6 +191,17 @@ def test_shadowing_and_conversation(study_http) -> None:
     assert conversation["topic"] == "Viagem" and conversation["new_vocab"] == ["luggage"]
 
 
+def test_pronunciation_threshold_is_persisted(study_http) -> None:
+    base, _, _ = study_http
+    status, data = _request("POST", f"{base}/api/language/settings", {"pronunciation_threshold": 90})
+    assert status == 200 and data == {"ok": True}
+    status, dashboard = _request("GET", f"{base}/api/language/dashboard")
+    assert status == 200 and dashboard["pronunciation_threshold"] == 90
+
+    status, _ = _request("POST", f"{base}/api/language/settings", {"pronunciation_threshold": "90"})
+    assert status == 400
+
+
 def test_study_categories_not_shadowed(study_http) -> None:
     base, _, _ = study_http
     status, data = _request("GET", f"{base}/api/study/categories")
