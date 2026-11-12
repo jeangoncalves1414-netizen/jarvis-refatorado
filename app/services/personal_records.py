@@ -18,6 +18,28 @@ from app.agent.tools.base import ToolResult
 KINDS = {'habit', 'task', 'finance', 'note', 'workout', 'workout_plan', 'sleep', 'mood', 'personal', 'checklist', 'rule', 'recurrence', 'transfer'}
 LABELS = {'habit': 'Hábito', 'task': 'Tarefa', 'finance': 'Lançamento', 'note': 'Anotação', 'workout': 'Treino', 'workout_plan': 'Plano de treino', 'sleep': 'Sono', 'mood': 'Humor', 'personal': 'Registro', 'rule': 'Relação', 'recurrence': 'Recorrência', 'transfer': 'Transferência', 'checklist': 'Lista'}
 
+ALLOWED_FIELDS = {
+    'habit': {'title', 'name', 'category', 'routine_block', 'days_of_week', 'start_time', 'items_list', 'day_slots', 'time_exceptions', 'target_value', 'unit', 'value', 'date', 'habits'},
+    'task': {'title', 'description', 'priority', 'project', 'due_date', 'subtasks'},
+    'note': {'title', 'content', 'folder', 'tags', 'priority', 'due_date', 'project'},
+    'checklist': {'title', 'text', 'items'},
+    'workout': {'title', 'name', 'date', 'exercises', 'notes', 'plan_id', 'completed'},
+    'workout_plan': {'title', 'date', 'exercises', 'days', 'notes', 'enabled'},
+    'sleep': {'title', 'date', 'hours', 'content'}, 'mood': {'title', 'date', 'score', 'content'},
+    'personal': {'title', 'date', 'content', 'tags'},
+    'recurrence': {'title', 'amount', 'category', 'type', 'account', 'date', 'next_date', 'frequency', 'enabled'},
+    'transfer': {'title', 'amount', 'date', 'from_account', 'to_account'},
+    'rule': {'title', 'source', 'target_kind', 'target_id', 'match_description', 'enabled'},
+}
+
+# Chaves somente leitura: ignoradas com aviso (nunca geram erro)
+READONLY_FIELDS = {
+    'id', 'kind', 'color', 'icon', 'frequency_type', 'target_days_per_week',
+    'created_at', 'updated_at', 'archived', 'completed_today', 'completed_at',
+    'current_streak', 'best_streak', 'current_value', 'source', 'effective_title',
+    'is_priority', 'isPriority', 'created_date', 'connectedTo', 'streak', 'timestamp',
+}
+
 
 def stored(kind):
     journal.initialize()
@@ -175,6 +197,9 @@ def _delegate(kind, action, fields, target=None):
         args['name'] = args.pop('title', args.get('name', ''))
     if kind == 'habit' and action == 'update' and 'title' in args:
         args['new_name'] = args.pop('title')
+    if kind == 'habit' and action == 'reopen':
+        # reopen habit = uncheck today
+        args['action'] = 'uncheck'
     if kind == 'task' and action == 'update' and 'title' in args:
         args['new_title'] = args.pop('title')
     if kind == 'checklist':
@@ -186,21 +211,59 @@ def mutate(kind, action, fields, target=None):
     from app.services.personal_habits import PersonalHabits, _raw_id
     from app.services.finance import FinanceService
     key = target['id'] if target else 'rec_' + uuid.uuid4().hex
-    allowed_fields = {
-        'habit': {'title', 'name', 'category', 'routine_block', 'days_of_week', 'start_time', 'items_list', 'day_slots', 'time_exceptions', 'target_value', 'unit', 'value', 'date'},
-        'task': {'title', 'description', 'priority', 'project', 'due_date', 'subtasks'},
-        'note': {'title', 'content', 'folder', 'tags', 'priority', 'due_date', 'project'},
-        'checklist': {'title', 'text', 'items'},
-        'workout': {'title', 'name', 'date', 'exercises', 'notes', 'plan_id', 'completed'},
-        'workout_plan': {'title', 'date', 'exercises', 'days', 'notes', 'enabled'},
-        'sleep': {'title', 'date', 'hours', 'content'}, 'mood': {'title', 'date', 'score', 'content'},
-        'personal': {'title', 'date', 'content', 'tags'},
-        'recurrence': {'title', 'amount', 'category', 'type', 'account', 'date', 'next_date', 'frequency', 'enabled'},
-        'transfer': {'title', 'amount', 'date', 'from_account', 'to_account'},
-        'rule': {'title', 'source', 'target_kind', 'target_id', 'match_description', 'enabled'},
-    }
-    if kind in allowed_fields and set(fields) - allowed_fields[kind]:
-        raise ValueError('Campos não reconhecidos: ' + ', '.join(sorted(set(fields) - allowed_fields[kind])))
+    # Handle read-only keys: ignore with warning instead of error
+    if kind in ALLOWED_FIELDS:
+        readonly_present = set(fields) & READONLY_FIELDS - ALLOWED_FIELDS[kind]
+        if readonly_present:
+            fields = {k: v for k, v in fields.items() if k not in readonly_present}
+            # Store ignored fields note in fields for callers that check it
+            fields = dict(fields)
+            fields['_ignored_readonly'] = sorted(readonly_present)
+        ignored_readonly = fields.pop('_ignored_readonly', [])
+        unknown = set(fields) - ALLOWED_FIELDS[kind] - {'_ignored_readonly'}
+        if unknown:
+            raise ValueError('Campos não reconhecidos: ' + ', '.join(sorted(unknown)) + '. Aceitos para ' + kind + ': ' + ', '.join(sorted(ALLOWED_FIELDS[kind] - {'habits'})) + '.')
+        # Batch habit creation via fields.habits
+        if kind == 'habit' and action == 'create' and 'habits' in fields:
+            habits_list = fields['habits']
+            if not isinstance(habits_list, list):
+                raise ValueError("fields.habits deve ser uma lista.")
+            if set(fields) - {'habits'}:
+                raise ValueError("Não misture fields.habits com campos de hábito único (name, start_time etc.).")
+            # Clean readonly keys from each item
+            cleaned_items = []
+            for item in habits_list:
+                if not isinstance(item, dict):
+                    raise ValueError("Cada item em fields.habits deve ser um objeto.")
+                # title -> name mapping
+                if 'title' in item and 'name' not in item:
+                    item = dict(item, name=item.pop('title'))
+                cleaned_items.append({k: v for k, v in item.items() if k not in READONLY_FIELDS})
+            from app.agent.tools.lifestyle_tools import HabitTool
+            result = HabitTool().execute({'action': 'create_many', 'habits': cleaned_items})
+            # Apply target_value/unit per id if provided in items
+            from app.services.personal_habits import PersonalHabits as _PH
+            for i, item in enumerate(cleaned_items):
+                if ('target_value' in item or 'unit' in item) and result.ok:
+                    habit_ids = (result.data or {}).get('habit_ids', [])
+                    if i < len(habit_ids):
+                        updates = {}
+                        if 'target_value' in item:
+                            updates['target_value'] = item['target_value']
+                        if 'unit' in item:
+                            updates['unit'] = item['unit']
+                        try:
+                            _PH.update_habit(habit_ids[i], **updates)
+                        except Exception:
+                            pass
+            if ignored_readonly:
+                result = ToolResult(result.ok, result.message + f" Ignorei campos somente leitura: {', '.join(ignored_readonly)}.",
+                                    data={**(result.data or {}), 'ignored_fields': ignored_readonly})
+            return result
+    else:
+        ignored_readonly = []
+    if kind in ALLOWED_FIELDS and set(fields) - ALLOWED_FIELDS[kind]:
+        raise ValueError('Campos não reconhecidos: ' + ', '.join(sorted(set(fields) - ALLOWED_FIELDS[kind])) + '. Aceitos para ' + kind + ': ' + ', '.join(sorted(ALLOWED_FIELDS[kind] - {'habits'})) + '.')
     if 'days_of_week' in fields and (not isinstance(fields['days_of_week'], list) or not fields['days_of_week']):
         raise ValueError('Escolha pelo menos um dia ou pause o hábito.')
     if 'tags' in fields:
@@ -542,7 +605,7 @@ def dispatch(action='list', kind='personal', record_id='', query='', fields=None
     if action not in allowed:
         raise ValueError('Ação desconhecida.')
     specific = {
-        'complete': {'habit', 'task', 'workout'}, 'reopen': {'task', 'workout'},
+        'complete': {'habit', 'task', 'workout'}, 'reopen': {'task', 'workout', 'habit'},
         'pause': {'habit', 'workout_plan', 'rule', 'recurrence'}, 'resume': {'habit', 'workout_plan', 'rule', 'recurrence'},
         'progress': {'habit'}, 'refund': {'finance'}, 'to_task': {'note'}, 'pay': {'recurrence'}, 'start': {'workout_plan'},
     }

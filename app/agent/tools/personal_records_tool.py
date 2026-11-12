@@ -6,15 +6,10 @@ from app.core.actions import ToolMetadata
 class PersonalRecordsTool(BaseTool):
     name = 'personal_records'
     description = (
-        'Organização pessoal: histórico e desfazer persistente; corrigir o último registro com record_id=last; '
+        'Organização pessoal. Vários hábitos = UMA chamada create kind=habit com fields.habits (lista). '
+        'Histórico e desfazer persistente; corrigir o último com record_id=last; '
         'CRUD de hábitos, tarefas, finanças, notas, treinos, planos, sono e humor. '
-        'Use para contas, parcelas, estorno, transferências, recorrências, relações e preferências. '
-        'fields contém apenas os campos pedidos. Nunca invente conta, valor, data ou carga. '
-        'Excluir vários: preview; a confirmação acontece na tela Hoje. '
-        'Treino realizado=create workout; planejamento=create workout_plan; start inicia sessão pendente; complete conclui. '
-        'Relações rule são opcionais: source workout/finance, target_kind habit/task, target_id, enabled; '
-        'finance requer match_description exata. Não crie relações sem pedido. '
-        'Revisões são exibidas no Hoje, não notificações externas.'
+        'Use para contas, parcelas, estorno, transferências, recorrências e preferências.'
     )
 
     @property
@@ -36,7 +31,7 @@ class PersonalRecordsTool(BaseTool):
             'record_id': {'type': 'string', 'description': 'ID obtido por list; last = último registro deste tipo alterado nesta conversa.'},
             'query': {'type': 'string', 'description': 'Busca; nas alterações, título exato. Havendo ambiguidade, pergunte.'},
             'receipt_id': {'type': 'string', 'description': 'undo: ID do histórico; omita para desfazer a última alteração desta conversa.'},
-            'fields': {'type': 'object', 'description': 'Campos pedidos: title/content/tags/date; hábito target_value,unit,days_of_week,start_time; progress value é o TOTAL do dia; tarefa due_date,priority,subtasks[{title,completed}]; finanças type(expense/income), amount(total), category, description, account, installments(1..60); treino exercises[{name,sets,reps,weight,minutes}], days[0=seg..6=dom]; sono hours(0..24), humor score(1..5); transfer from_account/to_account/amount; recurrence next_date,frequency(monthly/weekly),amount,type,account; rule source,target_kind,target_id,match_description,enabled; preferências blocks[habits,tasks,workout,finance,notes], reduced_motion, review(off/daily/weekly).'},
+            'fields': {'type': 'object', 'description': 'Hábito: habits=[{name,category,routine_block,days_of_week,start_time,target_value,unit}] para lote; ou title,start_time,days_of_week,routine_block,target_value,unit,items_list para 1. Tarefa: title,priority(1-4),project,due_date,subtasks. Finance: type,amount,category,description,date,account. Treino: exercises[{name,sets,reps,weight,minutes}]. Sono: hours. Humor: score(1-5).'},
         }, 'required': ['action']}
 
     def execute(self, args, context=None):

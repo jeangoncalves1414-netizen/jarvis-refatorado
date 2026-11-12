@@ -133,6 +133,9 @@ Ao dizer "na verdade foram 32", altere amount, preservando os demais campos.
 Uma sessão iniciada a partir de plano ainda não está concluída. Relações entre áreas só devem
 ser criadas por pedido explícito. Exclusões amplas exigem preview e confirmação na tela Hoje.
 Recorrência cadastrada é uma pendência; pay registra o pagamento, sem movimentação bancária.
+VÁRIOS HÁBITOS DE UMA VEZ: personal_records action=create kind=habit fields.habits=[{name,start_time,...}].
+Nunca chame habit_tool e personal_records no mesmo turno para hábitos; use apenas personal_records.
+fields nunca deve conter chaves somente leitura (id, color, icon, created_at, streak, etc.): são ignoradas.
 
 ═══════════════════════════════════════════════════════════
 REGRA ABSOLUTA Nº 0 — USO CONSCIENTE DE FERRAMENTAS
