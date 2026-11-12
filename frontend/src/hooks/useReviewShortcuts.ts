@@ -23,7 +23,7 @@ export function useReviewShortcuts(options: ReviewShortcutOptions) {
   useEffect(() => {
     if (!enabled) return
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.altKey || event.metaKey) return
+      if (event.repeat || event.defaultPrevented || event.altKey || event.metaKey) return
       if (isTypingTarget(event.target)) return
       const { revealed, onFlip, onGrade, onUndo } = latest.current
       const key = event.key

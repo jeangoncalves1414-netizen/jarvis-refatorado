@@ -154,7 +154,7 @@ class TutorStore:
 
     def add_flashcard(self, front: str, back: str, topic: str = "", stage: str = "") -> str:
         cards = self._data.setdefault("flashcards", [])
-        card_id = f"fc-{len(cards) + 1:04d}"
+        card_id = f"fc-{uuid.uuid4().hex}"
         cards.append(self._normalize_card({
             "id": card_id,
             "front": front,
@@ -181,6 +181,7 @@ class TutorStore:
             if card.get("id") != card_id:
                 continue
             before = snapshot(card)
+            card_snapshot = copy.deepcopy(card)
             self._normalize_card(card)
             state_before = card["state"]
             result = apply_review(card, grade)
@@ -203,6 +204,7 @@ class TutorStore:
                 "interval_days": result.interval,
                 "xp": XP_REVIEW,
                 "before": before,
+                "card_snapshot": card_snapshot,
                 "after": after,
             })
             return {**card, "review_id": entry["id"]}
@@ -214,8 +216,11 @@ class TutorStore:
             return {"ok": False, "error": "nothing_to_undo"}
         card = next((c for c in self._data.get("flashcards", []) if c.get("id") == entry.get("card_id")), None)
         if card is None:
-            return {"ok": False, "error": "card_not_found"}
-        if snapshot(card) != entry.get("after"):
+            if not entry.get("card_snapshot"):
+                return {"ok": False, "error": "card_not_found"}
+            card = copy.deepcopy(entry["card_snapshot"])
+            self._data.setdefault("flashcards", []).append(card)
+        elif snapshot(card) != entry.get("after"):
             return {"ok": False, "error": "stale"}
         restore(card, entry.get("before") or {})
         self._refresh_flashcard_stats()

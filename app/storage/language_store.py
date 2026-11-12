@@ -188,6 +188,7 @@ class LanguageStore:
             if card.get("id") != card_id:
                 continue
             before = snapshot(card)
+            card_snapshot = copy.deepcopy(card)
             self._normalize_vocab(card)
             state_before = card["state"]
             result = apply_review(card, grade)
@@ -195,8 +196,7 @@ class LanguageStore:
             after = snapshot(card)
             # Track mastered cards
             stats = self._data.setdefault("stats", {})
-            if result.reps >= 3 and result.stability >= 10:
-                stats["vocab_mastered"] = self._count_mastered()
+            stats["vocab_mastered"] = self._count_mastered()
             self._save()
             self.add_xp(XP_VOCAB_REVIEW)
             entry = self.review_log.append({
@@ -213,6 +213,7 @@ class LanguageStore:
                 "interval_days": result.interval,
                 "xp": XP_VOCAB_REVIEW,
                 "before": before,
+                "card_snapshot": card_snapshot,
                 "after": after,
             })
             return {**card, "review_id": entry["id"]}
@@ -242,10 +243,16 @@ class LanguageStore:
             return {"ok": False, "error": "nothing_to_undo"}
         card = next((v for v in self._data.get("vocabulary", []) if v.get("id") == entry.get("card_id")), None)
         if card is None:
-            return {"ok": False, "error": "card_not_found"}
-        if snapshot(card) != entry.get("after"):
+            if not entry.get("card_snapshot"):
+                return {"ok": False, "error": "card_not_found"}
+            card = copy.deepcopy(entry["card_snapshot"])
+            self._data.setdefault("vocabulary", []).append(card)
+        elif snapshot(card) != entry.get("after"):
             return {"ok": False, "error": "stale"}
         restore(card, entry.get("before") or {})
+        stats = self._data.setdefault("stats", {})
+        stats["total_vocab"] = len(self._data.get("vocabulary", []))
+        stats["vocab_mastered"] = self._count_mastered()
         self._save()
         self.xp.revoke(int(entry.get("xp") or 0), entry.get("local_date"))
         self.review_log.append({

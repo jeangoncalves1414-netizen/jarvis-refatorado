@@ -661,8 +661,8 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         scope="Só o histórico de pronúncia de idiomas.",
     ),
     "language_add_weak_phoneme": ToolMetadata(
-        ("study", "language"), "low", reversible=True, default_target="fonemas fracos",
-        effect="Marca um fonema como ponto fraco para praticar.", reversibility="Reversível: remova o fonema da lista de pontos fracos.",
+        ("study", "language"), "low", reversible=False, default_target="fonemas fracos",
+        effect="Marca um fonema como ponto fraco para praticar.", reversibility="Não há remoção de fonemas disponível na interface ou nas ferramentas.",
         scope="Só a lista de fonemas fracos de idiomas.",
     ),
     "language_set_level": ToolMetadata(
@@ -677,8 +677,8 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         scope="Só o progresso de estudo do tutor.",
     ),
     "tutor_add_flashcard": ToolMetadata(
-        ("study", "tutor"), "low", reversible=True, default_target="flashcards de estudo",
-        effect="Cria um flashcard para revisão espaçada.", reversibility="Reversível: exclua o flashcard criado.",
+        ("study", "tutor"), "low", reversible=False, default_target="flashcards de estudo",
+        effect="Cria um flashcard para revisão espaçada.", reversibility="Não há exclusão de flashcards disponível na interface ou nas ferramentas.",
         scope="Só os flashcards do tutor.",
     ),
     "tutor_save_feynman": ToolMetadata(
