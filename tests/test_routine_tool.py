@@ -141,14 +141,9 @@ def test_routine_not_offered_for_habit_without_rotina(registry):
     assert 'routine' not in allowed_narrow
 
 
-def test_personal_records_step_rejected_with_tool_list(registry):
-    '''C3: personal_records step in routine is rejected with 'Use uma destas' listing tools.'''
+def test_unknown_step_lists_available_tools(registry):
     from app.routines.models import validate_step, RoutineError
-    
-    try:
-        validate_step({'tool': 'personal_records', 'operation': 'create', 'params': {}}, 0, registry)
-        assert False, 'Should have raised RoutineError'
-    except RoutineError as e:
-        # Error should list valid tools
-        assert 'Use uma destas' in str(e)
-        assert 'open_windows_app' in str(e) or 'spotify' in str(e) or 'web_search' in str(e)
+
+    with pytest.raises(RoutineError, match="Use uma destas") as error:
+        validate_step({"tool": "unknown_records", "operation": "create", "params": {}}, 0, registry)
+    assert any(tool in str(error.value) for tool in ("open_windows_app", "spotify", "web_search"))

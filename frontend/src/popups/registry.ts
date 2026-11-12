@@ -7,6 +7,7 @@ import type { PopupEnvelope, PopupOrigin } from './types'
 // O backend monta `data` a partir dos serviços; aqui `parseData` confere de novo o formato e um
 // popup com dado inválido não abre.
 
+export const POPUP_PERSONAL_RECEIPT = 'personal_receipt'
 export const POPUP_INFO = 'info'
 export const POPUP_FINANCE_RECEIPT = 'finance_receipt'
 export type FinanceEntry = { id: string; type: 'income' | 'expense'; amount: number; category: string; description: string; date_str: string }
@@ -233,8 +234,8 @@ const placesDef: PopupDef<PlacesPopupData> = {
 }
 
 export const popupRegistry: Record<string, PopupDef<any>> = {
-  personal_receipt: {
-    id: 'personal_receipt', title: 'Registro salvo', icon: ListChecks,
+  [POPUP_PERSONAL_RECEIPT]: {
+    id: POPUP_PERSONAL_RECEIPT, title: 'Registro salvo', icon: ListChecks,
     parseData: (raw: unknown) => {
       if (!isRecord(raw) || !Array.isArray(raw.receipts) || raw.receipts.length > 20) return null
       if (raw.receipts.some(r => !isRecord(r) || typeof r.id !== 'string' || typeof r.message !== 'string' || !Array.isArray(r.changes) || r.changes.some((c: unknown) => !isRecord(c) || typeof c.key !== 'string' || typeof c.store !== 'string'))) return null

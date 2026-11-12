@@ -113,10 +113,13 @@ def test_undo_stale_after_card_changed(deck) -> None:
     assert _card(cards, card_id)["reps"] == 99
 
 
-def test_undo_card_not_found(deck) -> None:
+def test_undo_legacy_log_without_snapshot_or_card(deck) -> None:
     store, add, review, cards = deck
     card_id = add("epsilon")
     review(card_id, 2)
+    entry = json.loads(_log_lines(store)[0])
+    del entry["card_snapshot"]
+    store.review_log.path.write_text(json.dumps(entry) + "\n", encoding="utf-8")
     cards().clear()
     assert store.undo_last_review() == {"ok": False, "error": "card_not_found"}
 
