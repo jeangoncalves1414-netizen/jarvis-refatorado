@@ -1,3 +1,4 @@
+import { studyGet } from '../utils/studyGet'
 import { useEffect, useState } from 'react'
 import type { StudyDashboardData, StudyStatsData } from '../types'
 
@@ -21,7 +22,7 @@ export function useStudyStats(setNotice: SetNotice) {
   const [stats, setStats] = useState<StudyStatsData | null>(null)
 
   const refresh = async () => {
-    const results = await Promise.allSettled([fetch('/api/study/dashboard'), fetch('/api/study/stats')])
+    const results = await Promise.allSettled([studyGet('/api/study/dashboard'), studyGet('/api/study/stats')])
     const [dashboardData, statsData] = await Promise.all(results.map(readOkJson))
     if (dashboardData) setDashboard(dashboardData as StudyDashboardData)
     if (statsData) setStats(statsData as StudyStatsData)

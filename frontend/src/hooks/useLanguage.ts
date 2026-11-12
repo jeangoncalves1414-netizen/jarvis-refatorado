@@ -1,3 +1,4 @@
+import { studyGet } from '../utils/studyGet'
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import type { ChatMessage, VocabCard, PronunciationAttempt, LanguageDashboard } from '../types'
 import { speechLang } from '../utils/speechLang'
@@ -48,10 +49,10 @@ export function useLanguage(setNotice: SetNotice) {
   // Retorna a nova fila de revisão (ou null se ela não pôde ser carregada).
   const refreshLanguage = async (): Promise<VocabCard[] | null> => {
     const results = await Promise.allSettled([
-      fetch('/api/language/dashboard'),
-      fetch('/api/language/vocabulary/due'),
-      fetch('/api/language/pronunciation'),
-      fetch('/api/language/vocabulary'),
+      studyGet('/api/language/dashboard'),
+      studyGet('/api/language/vocabulary/due'),
+      studyGet('/api/language/pronunciation'),
+      studyGet('/api/language/vocabulary'),
     ])
     const [dashData, dueData, pronData, vocabData] = await Promise.all(results.map(readOkJson))
     if (dashData) setDashboard(dashData)

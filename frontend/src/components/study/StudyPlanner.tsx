@@ -1,3 +1,4 @@
+import { studyGet } from '../../utils/studyGet'
 import { useEffect, useState } from 'react'
 
 type Card = { id: string; front: string; topic?: string; tags?: string[]; due?: string; state?: string }
@@ -37,7 +38,7 @@ export function StudyPlanner() {
     const controller = new AbortController()
     setStatus('loading')
     async function read(path: string) {
-      const response = await fetch(path, {signal: controller.signal})
+      const response = await studyGet(path, controller.signal)
       if (!response.ok) throw new Error()
       const {cards} = await response.json()
       if (!Array.isArray(cards)) throw new Error()
@@ -75,6 +76,9 @@ export function StudyPlanner() {
         <input aria-label={'Meta para ' + day} placeholder="Meta de estudo" maxLength={160} value={plan.goals[day] || ''}
           onChange={e => setPlan(p => ({ ...p, goals: {...p.goals, [day]: e.target.value} }))} /></label>
     })}
+    <label>Meta da semana <input maxLength={200} placeholder="50 palavras, 3 práticas de pronúncia e 1 conversa" value={plan.goals['week-'+dayKey(dates[0])] || ''}
+      onChange={e => setPlan(p => ({...p,goals:{...p.goals,['week-'+dayKey(dates[0])]:e.target.value}}))} /></label>
+    {status === 'ready' && <p>{dates.reduce((sum, date) => sum+(counts.get(dayKey(date)) || 0),0)} revisões agendadas nesta semana.</p>}
     <h3>Quadro de cartões</h3>
     <input aria-label="Filtrar por baralho ou tag" placeholder="Baralho ou tag" value={filter} onChange={e => {setFilter(e.target.value); setLimit(20)}} />
     {status === 'ready' && !visible.length && <p>Nenhum cartão encontrado. Crie um na aba Revisão ou ajuste o filtro.</p>}

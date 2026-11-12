@@ -1,3 +1,4 @@
+import { studyGet } from '../utils/studyGet'
 import { FormEvent, useEffect, useState, useRef } from 'react'
 import type { Assessment, ChatMessage, ChatSession, EnemQuestion, FeynmanAttempt, Flashcard, StudyCategory, WhiteboardElement } from '../types'
 
@@ -175,7 +176,7 @@ export function useStudy(setNotice: SetNotice) {
 
   const refreshStudy = async () => {
     const [progressResponse, cardsResponse, feynmanResponse, assessmentResponse, enemResponse, sessionsResponse, categoriesResponse, trashResponse] = await Promise.all([
-      fetch('/api/tutor/progress'), fetch('/api/tutor/flashcards/due'), fetch('/api/tutor/feynman'), fetch('/api/tutor/assessments'), fetch('/api/enem/questions'), fetch('/api/sessions'), fetch('/api/study/categories'), fetch('/api/study/trash'),
+      studyGet('/api/tutor/progress'), studyGet('/api/tutor/flashcards/due'), studyGet('/api/tutor/feynman'), studyGet('/api/tutor/assessments'), studyGet('/api/enem/questions'), studyGet('/api/sessions'), studyGet('/api/study/categories'), studyGet('/api/study/trash'),
     ])
     const [progressData, cardsData, feynmanData, assessmentData, enemData, sessionsData, categoriesData, trashData] = await Promise.all([
       progressResponse.json(), cardsResponse.json(), feynmanResponse.json(), assessmentResponse.json(), enemResponse.json(), sessionsResponse.json(), categoriesResponse.json(), trashResponse.json(),

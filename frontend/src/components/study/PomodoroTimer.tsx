@@ -28,6 +28,8 @@ export function PomodoroTimer({ onComplete }: PomodoroTimerProps) {
   const [shortMinutes, setShortMinutes] = useState(DEFAULT_SHORT)
   const [pomodoroCount, setPomodoroCount] = useState(0)
   const [editing, setEditing] = useState(false)
+  const audioRef = useRef<AudioContext | null>(null)
+  useEffect(() => () => { audioRef.current?.close().catch(() => {}) }, [])
   const deadlineRef = useRef(0)
   // Cada fase recebe um número; o onComplete só dispara uma vez por número (seguro no StrictMode).
   const cycleRef = useRef(0)
@@ -47,6 +49,18 @@ export function PomodoroTimer({ onComplete }: PomodoroTimerProps) {
     if (!running || secondsLeft > 0) return
     if (firedCycleRef.current === cycleRef.current) return
     firedCycleRef.current = cycleRef.current
+    const audio = audioRef.current
+    if (audio?.state === 'running') {
+      const tone = audio.createOscillator()
+      const volume = audio.createGain()
+      tone.frequency.value = 660
+      volume.gain.setValueAtTime(0.12, audio.currentTime)
+      volume.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.35)
+      tone.connect(volume).connect(audio.destination)
+      tone.onended = () => { tone.disconnect(); volume.disconnect() }
+      tone.start()
+      tone.stop(audio.currentTime + 0.35)
+    }
     onCompleteRef.current?.(phase, Math.round(phaseTotal / 60))
     let next: PomodoroPhase = 'work'
     if (phase === 'work') {
@@ -63,6 +77,12 @@ export function PomodoroTimer({ onComplete }: PomodoroTimerProps) {
   }, [running, secondsLeft, phase, phaseTotal, pomodoroCount, workMinutes, shortMinutes])
 
   const resume = () => {
+    if (typeof AudioContext !== 'undefined') {
+      try {
+        audioRef.current ??= new AudioContext()
+        audioRef.current.resume().catch(() => {})
+      } catch { /* O temporizador também funciona sem dispositivo de áudio. */ }
+    }
     deadlineRef.current = Date.now() + secondsLeft * 1000
     setRunning(true)
   }
