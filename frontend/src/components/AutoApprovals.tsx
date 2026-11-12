@@ -5,12 +5,23 @@ import { panelRequest } from '../utils/panelApi'
 import { Switch } from './Switch'
 
 export type ApprovalRule = { id: string; tool: string; operation: string; target: string; label: string; duration: string; expires_at: number | null; uses: number; last_used_at: number | null; active: boolean }
-type ApprovalState = { mode: { enabled: boolean; persist: boolean; until?: number | null }; rules: ApprovalRule[]; durations: Record<string, string>; validities?: Record<string, string> }
+type ApprovalState = { mode: { enabled: boolean; persist: boolean; until?: number | null }; categories: Record<string, boolean>; category_labels: Record<string, string>; rules: ApprovalRule[]; durations: Record<string, string>; validities?: Record<string, string> }
 const DEFAULT_VALIDITIES: Record<string, string> = { forever: 'Até desligar', '1h': '1 hora', today: 'Hoje' }
 
 const post = (path: string, payload: object) => panelRequest<ApprovalState>(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 const when = (timestamp: number | null) => timestamp ? new Date(timestamp * 1000).toLocaleString('pt-BR') : '—'
 const MODE_EVENT = 'jarvis-approval-mode'
+
+export async function autoAllows(category: string) {
+  try {
+    const { mode, categories } = await panelRequest<ApprovalState>('/api/approvals')
+    return mode.enabled && categories?.[category] === true
+  } catch { return false }
+}
+
+export async function confirmRemoval(count: number, message: string) {
+  return await autoAllows(count > 1 ? 'bulk' : 'remove') || window.confirm(message)
+}
 
 export function useApprovals() {
   const [state, setState] = useState<ApprovalState | null>(null)
@@ -26,7 +37,7 @@ export function useApprovals() {
   const run = (request: Promise<ApprovalState>) => request.then(apply).catch(err => setError(err instanceof Error ? err.message : 'Não foi possível salvar.'))
   return {
     state, error, refresh,
-    setMode: (enabled: boolean, persist?: boolean, validity?: string) => run(post('/api/approvals/mode', { enabled, persist, validity })),
+    setMode: (enabled: boolean, persist?: boolean, validity?: string, categories?: Record<string, boolean>) => run(post('/api/approvals/mode', { enabled, persist, validity, categories })),
     addRule: (rule: { tool: string; operation: string; target: string; duration: string; confirm_broad?: boolean }) => run(post('/api/approvals/rules', rule)),
     setDuration: (id: string, duration: string) => run(post(`/api/approvals/rules/${encodeURIComponent(id)}`, { duration })),
     revoke: (id: string) => run(post(`/api/approvals/rules/${encodeURIComponent(id)}`, { revoke: true })),
@@ -38,7 +49,7 @@ export function LiberatedModeBadge() {
   const { state, setMode } = useApprovals()
   if (!state?.mode.enabled) return null
   const until = state.mode.until ? ` Vale até ${new Date(state.mode.until * 1000).toLocaleString('pt-BR')}.` : ''
-  return <button type="button" className="ws-liberated-badge" title={`Modo liberado: todas as ações são aprovadas sem perguntar.${until} Clique para desligar.`}
+  return <button type="button" className="ws-liberated-badge" title={`Modo liberado: as categorias selecionadas estão autoaprovadas.${until} Clique para desligar.`}
     style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, border: '1px solid #ff5a5f', background: 'rgba(255,90,95,.16)', color: '#ff8a8e', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}
     onClick={() => void setMode(false)}><ShieldAlert size={14} />Modo liberado · desligar</button>
 }
@@ -72,7 +83,9 @@ export function AutoApprovalsManager() {
     <p className="eyebrow">AÇÕES DO AGENTE</p>
     <h2>Aprovações automáticas</h2>
     {error && <p className="ws-error" role="alert">{error}</p>}
-    <Switch label="Modo liberado" description="Aprova TUDO sem perguntar, inclusive risco alto e crítico. Cada ação aparece na Central como “aprovada pelo modo liberado”." checked={!!state?.mode.enabled} disabled={!state} onChange={checked => void setMode(checked, undefined, checked ? validity : undefined)} glowColor="purple" />
+    <Switch label="Modo liberado" description="Autoaprova as categorias selecionadas, inclusive ações de risco alto e crítico." checked={!!state?.mode.enabled} disabled={!state} onChange={checked => void setMode(checked, undefined, checked ? validity : undefined)} glowColor="purple" />
+    {state?.mode.enabled && Object.entries(state.category_labels || {}).map(([key, label]) =>
+      <Switch key={key} label={label} checked={state.categories[key]} onChange={checked => void setMode(true, undefined, undefined, { [key]: checked })} />)}
     <label className="ws-muted" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>Ao ligar, vale por
       <select aria-label="Validade do modo liberado" value={validity} onChange={event => setValidity(event.target.value)}>{Object.entries(validities).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
     </label>

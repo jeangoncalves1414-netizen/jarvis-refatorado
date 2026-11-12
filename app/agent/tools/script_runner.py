@@ -183,7 +183,7 @@ class ScriptRunnerTool(BaseTool):
         # Se o Modo Liberado estiver ativado, executa diretamente sem exigir confirmação manual
         from app.storage.auto_approvals import auto_approvals
         from app.core.actions import arguments_digest, executing_action
-        liberated = auto_approvals.liberated()
+        liberated = auto_approvals.allows("commands")
         if liberated or executing_action.get() == (self.name, arguments_digest(args)):
             import subprocess, sys, tempfile, os
             try:

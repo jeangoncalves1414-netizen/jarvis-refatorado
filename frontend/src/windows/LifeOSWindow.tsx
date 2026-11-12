@@ -1,3 +1,4 @@
+import { autoAllows } from '../components/AutoApprovals'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Check,
@@ -168,7 +169,7 @@ export function LifeOSWindow({ params }: WindowComponentProps<LifeOSWindowParams
   }
 
   const handleDeleteList = async (listId: string) => {
-    if (!confirm('Deseja realmente excluir esta lista?')) return
+    if (!await autoAllows('remove') && !window.confirm('Deseja realmente excluir esta lista?')) return
     try {
       await panelRequest(`/api/checklists/${listId}/delete`, {
         method: 'POST',

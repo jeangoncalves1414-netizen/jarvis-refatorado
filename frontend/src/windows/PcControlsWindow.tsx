@@ -1,3 +1,4 @@
+import { autoAllows } from '../components/AutoApprovals'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Lock, Play, RefreshCw, SkipBack, SkipForward, Sun, Volume1, Volume2, VolumeX } from 'lucide-react'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -125,7 +126,7 @@ export function PcControlsWindow({ params }: WindowComponentProps<PcControlsWind
       <section className="ws-pc-section" aria-label="Tela">
         <div className="ws-pc-title"><strong><Lock size={14} /> Tela</strong></div>
         <div className="ws-pc-row">
-          <button type="button" className="ws-button ws-pc-button" disabled={busy} onClick={() => setConfirmLock(true)}><Lock size={14} /><span>Bloquear tela</span></button>
+          <button type="button" className="ws-button ws-pc-button" disabled={busy} onClick={async () => { if (await autoAllows('commands')) await perform('lock_screen', 'Bloquear tela'); else setConfirmLock(true) }}><Lock size={14} /><span>Bloquear tela</span></button>
         </div>
       </section>
 

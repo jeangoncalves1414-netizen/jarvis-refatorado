@@ -599,6 +599,20 @@ def dispatch(action='list', kind='personal', record_id='', query='', fields=None
     if action == 'list':
         rows = records(kind, query)
         return _result(f'{len(rows)} registro(s).', results=rows[:100], truncated=len(rows) > 100)
+    if action == 'delete_many':
+        ids = kwargs.get('record_ids')
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
+            raise ValueError('Informe os IDs dos registros a excluir.')
+        targets = {row['id']: row for row in records(kind, '')}
+        if any(i not in targets for i in ids):
+            raise ValueError('Os registros mudaram. Consulte a lista novamente.')
+        removed = []
+        for i in dict.fromkeys(ids):
+            result = mutate(kind, 'delete', {}, targets[i])
+            if not result.ok:
+                return ToolResult(False, f'{len(removed)} registro(s) excluído(s). {result.message}', {'results': removed})
+            removed.append(targets[i])
+        return _result(f'{len(removed)} registro(s) excluído(s).', results=removed)
     if action == 'preview':
         rows = records(kind, query)
         # No executable token is exposed to the model; confirmation is a UI action.

@@ -131,7 +131,7 @@ Consulte list/history em caso de dúvida; não adivinhe IDs, valores ou contas. 
 somente as alterações pedidas. Ao dizer "foi no cartão", altere account do último lançamento.
 Ao dizer "na verdade foram 32", altere amount, preservando os demais campos.
 Uma sessão iniciada a partir de plano ainda não está concluída. Relações entre áreas só devem
-ser criadas por pedido explícito. Exclusões amplas exigem preview e confirmação na tela Hoje.
+ser criadas por pedido explícito. Para excluir vários registros por pedido explícito, liste os alvos e use delete_many com seus IDs exatos. O sistema aplica as preferências de aprovação.
 Recorrência cadastrada é uma pendência; pay registra o pagamento, sem movimentação bancária.
 VÁRIOS HÁBITOS DE UMA VEZ: personal_records action=create kind=habit fields.habits=[{name,start_time,...}].
 Nunca chame habit_tool e personal_records no mesmo turno para hábitos; use apenas personal_records.

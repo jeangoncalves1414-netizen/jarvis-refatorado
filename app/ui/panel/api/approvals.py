@@ -4,14 +4,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.storage.auto_approvals import DURATION_LABELS, LIBERATED_VALIDITY_LABELS, auto_approvals, needs_exact_arguments
+from app.storage.auto_approvals import CATEGORIES, DURATION_LABELS, LIBERATED_VALIDITY_LABELS, auto_approvals, needs_exact_arguments
 
 _RISK_ORDER = ("observe", "low", "high", "critical")
 
 
 def _state() -> dict[str, Any]:
     return {
-        "ok": True, "mode": auto_approvals.mode(), "rules": auto_approvals.list_rules(),
+        "ok": True, "mode": auto_approvals.mode(), "categories": auto_approvals.categories(), "category_labels": CATEGORIES, "rules": auto_approvals.list_rules(),
         "durations": DURATION_LABELS, "validities": LIBERATED_VALIDITY_LABELS,
     }
 
@@ -50,7 +50,7 @@ def handle_approvals_post(path: str, body: bytes, _handler: Any) -> tuple[int, d
             persist, validity = payload.get("persist"), payload.get("validity")
             auto_approvals.set_mode(
                 bool(payload.get("enabled")), persist if isinstance(persist, bool) else None,
-                validity if isinstance(validity, str) and validity else None,
+                validity if isinstance(validity, str) and validity else None, payload.get("categories"),
             )
             return 200, _state()
         if pieces[2:] == ["rules"]:

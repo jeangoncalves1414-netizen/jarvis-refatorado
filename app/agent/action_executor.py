@@ -12,7 +12,7 @@ from app.agent.tools.base import ToolResult
 from app.core.action_proposals import build_proposal_preview
 from app.core.actions import ActionRecord, ToolMetadata, arguments_digest, pending_action_broker, summarize_result, executing_action
 from app.storage.action_store import ActionStore, action_store
-from app.storage.auto_approvals import auto_approvals
+from app.storage.auto_approvals import approval_category, auto_approvals
 from app.core.runs import RunCancelled, current_origin, current_run
 from app.agent import effect_checks
 from app.core.capability_health import record_tool_result
@@ -68,6 +68,11 @@ class ActionExecutor:
         proposal = ActionRecord.create(
             source=self.source, tool_name=name, metadata=metadata, arguments=args or {}, preview=preview,
         )
+        operation = metadata.operation_for(args) or str((args or {}).get("action") or "")
+        category = approval_category(name, operation)
+        agent_source = self.source.removeprefix("voice:").split(":", 1)[0] in {"conversation", "function", "marker", "shortcut", "react"}
+        if agent_source and proposal.risk != "observe" and auto_approvals.liberated() and not auto_approvals.allows(category):
+            proposal.status = "awaiting_confirmation"
         proposal.run_id = self.run_id
         if proposal.status == "awaiting_confirmation" and user_text is not None:
             pending_action_broker.register(proposal.id, lambda: self.execute_authorized(proposal.id, name, args, user_text))
@@ -87,10 +92,10 @@ class ActionExecutor:
     def _auto_approve(self, action: ActionRecord, name: str, args: dict[str, Any], metadata: ToolMetadata) -> ActionRecord:
         """Modo liberado ou regra ativa aprovam sem perguntar; o motivo e a origem ficam na Central."""
         operation, target = metadata.operation_for(args), metadata.target_for(args)
-        if auto_approvals.liberated():
+        if auto_approvals.allows(approval_category(name, operation or str(args.get("action") or ""))):
             reason = f"Aprovada pelo modo liberado (origem: {self.source})."
         else:
-            rule = auto_approvals.match(name, operation, target, risk=action.risk, digest=action.arguments_digest)
+            rule = None if auto_approvals.liberated() else auto_approvals.match(name, operation, target, risk=action.risk, digest=action.arguments_digest)
             if rule is None:
                 auto_approvals.remember_scope(action.id, name, operation, target, action.risk, action.arguments_digest)
                 return action
@@ -129,6 +134,8 @@ class ActionExecutor:
             import re
             from app.agent.loop_policy import normalize
             if re.search(r'\b(?:tod[oa]s|em massa|em lote)\b', normalize(user_text)):
+                if auto_approvals.allows("bulk"):
+                    return "Para exclusão em lote, use personal_records delete_many com os IDs exatos retornados por list."
                 return 'Exclusão ampla: use personal_records action=preview e peça a confirmação dos registros na tela Hoje. Nenhum registro foi excluído.'
         if name == "checklist_tool" and args.get("action") == "create_list" and not (args.get("items") or args.get("text")):
             import re

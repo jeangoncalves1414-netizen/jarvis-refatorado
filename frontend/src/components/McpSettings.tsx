@@ -1,3 +1,4 @@
+import { autoAllows } from './AutoApprovals'
 import { useEffect, useState } from 'react'
 import {
   Server,
@@ -200,7 +201,7 @@ export function McpSettings() {
   }
 
   const handleDelete = async (serverId: string, serverName: string) => {
-    if (!window.confirm(`Deseja realmente remover o servidor MCP '${serverName}'?`)) {
+    if (!await autoAllows('remove') && !window.confirm(`Deseja realmente remover o servidor MCP '${serverName}'?`)) {
       return
     }
     setErrorMsg(null)

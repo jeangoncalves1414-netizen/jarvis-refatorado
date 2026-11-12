@@ -1,3 +1,4 @@
+import { autoAllows } from '../components/AutoApprovals'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
@@ -496,10 +497,10 @@ export function RoutinesWindow({ params, openRun }: WindowComponentProps<Routine
   }
 
   // Excluir
-  const handleDelete = async () => {
-    if (!pendingDeleteId) return
+  const handleDelete = async (id = pendingDeleteId) => {
+    if (!id) return
     try {
-      await panelRequest(`/api/routines/${encodeURIComponent(pendingDeleteId)}/delete`, {
+      await panelRequest(`/api/routines/${encodeURIComponent(id)}/delete`, {
         method: 'POST',
       })
       setPendingDeleteId(null)
@@ -1291,7 +1292,7 @@ export function RoutinesWindow({ params, openRun }: WindowComponentProps<Routine
                       type="button"
                       className="ws-button danger"
                       style={{ marginLeft: 'auto' }}
-                      onClick={() => setPendingDeleteId(selectedRoutine.id)}
+                      onClick={async () => { if (await autoAllows('remove')) await handleDelete(selectedRoutine.id); else setPendingDeleteId(selectedRoutine.id) }}
                     >
                       <Trash2 size={14} /> Excluir
                     </button>

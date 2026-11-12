@@ -31,6 +31,27 @@ LIBERATED_VALIDITY_LABELS = {"forever": "Até desligar", "1h": "1 hora", "today"
 _MAX_PENDING_SCOPES = 300
 
 
+CATEGORIES = {
+    "commands": "Comandos e scripts", "changes": "Criação e edição",
+    "remove": "Remoção de itens", "bulk": "Remoção em lote",
+    "external": "Ações externas e integrações", "other": "Outras ações",
+}
+
+
+def approval_category(tool: str, operation: str) -> str:
+    if operation in {"delete_many", "bulk_delete", "bulk_confirm", "clear", "wipe", "purge_all"} or tool == "whiteboard_clear":
+        return "bulk"
+    if operation.startswith(("delete", "remove", "forget", "purge", "trash")):
+        return "remove"
+    if tool in {"script_runner", "system_control", "hacker_mode", "mobile_adb", "phantom_typer", "open_windows_app", "terminal"}:
+        return "commands"
+    if tool.startswith("mcp_") or tool in {"whatsapp", "telegram_bot", "home", "kasa_control", "browser", "browser_agent", "browser_tool", "wormhole", "spotify", "notification"}:
+        return "external"
+    if tool in {"personal_records", "memory", "memory_tool", "habit_tool", "task_tool", "checklist_tool", "finance_tool", "calendar", "file_manager", "routine", "lifeos_tool"} or tool.startswith(("vault_", "whiteboard_", "tutor_", "language_")):
+        return "changes"
+    return "other"
+
+
 def _end_of_day(now: float) -> float:
     local = time.localtime(now)
     return time.mktime((local.tm_year, local.tm_mon, local.tm_mday, 23, 59, 59, 0, 0, -1))
@@ -61,6 +82,7 @@ class AutoApprovalStore:
         self._lock = threading.RLock()
         self._pending: OrderedDict[str, tuple[str, str, str, str, str]] = OrderedDict()
         data = self._read()
+        self._categories = {key: data.get("categories", {}).get(key, True) for key in CATEGORIES}
         self._until: float | None = None
         self._liberated = bool(data.get("liberated") and data.get("persist"))
         if self._liberated:
@@ -208,6 +230,14 @@ class AutoApprovalStore:
         return None
 
     # ── Modo liberado ───────────────────────────────────────────────────────
+    def categories(self) -> dict[str, bool]:
+        with self._lock:
+            return self._categories.copy()
+
+    def allows(self, category: str) -> bool:
+        with self._lock:
+            return self.liberated() and self._categories.get(category, False)
+
     def mode(self) -> dict[str, Any]:
         enabled = self.liberated()
         with self._lock:
@@ -216,11 +246,16 @@ class AutoApprovalStore:
                 "until": self._until if enabled else None,
             }
 
-    def set_mode(self, enabled: bool, persist: bool | None = None, validity: str | None = None) -> dict[str, Any]:
+    def set_mode(self, enabled: bool, persist: bool | None = None, validity: str | None = None, categories: dict | None = None) -> dict[str, Any]:
         if validity is not None and validity not in LIBERATED_VALIDITIES:
             raise ValueError("Validade inválida.")
         with self._lock:
             data = self._read()
+            if categories is not None:
+                if not isinstance(categories, dict) or any(k not in CATEGORIES or type(v) is not bool for k, v in categories.items()):
+                    raise ValueError("Categorias de aprovação inválidas.")
+                self._categories.update(categories)
+                data["categories"] = self.categories()
             if persist is not None:
                 data["persist"] = bool(persist)
             was_on = self.liberated()

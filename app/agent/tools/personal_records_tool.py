@@ -18,7 +18,7 @@ class PersonalRecordsTool(BaseTool):
         writes = ('create', 'update', 'complete', 'reopen', 'pause', 'resume', 'progress', 'refund', 'to_task', 'pay', 'start', 'undo', 'preferences_set')
         return ToolMetadata(capabilities=('personal_records',), default_risk='critical', reversible=True,
                             operation_arguments=('action',), default_operation='list',
-                            operation_risks=tuple((a, 'observe') for a in reads) + tuple((a, 'low') for a in writes) + (('delete', 'high'),),
+                            operation_risks=tuple((a, 'observe') for a in reads) + tuple((a, 'low') for a in writes) + (('delete', 'high'), ('delete_many', 'high')),
                             target_arguments=('record_id', 'query'), default_target='seus registros pessoais',
                             effect='Consulta ou altera os registros pessoais solicitados.',
                             reversibility='Desfazer no histórico, desde que não haja uma edição posterior.', scope='Dados locais da organização pessoal.')
@@ -26,8 +26,9 @@ class PersonalRecordsTool(BaseTool):
     @property
     def parameters(self):
         return {'type': 'object', 'properties': {
-            'action': {'type': 'string', 'enum': ['list', 'summary', 'create', 'update', 'delete', 'complete', 'reopen', 'pause', 'resume', 'progress', 'refund', 'to_task', 'pay', 'start', 'history', 'undo', 'preview', 'preferences_get', 'preferences_set']},
+            'action': {'type': 'string', 'enum': ['list', 'summary', 'create', 'update', 'delete', 'delete_many', 'complete', 'reopen', 'pause', 'resume', 'progress', 'refund', 'to_task', 'pay', 'start', 'history', 'undo', 'preview', 'preferences_get', 'preferences_set']},
             'kind': {'type': 'string', 'enum': ['habit', 'task', 'finance', 'note', 'workout', 'workout_plan', 'sleep', 'mood', 'personal', 'checklist', 'rule', 'recurrence', 'transfer']},
+            'record_ids': {'type': 'array', 'items': {'type': 'string'}, 'description': 'delete_many: IDs exatos obtidos em list para remover em lote.'},
             'record_id': {'type': 'string', 'description': 'ID obtido por list; last = último registro deste tipo alterado nesta conversa.'},
             'query': {'type': 'string', 'description': 'Busca; nas alterações, título exato. Havendo ambiguidade, pergunte.'},
             'receipt_id': {'type': 'string', 'description': 'undo: ID do histórico; omita para desfazer a última alteração desta conversa.'},

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { autoAllows, confirmRemoval } from './AutoApprovals'
 import { panelRequest } from '../utils/panelApi'
 import { onSyncEvent } from '../utils/syncChannel'
 import { personalRequest, PERSONAL_CHANGED, PERSONAL_OPEN, consumeOrganizerOpen, type PersonalPreferences, type PersonalReceipt as Receipt } from '../utils/personalRecords'
@@ -131,9 +132,9 @@ export function PersonalOrganizer({ onPreferences }: { onPreferences: (p: Person
           {kind === 'task' && <button disabled={busy} onClick={() => void act({ action: row.completed ? 'reopen' : 'complete', kind, record_id: row.id })}>{row.completed ? 'Reabrir' : 'Concluir'}</button>}
           {kind === 'note' && <button disabled={busy} onClick={() => void act({ action: 'to_task', kind, record_id: row.id })}>Criar tarefa</button>}
           {kind === 'finance' && <button disabled={busy} onClick={() => void act({ action: 'refund', kind, record_id: row.id })}>Registrar estorno</button>}
-          <button disabled={busy} onClick={() => void act({ action: 'delete', kind, record_id: row.id })}>Excluir</button>
+          <button disabled={busy} onClick={async () => { if (await confirmRemoval(1, `Excluir ${row.title}?`)) await act({ action: 'delete', kind, record_id: row.id }) }}>Excluir</button>
         </div></li>)}</ul>
-      {rows.length > 1 && <button disabled={busy} onClick={async () => { const result = await act({ action: 'bulk_preview', kind, query }); if (result) setPreview(result) }}>Revisar exclusão dos resultados</button>}
+      {rows.length > 1 && <button disabled={busy} onClick={async () => { const result = await act({ action: 'bulk_preview', kind, query }); if (result && await autoAllows('bulk')) await act({ action: 'bulk_confirm', token: result.token }); else if (result) setPreview(result) }}>Excluir resultados</button>}
       {preview && <section role="region" aria-label="Confirmar exclusão"><strong>Excluir estes {preview.results.length} registros?</strong><ul>{preview.results.map(row => <li key={row.id}>{row.title}</li>)}</ul><button disabled={busy} onClick={async () => { await act({ action: 'bulk_confirm', token: preview.token }); setPreview(null) }}>Confirmar exclusão</button><button onClick={() => setPreview(null)}>Cancelar</button></section>}
     </div>}
     {prefs.blocks.includes('finance') && <details><summary>Contas e pagamentos pendentes</summary><small>Saldos dos registros até hoje. Transferências não contam como receita ou despesa.</small>

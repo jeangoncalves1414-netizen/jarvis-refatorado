@@ -1,3 +1,4 @@
+import { autoAllows } from '../components/AutoApprovals'
 import { useState } from 'react'
 import type { IdentityProfile, Memory, ProfileMemory } from '../types'
 import { VaultPanel } from '../components/VaultPanel'
@@ -50,7 +51,7 @@ export function MemoriesPage({
   }
 
   const clearProfile = async () => {
-    if (!password || !selectedProfileId || !window.confirm('Apagar todas as memórias deste perfil?')) return
+    if (!password || !selectedProfileId || !await autoAllows('bulk') && !window.confirm('Apagar todas as memórias deste perfil?')) return
     if (await onClearProfileMemory(password)) setPassword('')
   }
 

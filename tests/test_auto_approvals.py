@@ -233,3 +233,13 @@ def test_autouse_fixture_keeps_the_real_store_untouched(approvals, tmp_path):
     from app.storage import auto_approvals as module
     assert action_executor.auto_approvals is approvals and module.auto_approvals is approvals
     assert approvals.path.startswith(str(tmp_path))
+
+
+def test_categories_separate_commands_single_and_bulk_deletes(approvals, executor):
+    status, data = post("/api/approvals/mode", enabled=True, persist=True, categories={"commands": False, "bulk": False})
+    assert status == 200 and data["categories"]["remove"]
+    assert executor.propose("script_runner", SCRIPT).status == "awaiting_confirmation"
+    assert executor.propose("habit_tool", {"action": "delete", "habit_id": "a"}).status == "authorized"
+    assert executor.propose("personal_records", {"action": "delete_many", "record_ids": ["a", "b"]}).status == "awaiting_confirmation"
+    assert not AutoApprovalStore(approvals.path).allows("bulk")
+    assert post("/api/approvals/mode", enabled=True, categories={"unknown": True})[0] == 400

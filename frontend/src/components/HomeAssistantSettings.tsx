@@ -1,3 +1,4 @@
+import { autoAllows } from './AutoApprovals'
 import { useEffect, useState } from 'react'
 import { Check, KeyRound, RefreshCw, Trash2, Wifi } from 'lucide-react'
 
@@ -85,7 +86,7 @@ export function HomeAssistantSettings() {
   }
 
   const handleClear = async () => {
-    if (!window.confirm('Deseja realmente remover a integração com o Home Assistant?')) return
+    if (!await autoAllows('remove') && !window.confirm('Deseja realmente remover a integração com o Home Assistant?')) return
     setStatus('saving')
     setMessage('')
     try {

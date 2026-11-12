@@ -213,7 +213,7 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         operation_risks=_by_operation(
             observe=("list", "summary", "history", "preview", "preferences_get"),
             low=("create", "update", "complete", "reopen", "pause", "resume", "progress", "refund",
-                 "to_task", "pay", "start", "undo", "preferences_set"), high=("delete",),
+                 "to_task", "pay", "start", "undo", "preferences_set"), high=("delete", "delete_many"),
         ),
         target_arguments=("record_id", "query"), default_target="seus registros pessoais",
         effect="Consulta ou altera os registros pessoais solicitados.",

@@ -1,3 +1,4 @@
+import { autoAllows } from '../components/AutoApprovals'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -227,13 +228,13 @@ export function FinanceWindow({ params, operational }: WindowComponentProps<Fina
     return () => controller.abort()
   }, [editId])
 
-  const confirmPending = async () => {
-    if (!pending) return
-    if (pending.kind === 'edit') { applyEdit(pending.tx); setPending(null); return }
+  const confirmPending = async (choice = pending) => {
+    if (!choice) return
+    if (choice.kind === 'edit') { applyEdit(choice.tx); setPending(null); return }
     setPendingBusy(true)
     try {
-      await panelRequest('/api/finance', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ action: 'delete', id: pending.tx.id }) })
-      if (form.editingId === pending.tx.id) discardDraft()
+      await panelRequest('/api/finance', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ action: 'delete', id: choice.tx.id }) })
+      if (form.editingId === choice.tx.id) discardDraft()
       setSavedNotice('Lançamento excluído.')
       setPending(null)
       window.dispatchEvent(new Event('jarvis:finance-changed'))
@@ -271,7 +272,7 @@ export function FinanceWindow({ params, operational }: WindowComponentProps<Fina
               <span className="ws-finance-what"><strong>{tx.description || tx.category}</strong><small>{tx.category}</small></span>
               <span className={`ws-finance-amount ${tx.type}`}>{tx.type === 'income' ? '+' : '−'} {money.format(tx.amount)}</span>
               <button type="button" className="ws-icon-button" aria-label={`Editar lançamento de ${tx.category}`} title="Editar" onClick={() => requestEdit(tx)}><Pencil size={14} /></button>
-              <button type="button" className="ws-icon-button" aria-label={`Excluir lançamento de ${tx.category}`} title="Excluir" onClick={() => setPending({ kind: 'delete', tx })}><Trash2 size={14} /></button>
+              <button type="button" className="ws-icon-button" aria-label={`Excluir lançamento de ${tx.category}`} title="Excluir" onClick={async () => { if (await autoAllows('remove')) await confirmPending({ kind: 'delete', tx }); else setPending({ kind: 'delete', tx }) }}><Trash2 size={14} /></button>
             </li>
           ))}
         </ul>
