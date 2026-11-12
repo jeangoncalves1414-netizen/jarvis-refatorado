@@ -507,6 +507,10 @@ def merge_lifestyle(local: Any, remote: Any) -> dict[str, list[dict[str, Any]]]:
 
 
 def _row_deleted(table: str, row: dict[str, Any], tombstones: tomb.Tombstones) -> bool:
+    # Tarefas legadas também são importadas para SQLite; a exclusão cobre ambas as cópias.
+    if table == "tasks" and tomb.covers(tombstones, "tasks", str(row.get("id", "")),
+                                       _latest_stamp(row, ("completed_at", "created_at"))):
+        return True
     rule = _LIFESTYLE_TOMBSTONES.get(table)
     if rule is None:
         return False
@@ -532,7 +536,7 @@ def drop_deleted_rows(lifestyle: dict[str, list[dict[str, Any]]], tombstones: to
 def _delete_lifestyle_rows(tombstones: tomb.Tombstones) -> int:
     """Apaga do SQLite local as linhas cobertas por lápide (e filhas de mães apagadas)."""
     deleted = 0
-    if not any(tombstones.get(kind) for kind, _ in _LIFESTYLE_TOMBSTONES.values()):
+    if not tombstones.get("tasks") and not any(tombstones.get(kind) for kind, _ in _LIFESTYLE_TOMBSTONES.values()):
         return deleted
     with _lifestyle_connection() as conn:
         for table in _LIFESTYLE_TOMBSTONES:  # nomes vêm das listas fixas acima, nunca do remoto

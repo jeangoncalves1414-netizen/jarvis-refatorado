@@ -149,7 +149,7 @@ def populate_pc(use_device):
 
 
 def test_snapshot_round_trip_restores_everything_on_another_device(use_device):
-    populate_pc(use_device)
+    populated = populate_pc(use_device)
     snapshot = json.loads(json.dumps(bs.collect_snapshot()))  # simula ida e volta pela nuvem
 
     use_device("phone")
@@ -179,7 +179,7 @@ def test_snapshot_round_trip_restores_everything_on_another_device(use_device):
 
     assert [t["id"] for t in FinanceService.list_transactions()] == ["fin_1"]
     assert [h["id"] for h in HabitService.list_habits()] == ["hab_1"]
-    assert [t["id"] for t in TaskService.list_tasks(completed=None)] == ["rot_1"]
+    assert {t["id"] for t in TaskService.list_tasks(completed=None)} == {"rot_1", populated["task"]["id"]}
     assert summary["settings"] > 0 and summary["tasks"] == 1
 
 
