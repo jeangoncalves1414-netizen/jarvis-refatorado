@@ -58,6 +58,11 @@ def isolated_credentials(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def isolated_sessions(monkeypatch, tmp_path):
+    monkeypatch.setattr("app.storage.session_store.SESSIONS_FILE", str(tmp_path / "sessions.json"))
+
+
+@pytest.fixture(autouse=True)
 def isolated_persona(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_DATA_DIR", str(tmp_path / "persona"))
 

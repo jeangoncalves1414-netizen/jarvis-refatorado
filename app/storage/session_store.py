@@ -158,6 +158,43 @@ def add_session(session: dict) -> None:
 
 def save_session_history(session_id: str, history: List[dict]) -> None:
     with _history_lock:
+        current = get_session_history(session_id)
+        # Clientes antigos enviam cópias inteiras, às vezes atrasadas. Uma cópia
+        # não pode apagar nem substituir turnos que o servidor já confirmou.
+        if any(row.get("run_id") for row in current):
+            def same(left, right):
+                if left.get("role") != right.get("role"):
+                    return False
+                if left.get("run_id") and right.get("run_id"):
+                    return left["run_id"] == right["run_id"]
+                return (left.get("content") or left.get("text")) == (right.get("content") or right.get("text"))
+            if not all(same(a, b) for a, b in zip(current, history)):
+                return
+            history = [*current, *history[len(current):]]
+        _save_history(session_id, history)
+
+
+def save_turn(session_id: str, run_id: str, text: str, reply: str, *, timestamp: float, failed: bool = False) -> None:
+    """Persiste um turno completo uma única vez, inclusive falhas e cancelamentos."""
+    import time
+    with _history_lock:
+        history = get_session_history(session_id)
+        matches = [i for i, row in enumerate(history) if row.get("run_id") == run_id and row.get("role") == "assistant"]
+        if matches:
+            index = matches[-1]
+            history[index]["content"] = reply
+            history[index]["failed"] = failed
+            if index and history[index - 1].get("role") == "user":
+                history[index - 1].setdefault("run_id", run_id)
+        else:
+            user = {"role": "user", "content": text, "run_id": run_id, "timestamp": timestamp}
+            # Compatibilidade com clientes que salvaram a pergunta antes da resposta.
+            if history and history[-1].get("role") == "user" and history[-1].get("content") == text and not history[-1].get("run_id"):
+                history[-1].update(user)
+            else:
+                history.append(user)
+            history.append({"role": "assistant", "content": reply, "run_id": run_id,
+                            "timestamp": time.time() * 1000, "failed": failed})
         _save_history(session_id, history)
 
 

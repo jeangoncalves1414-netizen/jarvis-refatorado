@@ -28,6 +28,9 @@ def track_run(method):
         run = action_store.create_run(session_id=bound.arguments.get("session_id"), mode=bound.arguments.get("mode", "general"), origin=origin)
         token = current_run.set((action_store, run.id))
         failed = True
+        import time
+        requested_at = time.time() * 1000
+        result = None
 
         def guarded(callback):
             def emit(*values):
@@ -55,9 +58,17 @@ def track_run(method):
             return result
         finally:
             try:
-                action_store.finish_run(run.id, failed=failed)
+                session_id = bound.arguments.get("session_id")
+                if session_id and "text" in bound.arguments:
+                    from app.storage.session_store import save_turn
+                    save_turn(session_id, run.id, bound.arguments["text"],
+                              result.summary if result is not None else "Não foi possível concluir o pedido. Tente novamente.",
+                              timestamp=requested_at, failed=failed)
             finally:
-                current_run.reset(token)
+                try:
+                    action_store.finish_run(run.id, failed=failed)
+                finally:
+                    current_run.reset(token)
 
     return tracked
 

@@ -497,6 +497,22 @@ export function useChat(options: UseChatOptions = {}) {
       pendingHistoryRef.current = kept
       setMessages(kept)
       setQuery(current => current.trim() ? `${attempted.message.content}\n${current}` : attempted.message.content)
+      // Falhas do provedor também pertencem à conversa. Recupera o recibo
+      // persistido sem sobrescrever outra sessão ou um pedido mais recente.
+      const sid = attempted.session
+      void fetch(`/api/sessions/${encodeURIComponent(sid)}/history`)
+        .then(async response => response.ok ? response.json() : null)
+        .then(data => {
+          if (!data || activeSessionRef.current !== sid || requestIdRef.current || attemptedRef.current) return
+          const history = data.history as ChatMessage[] | undefined
+          if (!Array.isArray(history)) return
+          messagesRef.current = history
+          pendingHistoryRef.current = history
+          setMessages(history)
+          if (history.some(item => item.role === 'user' && item.content === attempted.message.content && (item.timestamp || 0) >= turnStartRef.current - 1000)) {
+            setQuery(current => current === attempted.message.content ? '' : current)
+          }
+        }).catch(() => undefined)
     }
     activityRef.current = []
     setLiveActivity([])
