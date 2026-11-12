@@ -164,8 +164,42 @@ class VisionService:
                 )
                 reply = response.text or "Nenhum detalhe visual extraído."
         except Exception as e:
-            ok = False
-            reply = f"Erro na análise visual ({active_provider}): {e}"
+            # CORREÇÃO PONTO 2: Verificar se é erro de modelo e tentar fallback para Gemini
+            error_str = str(e).lower()
+            is_model_error = any(keyword in error_str for keyword in [
+                "not found", "invalid model", "404", "model_not_found", "model not found"
+            ])
+            
+            if is_model_error and active_provider == "groq":
+                # FALLBACK AUTOMÁTICO para Gemini Vision
+                print(f"[Vision] Modelo Groq '{self.groq_model}' inválido ou obsoleto. Fallback para Gemini Vision.")
+                try:
+                    from google.genai import types
+                    gemini_key = self.api_key  # Chave Gemini
+                    if not gemini_key:
+                        ok = False
+                        reply = f"Fallback Gemini solicitado mas chave de API não configurada. Erro original: {e}"
+                    else:
+                        client = self._get_client("gemini", gemini_key)
+                        response = client.models.generate_content(
+                            model=self.model,
+                            contents=[
+                                types.Part.from_bytes(
+                                    data=image_bytes,
+                                    mime_type="image/jpeg"
+                                ),
+                                prompt
+                            ]
+                        )
+                        reply = response.text or "Nenhum detalhe visual extraído."
+                        ok = True
+                except Exception as fallback_error:
+                    ok = False
+                    reply = f"Fallback para Gemini Vision também falhou: {fallback_error}. Erro Groq original: {e}"
+            else:
+                # Outro tipo de erro ou já estava usando Gemini
+                ok = False
+                reply = f"Erro na análise visual ({active_provider}): {e}"
 
         if qr_info:
             reply += qr_info
@@ -218,6 +252,35 @@ class VisionService:
                 )
                 return response.text or "Sem resposta gerada."
         except Exception as e:
-            return f"Erro na análise visual: {e}"
+            # CORREÇÃO PONTO 2: Fallback para Gemini se erro de modelo Groq
+            error_str = str(e).lower()
+            is_model_error = any(keyword in error_str for keyword in [
+                "not found", "invalid model", "404", "model_not_found", "model not found"
+            ])
+            
+            if is_model_error and active_provider == "groq":
+                print(f"[Vision] Modelo Groq '{self.groq_model}' inválido. Fallback para Gemini Vision.")
+                try:
+                    gemini_key = self.api_key
+                    if not gemini_key:
+                        return f"Fallback Gemini solicitado mas chave não configurada. Erro original: {e}"
+                    
+                    from google.genai import types
+                    client = self._get_client("gemini", gemini_key)
+                    response = client.models.generate_content(
+                        model=self.model,
+                        contents=[
+                            types.Part.from_bytes(
+                                data=image_bytes,
+                                mime_type="image/png"
+                            ),
+                            prompt
+                        ]
+                    )
+                    return response.text or "Sem resposta gerada."
+                except Exception as fallback_error:
+                    return f"Fallback para Gemini falhou: {fallback_error}. Erro Groq: {e}"
+            else:
+                return f"Erro ao analisar imagem: {e}"
 
 

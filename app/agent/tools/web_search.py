@@ -437,10 +437,21 @@ class WebSearchTool(BaseTool):
                 refined_from = effective_q if effective_q.lower() != query.lower() else None
                 synthesis_msg = _format_search_response(query, results, refined_query=refined_from)
 
+                # CORREÇÃO PONTO 8: snippets compactos para recovery
+                fallback_snippets = [
+                    {
+                        "title": r.get("title", "")[:100],
+                        "url": r.get("url", ""),
+                        "snippet": (r.get("excerpt") or r.get("snippet") or "")[:400],
+                        "source": r.get("source", ""),
+                    }
+                    for r in results[:5]
+                ]
+
                 return ToolResult(
                     ok=True,
                     message=synthesis_msg,
-                    data={"query": query, "effective_query": effective_q, "results": results, "steps": steps, "workflow": action,
+                    data={"query": query, "effective_query": effective_q, "results": results, "fallback_snippets": fallback_snippets, "steps": steps, "workflow": action,
                           "evidence_status": "excerpts" if any(_is_informative_result(r) and (r.get("snippet") or r.get("excerpt")) for r in results) else "insufficient"},
                 )
             except Exception as exc:

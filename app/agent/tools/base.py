@@ -16,7 +16,8 @@ class ToolResult:
         """Expose record identifiers as well as the human receipt to the planner."""
         import json
         fields = ("tasks", "task", "habits", "habit", "transactions", "transaction",
-                  "checklists", "checklist", "results", "record", "record_id", "personal_receipt", "bulk_preview", "content", "list_id", "trans_ids", "task_ids", "habit_ids")
+                  "checklists", "checklist", "results", "record", "record_id", "personal_receipt", "bulk_preview", "content", "list_id", "trans_ids", "task_ids", "habit_ids",
+                  "fallback_snippets", "query")  # CORREÇÃO PONTO 8
         details = {key: self.data[key] for key in fields if key in self.data}
         if isinstance(details.get('personal_receipt'), dict):
             receipt = details['personal_receipt']

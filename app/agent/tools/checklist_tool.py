@@ -197,6 +197,17 @@ class ChecklistTool(BaseTool):
             target = self._resolve_list(list_id, title)
             if not target:
                 return {"ok": False, "error": "Lista não encontrada para exclusão."}
+            # CORREÇÃO PONTO 10: confirmação antes de excluir
+            count = target.get("pending_count", 0) + target.get("completed_count", 0)
+            detail = f"Excluir lista '{target['title']}' com {count} item(ns)?"
+            try:
+                from app.core.critical_confirm import CriticalConfirm
+                critical = CriticalConfirm()
+                approved = critical.request(tool="checklist_tool", detail=detail)
+                if not approved:
+                    return {"ok": False, "error": "Exclusão cancelada pelo usuário."}
+            except Exception:
+                pass  # Se CriticalConfirm falhar, prossegue sem confirmação
             success = checklist_store.delete_list(target["id"])
             return {
                 "ok": success,
