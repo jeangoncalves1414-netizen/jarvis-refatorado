@@ -125,7 +125,7 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
 # Loop agêntico: ferramentas de dados do dia a dia que entram em qualquer pedido, para qualquer provedor.
 LOOP_DATA_TOOLS = frozenset({
     "personal_records", "memory",
-    "task_tool", "checklist_tool", "finance_tool", "lifeos_tool", "calendar", "vault_save_note", "vault_search",
+    "task_tool", "checklist_tool", "lifeos_tool", "calendar", "vault_save_note", "vault_search",
     "open_window", "open_screen", "wait", "persona_tool",
 })
 
@@ -407,10 +407,8 @@ class ToolRegistry:
         # Otimização de TPM para provedores com limite estrito de taxa (ex: Groq)
         if (provider == "groq" or narrow) and mode not in STUDY_MODES:
             core_groq = {
-                "personal_records", "memory",
-                "web_search", "system_control", "open_windows_app", "timer", "wait",
-                "spotify", "whatsapp", "calendar", "file_manager",
-                "cinema", "script_runner", "image_generator", "vision", "planning_workspace", "open_window"
+                "personal_records", "memory", "web_search", "open_windows_app",
+                "timer", "wait", "spotify", "calendar",
             }
             user_lower = (user_text or "").lower()
             # No loop (narrow) só entram as ferramentas de dados e as que o pedido menciona.
@@ -426,7 +424,7 @@ class ToolRegistry:
             # Abrir/reproduzir vídeo precisa de descoberta e navegação, não só análise.
             if re.search(r"\b(?:abr\w*|toc\w*|reprodu\w*|assist\w*)\b", normalized) and re.search(r"\byoutube\b|\bvideo\b|https?://", normalized) and not is_video_req:
                 dynamic_tools.update({"web_search", "browser", "open_windows_app", "media_tool"})
-            for pattern, tools in GROQ_KEYWORD_TOOLS + (LOOP_KEYWORD_TOOLS if narrow else ()):
+            for pattern, tools in GROQ_KEYWORD_TOOLS + LOOP_KEYWORD_TOOLS:
                 if pattern.search(normalized):
                     dynamic_tools.update(tools)
             if is_video_req:

@@ -15,6 +15,9 @@ from app.core.model_routing import current_model_mode
 from app.services.stm_filters import stm_filter
 
 import time
+from contextvars import ContextVar
+
+_size_fallback_active = ContextVar("groq_size_fallback", default=False)
 
 
 def _log(message: str) -> None:
@@ -1111,6 +1114,17 @@ class LLMService:
         context_reduced: bool = False,
     ) -> str | None:
         """Function calling nativo de 2 etapas para Groq (streaming + reasoning)."""
+        from app.agent.context_budget import estimate_tokens, fit_request, REQUEST_BUDGET, FALLBACK_ABOVE
+        original_rows = ([{"role": "system", "content": system_instruction}] if system_instruction else []) + messages
+        if estimate_tokens(original_rows, tools) > FALLBACK_ABOVE and not _size_fallback_active.get() and self._api_key_for("gemini"):
+            from app.agent.run_tracking import record_run_step
+            record_run_step("Pedido excede 7K tokens; encaminhado ao Gemini.", kind="warning")
+            token = _size_fallback_active.set(True)
+            try:
+                return self._chat_gemini_stream(system_instruction, messages, tools, on_function_call, on_chunk,
+                                                on_reasoning=on_reasoning)
+            finally:
+                _size_fallback_active.reset(token)
         from groq import Groq
         if tried_keys is None:
             tried_keys = set()
@@ -1174,12 +1188,24 @@ class LLMService:
                     "type": "function",
                     "function": {
                         "name": tool["name"],
-                        "description": (tool.get("description", "") or "")[:200],
+                        "description": (tool.get("description", "") or "")[:250],
                         "parameters": tool["parameters"],
                     },
                 }
                 for tool in selected_tools
             ]
+
+        formatted_messages, groq_tools = fit_request(formatted_messages, groq_tools)
+        remaining_budget = REQUEST_BUDGET
+        offered_names = {t["function"]["name"] for t in groq_tools}
+        original_callback = on_function_call
+
+        def guarded_call(name, args):
+            if name not in offered_names:
+                return f"A ferramenta {name} não foi oferecida neste turno; nada foi executado."
+            return original_callback(name, args) if original_callback else "Nenhuma execução confirmada."
+
+        on_function_call = guarded_call
 
         def _emit_reasoning(piece: str) -> None:
             if piece and on_reasoning:
@@ -1201,20 +1227,28 @@ class LLMService:
             """Streams one turn. Emite reasoning (delta.reasoning | delta.reasoning_content)
             e conteudo (delta.content) em tempo real.
             Retorna (texto_acumulado, tool_calls_agrupadas_por_index)."""
+            nonlocal remaining_budget, offered_names
+            selected = groq_tools if with_tools else []
+            fitted, selected = fit_request(msgs, selected, remaining_budget)
+            cost = estimate_tokens(fitted, selected)
+            if cost > remaining_budget:
+                raise RuntimeError("Orçamento de contexto do turno esgotado; resultados preservados.")
+            remaining_budget -= cost
+            offered_names = {t["function"]["name"] for t in selected}
             kwargs: dict[str, Any] = {
                 "model": model_name,
-                "messages": msgs,
+                "messages": fitted,
                 "temperature": 0.4,
                 "stream": True,
             }
             if model_name.lower().startswith("openai/gpt-oss"):
                 # GPT-OSS só emite raciocínio quando este parâmetro é enviado.
                 # O valor pode ser ajustado sem alterar código: low|medium|high.
-                default_effort = "high" if "MODO DE PLANEJAMENTO" in (system_instruction or "") else "medium"
+                default_effort = "high" if "MODO DE PLANEJAMENTO" in (system_instruction or "") else "low"
                 kwargs["reasoning_effort"] = os.getenv("GROQ_REASONING_EFFORT", default_effort).lower()
                 kwargs["include_reasoning"] = True
-            if with_tools and groq_tools:
-                kwargs["tools"] = groq_tools
+            if selected:
+                kwargs["tools"] = selected
                 kwargs["tool_choice"] = "auto"
 
             text = ""
@@ -1292,45 +1326,60 @@ class LLMService:
             if not first_tools:
                 return first_text if first_text else None
 
-            # Executar as tools e montar a segunda rodada
-            assistant_msg: dict[str, Any] = {
-                "role": "assistant",
-                "content": first_text or None,
-                "tool_calls": [
-                    {
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": {"name": tc["name"], "arguments": tc["arguments"] or "{}"},
-                    }
-                    for tc in _ordered_tool_calls(first_tools)
-                ],
-            }
-            formatted_messages.append(assistant_msg)
+            for tool_round in range(3):
+                # Executar as tools e montar a segunda rodada
+                assistant_msg: dict[str, Any] = {
+                    "role": "assistant",
+                    "content": first_text or None,
+                    "tool_calls": [
+                        {
+                            "id": tc["id"],
+                            "type": "function",
+                            "function": {"name": tc["name"], "arguments": tc["arguments"] or "{}"},
+                        }
+                        for tc in _ordered_tool_calls(first_tools)
+                    ],
+                }
+                formatted_messages.append(assistant_msg)
 
-            for tc in _ordered_tool_calls(first_tools):
-                fn_name = tc["name"]
-                args_raw = tc["arguments"] or "{}"
-                try:
-                    args = json.loads(args_raw) if isinstance(args_raw, str) else dict(args_raw)
-                except Exception:
-                    args = {}
-
-                tool_result = ""
-                if on_function_call:
-                    tools_ran = True
+                for tc in _ordered_tool_calls(first_tools):
+                    fn_name = tc["name"]
+                    args_raw = tc["arguments"] or "{}"
                     try:
-                        tool_result = str(on_function_call(fn_name, args))
-                    except RunCancelled:
-                        raise
-                    except Exception as exfn:
-                        _log(f"[Groq] Erro ao executar tool {fn_name}: {exfn}")
-                        tool_result = f"A ferramenta {fn_name} falhou; nada foi confirmado."
+                        args = json.loads(args_raw) if isinstance(args_raw, str) else dict(args_raw)
+                    except Exception:
+                        args = {}
 
-                formatted_messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": tool_result or f"A ferramenta {fn_name} não devolveu resultado; nada foi confirmado.",
-                })
+                    tool_result = ""
+                    if on_function_call:
+                        tools_ran = True
+                        try:
+                            tool_result = str(on_function_call(fn_name, args))
+                        except RunCancelled:
+                            raise
+                        except Exception as exfn:
+                            _log(f"[Groq] Erro ao executar tool {fn_name}: {exfn}")
+                            tool_result = f"A ferramenta {fn_name} falhou; nada foi confirmado."
+
+                    formatted_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": tool_result or f"A ferramenta {fn_name} não devolveu resultado; nada foi confirmado.",
+                    })
+
+                if tool_round == 2 or estimate_tokens(formatted_messages, groq_tools) > remaining_budget:
+                    break
+                try:
+                    next_text, next_tools = _stream_turn(formatted_messages, with_tools=True)
+                except RunCancelled:
+                    raise
+                except Exception as continuation_error:
+                    if "tool choice is none" in str(continuation_error).lower():
+                        break
+                    raise
+                if not next_tools:
+                    return next_text or _tool_results_text()
+                first_text, first_tools = next_text, next_tools
 
             # Segunda rodada sem o bloco assistant/tool_calls. Alguns modelos
             # GPT-OSS tentam chamar a ferramenta novamente ao enxergar esse
@@ -1361,7 +1410,9 @@ class LLMService:
                 if "tool choice is none" not in str(final_err).lower() and "called a tool" not in str(final_err).lower():
                     _log(f"[Groq] Síntese falhou depois das ações: {final_err}")
                     _warn_synthesis_failed(final_err)
-                    result = (_tool_results_text() or tool_summary) + "\n\nAs ações acima foram executadas; não consegui redigir a resposta final."
+                    result = _tool_results_text() or tool_summary
+                    if "nada foi confirmado" not in result:
+                        result += "\n\nResultados preservados; não consegui redigir a resposta final."
                     _emit_chunk(result)
                     return result
                 # O modelo insistiu em chamar ferramenta no turno de sintese. Os resultados ja
@@ -1411,7 +1462,11 @@ class LLMService:
                 # Sem compactar, trocar de chave ou de provedor: isso executaria as ferramentas de novo.
                 _log(f"[Groq] Falha depois das ações; resultados preservados: {e}")
                 _warn_synthesis_failed(e)
-                result = (_tool_results_text() or "As ferramentas foram chamadas, mas não devolveram resultado; nada foi confirmado.") + "\n\nAs ações acima foram executadas; não consegui redigir a resposta final."
+                result = (_tool_results_text() or "As ferramentas foram chamadas, mas não devolveram resultado; nada foi confirmado.")
+                result += "\n\nResultados preservados; não consegui redigir a resposta final, sem repetir as ações."
+                if is_rate_limit(e):
+                    _key_rotator.mark_rate_limit(api_key, e)
+                    result += " " + _key_rotator.wait_message("groq", self.settings)
                 _emit_chunk(result)
                 return result
             err_msg = str(e)

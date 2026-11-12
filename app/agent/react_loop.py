@@ -673,7 +673,33 @@ class ReActLoopEngine:
 
     def _plan_step(self, state: _LoopState) -> tuple[str, Any]:
         """Lê o plano; argumentos malformados nunca viram execução."""
-        raw = self.llm_service.ask(self._build_prompt(state))
+        from app.agent.context_budget import estimate_tokens, REQUEST_BUDGET, FALLBACK_ABOVE
+        prompt = self._build_prompt(state)
+        provider = self.llm_service.get_active_provider() if hasattr(self.llm_service, "get_active_provider") else None
+        if provider == "groq":
+            def size():
+                return estimate_tokens([{"role": "user", "content": prompt}])
+            if size() > FALLBACK_ABOVE and hasattr(self.llm_service, "_api_key_for") and self.llm_service._api_key_for("gemini"):
+                raw = self.llm_service.ask(prompt, provider="gemini")
+            else:
+                from app.agent.context_budget import fit_request
+                declarations = [{"name": name, "description": getattr(self.registry.tools[name], "description", ""),
+                                 "parameters": getattr(self.registry.tools[name], "parameters", {})} for name in sorted(state.allowed)]
+                _, kept = fit_request([{"role": "user", "content": state.goal}], declarations, max(0, REQUEST_BUDGET - 2000))
+                state.allowed = frozenset(t["name"] for t in kept)
+                state.executor.allowed_tool_names = state.allowed
+                prompt = self._build_prompt(state)
+                while size() > REQUEST_BUDGET and state.conversation:
+                    state.conversation.pop(0)
+                    prompt = self._build_prompt(state)
+                while size() > REQUEST_BUDGET and state.history:
+                    state.history.pop(0)
+                    prompt = self._build_prompt(state)
+                if size() > REQUEST_BUDGET:
+                    raise _PlanningFailed("Pedido excede o orçamento de contexto disponível.")
+                raw = self.llm_service.ask(prompt)
+        else:
+            raw = self.llm_service.ask(prompt)
         from app.services.llm import ProviderErrorText
         if isinstance(raw, ProviderErrorText):
             # Texto de erro do provedor nunca é lido como plano.

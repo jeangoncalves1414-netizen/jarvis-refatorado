@@ -64,6 +64,25 @@ _TOOLS = [{"name": "notes", "description": "anota", "parameters": {"type": "obje
 _MESSAGES = [{"role": "user", "content": "anote comprar pão"}]
 
 
+def test_lists_then_creates_in_the_same_turn(groq_script):
+    completions = groq_script([[_tool_chunk("notes", '{"action":"list"}', "a")],
+                               [_tool_chunk("notes", '{"action":"create"}', "b")],
+                               [_text_chunk("Criado.")]])
+    calls = []
+    reply = _service()._chat_groq_stream("sys", _MESSAGES, tools=_TOOLS,
+                                       on_function_call=lambda n, a: calls.append(a["action"]) or "ok")
+    assert calls == ["list", "create"] and reply == "Criado."
+    from app.agent.context_budget import estimate_tokens
+    assert sum(estimate_tokens(c["messages"], c["tools"]) for c in completions.calls) <= 6000
+
+
+def test_unoffered_tool_is_not_executed(groq_script):
+    groq_script([[_tool_chunk("evil")], [_text_chunk("Não executado.")]])
+    calls = []
+    _service()._chat_groq_stream("sys", _MESSAGES, tools=_TOOLS, on_function_call=lambda *a: calls.append(a))
+    assert calls == []
+
+
 def test_registry_selected_tools_survive_provider_adapter(groq_script):
     completions = groq_script([[_text_chunk("ok")]])
     selected = [{"name": name, "parameters": {"type": "object", "properties": {}}} for name in ("web_search", "video_analyst", "media_tool", "persona_tool")]

@@ -5,6 +5,28 @@ from app.agent.loop_policy import requires_tool_action
 from app.agent.tools.registry import ToolRegistry
 
 
+def test_budget_preserves_rules_profile_and_last_request():
+    from app.agent.context_budget import fit_request, estimate_tokens
+    rows = [{"role": "system", "content": "Regras\n## Perfil essencial do usuário\nJean"},
+            {"role": "user", "content": "antigo" * 10000},
+            {"role": "assistant", "content": "resposta"},
+            {"role": "user", "content": "crie hábitos às 5h"}]
+    tools = [{"name": "unused", "parameters": {"description": "x" * 20000}},
+             {"name": "personal_records", "parameters": {"type": "object"}}]
+    fitted, kept = fit_request(rows, tools)
+    assert estimate_tokens(fitted, kept) <= 6000
+    assert fitted[0] == rows[0] and fitted[-1] == rows[-1]
+    assert [t["name"] for t in kept] == ["personal_records"]
+    assert len(rows) == 4
+
+
+def test_irreducible_request_is_never_silently_truncated():
+    from app.agent.context_budget import fit_request, estimate_tokens
+    rows = [{"role": "user", "content": "restrição " * 10000}]
+    fitted, kept = fit_request(rows)
+    assert fitted == rows and estimate_tokens(fitted, kept) > 6000
+
+
 def test_memory_is_bounded_and_deduplicated():
     result = memory_notes(["Ler livros", " ler  LIVROS "] + [str(i) * 400 for i in range(30)])
     assert result.count("Ler livros") == 1

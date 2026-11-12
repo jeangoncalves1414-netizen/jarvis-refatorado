@@ -207,6 +207,19 @@ def _adb_target_detail(operation: str, arguments: dict[str, Any]) -> str:
 
 
 TOOL_CATALOG: dict[str, ToolMetadata] = {
+    "personal_records": ToolMetadata(
+        ("personal_records",), "critical", reversible=True,
+        operation_arguments=("action",), default_operation="list",
+        operation_risks=_by_operation(
+            observe=("list", "summary", "history", "preview", "preferences_get"),
+            low=("create", "update", "complete", "reopen", "pause", "resume", "progress", "refund",
+                 "to_task", "pay", "start", "undo", "preferences_set"), high=("delete",),
+        ),
+        target_arguments=("record_id", "query"), default_target="seus registros pessoais",
+        effect="Consulta ou altera os registros pessoais solicitados.",
+        reversibility="Desfazer no histórico, desde que não haja uma edição posterior.",
+        scope="Dados locais da organização pessoal.",
+    ),
     # Ferramentas de leitura (C1): a proposta diz que nada é alterado.
     "web_search": ToolMetadata(
         ("web", "observe"), "observe", target_arguments=("query",), default_target="busca na internet",

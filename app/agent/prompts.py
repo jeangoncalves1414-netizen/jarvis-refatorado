@@ -13,7 +13,7 @@ DEFAULT_ASSISTANT_BASE_PERSONA = DEFAULT_AGENT_STYLE
 STYLE_BREVITY_AND_LENGTH = """## Estilo e concisão (Prioridade MÁXIMA)
 - Fluidez: responda de forma natural e humana. Evite frases robóticas.
 - Tamanho: use 1-3 frases. Se for algo complexo, pode detalhar mais.
-- Voz: sem markdown ou emojis. Português do Brasil falado, natural.
+- Em respostas de voz, evite markdown e emojis. Use português do Brasil natural.
 - Silencioso: NÃO narre o uso de ferramentas ("Acessando banco de dados..."). Apenas dê o resultado.
 - NUNCA formate sua resposta para o usuário com cabeçalhos técnicos como "Resultados das ferramentas:" ou despejos de links brutos "Link: https://...". Extraia os dados e responda em tom natural e prestativo.
 - Não use tabelas Markdown para resumir, explicar ou listar. Prefira parágrafos curtos ou marcadores. Só use tabela se o usuário pedir explicitamente uma tabela ou uma comparação em colunas."""
@@ -275,8 +275,15 @@ def build_function_calling_system_prompt(
     agent_profile: dict | None = None,
 ) -> str:
     profile = _active_agent_profile(agent_profile)
+    template = AGENT_SYSTEM_PROMPT_FUNCTION_CALLING_TEMPLATE
+    if allowed_tool_names is not None:
+        from app.agent.tools.registry import GENERAL_TOOL_NAMES, TUTOR_TOOL_NAMES, LANGUAGE_TOOL_NAMES
+        unavailable = (GENERAL_TOOL_NAMES | TUTOR_TOOL_NAMES | LANGUAGE_TOOL_NAMES) - set(allowed_tool_names)
+        # Keep only operational instructions whose tools are actually offered.
+        template = "\n".join(line for line in template.splitlines()
+                             if not any(re.search(r"\b" + re.escape(name) + r"\b", line) for name in unavailable))
     parts = [
-        AGENT_SYSTEM_PROMPT_FUNCTION_CALLING_TEMPLATE.replace(_AGENT_NAME_PLACEHOLDER, _agent_name(profile)),
+        template.replace(_AGENT_NAME_PLACEHOLDER, _agent_name(profile)),
         critical_confirm_instructions(critical_confirm_enabled),
         STYLE_BREVITY_AND_LENGTH,
         build_persona_section(base_persona, evolution_notes, profile),
