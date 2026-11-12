@@ -177,7 +177,8 @@ def validate_step(raw: Any, index: int, registry: Any) -> dict[str, Any]:
         )
     tool = registry.get_tool(tool_name) if tool_name else None
     if tool is None or tool_name not in TOOL_CATALOG or tool_name not in step_tool_names(registry):
-        raise RoutineError(f"{label}: ferramenta desconhecida '{tool_name or '(vazia)'}'.")
+        valid_tools = ', '.join(step_tool_names(registry)[:25])
+        raise RoutineError(f"{label}: ferramenta desconhecida '{tool_name or '(vazia)'}'. Use uma destas: {valid_tools}.")
     metadata = registry.get_tool_metadata(tool_name)
     argument, operations = operation_spec(tool, metadata)
     operation = str(raw.get("operation") or "").strip().lower()

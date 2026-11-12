@@ -102,7 +102,7 @@ from .lifestyle_tools import normalize_name
 GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
     (re.compile(pattern), tools)
     for pattern, tools in (
-        (r"\bhabit", ("habit_tool",)),
+        (r"\bhabit", ("personal_records",)),
         (r"\bchecklist|\blista\b|\blistas\b|\bmercado\b|\bcompras\b", ("checklist_tool",)),
         (r"\btaref|\bpendencia", ("task_tool",)),
         (r"\bagua\b|\bbebi\b|\bhidrat|\btreino\b", ("lifeos_tool",)),
@@ -125,7 +125,7 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
 # Loop agêntico: ferramentas de dados do dia a dia que entram em qualquer pedido, para qualquer provedor.
 LOOP_DATA_TOOLS = frozenset({
     "personal_records", "memory",
-    "habit_tool", "task_tool", "checklist_tool", "finance_tool", "lifeos_tool", "calendar", "vault_save_note", "vault_search",
+    "task_tool", "checklist_tool", "finance_tool", "lifeos_tool", "calendar", "vault_save_note", "vault_search",
     "open_window", "open_screen", "wait", "persona_tool",
 })
 
@@ -436,6 +436,13 @@ class ToolRegistry:
             if not re.search(r'\b(?:agua|bebi|hidrat)', normalize_name(user_text)):
                 redundant.add('lifeos_tool')
             allowed_set.difference_update(name for name in redundant if name not in user_text)
+        # Discard habit_tool when personal_records is present unless user explicitly names habit_tool
+        if 'personal_records' in allowed_set and 'habit_tool' in allowed_set:
+            if not re.search(r'\bhabit[_ ]tool\b', user_text):
+                allowed_set.discard('habit_tool')
+        # Discard routine when request has \bhabit but no \brotina
+        if re.search(r'\bhabit', normalize_name(user_text)) and not re.search(r'\brotina', normalize_name(user_text)):
+            allowed_set.discard('routine')
         if is_video_req and mode != "tutor":
             if "video_analyst" in self.tools:
                 allowed_set.add("video_analyst")
