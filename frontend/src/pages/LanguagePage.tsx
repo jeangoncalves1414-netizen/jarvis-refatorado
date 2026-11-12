@@ -6,6 +6,7 @@ import { useNextDueRefresh } from '../hooks/useNextDueRefresh'
 import { MessageContent } from '../components/MessageContent'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { languageName, speechLang } from '../utils/speechLang'
+import { IpaRecorder } from '../components/study/IpaRecorder'
 import { Curriculum } from '../components/study/Curriculum'
 import { PronunciationFeedback } from '../components/study/PronunciationFeedback'
 
@@ -331,6 +332,7 @@ export function LanguagePage(props: LanguagePageProps) {
         {/* ── PRONUNCIATION ──────────────────────────────── */}
         {activeTab === 'pronunciation' && (
           <>
+            <IpaRecorder />
             <p className="eyebrow">PRONÚNCIA · NÍVEL {level}</p>
             <div className="lang-phrase-list">
               {phrases.map((phrase, i) => (

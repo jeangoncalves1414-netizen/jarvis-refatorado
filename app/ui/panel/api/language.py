@@ -1,13 +1,15 @@
 """Language learning API endpoints."""
 from __future__ import annotations
 
+import io
+import wave
 import json
 import math
 import urllib.parse
 from typing import Any
 
 from app.storage.tutor.fsrs import next_learning_due
-from app.ui.panel.api.tutor import undo_response
+from app.ui.panel.api.tutor import _orchestrator_for, undo_response
 
 
 def _store(handler: Any) -> Any | None:
@@ -63,6 +65,37 @@ def _number(payload: dict[str, Any], key: str, default: float) -> float:
 
 
 def handle_language_post(path: str, body: bytes, handler: Any) -> tuple[int, dict[str, Any]] | None:
+    if path == "/api/language/ipa":
+        if len(body) > 1024 * 1024:
+            return 413, {"error": "O áudio excedeu o limite."}
+        try:
+            with wave.open(io.BytesIO(body)) as audio:
+                if (audio.getnchannels() != 1 or audio.getsampwidth() != 2 or
+                        not 0 < audio.getnframes() <= 20 * audio.getframerate()):
+                    raise ValueError
+        except (wave.Error, EOFError, ValueError):
+            return 400, {"error": "Grave novamente em WAV mono de até 20 segundos."}
+        llm = getattr(_orchestrator_for(handler), "llm_service", None)
+        key = llm._api_key_for("gemini") if llm else None
+        if not key:
+            return 503, {"error": "Configure a chave Gemini para transcrever em IPA."}
+        try:
+            from google import genai
+            from google.genai import types
+            with genai.Client(api_key=key, http_options=types.HttpOptions(timeout=45000)) as client:
+                result = client.models.generate_content(
+                    model=llm._effective_chat_model("gemini"),
+                    contents=[types.Part.from_bytes(data=body, mime_type="audio/wav"),
+                              "Transcreva somente os sons da fala audível em IPA entre colchetes. "
+                              "Preserve desvios de pronúncia. Se não houver fala inteligível, responda SEM_FALA."],
+                )
+            ipa = (result.text or "").strip()
+            if not ipa or ipa == "SEM_FALA":
+                return 422, {"error": "Nenhuma fala inteligível. Grave novamente."}
+            return 200, {"ipa": ipa}
+        except Exception:
+            return 502, {"error": "Gemini indisponível para transcrever este áudio."}
+
     language_paths = {
         "/api/language/vocabulary",
         "/api/language/vocabulary/review",
