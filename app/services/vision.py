@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from io import BytesIO
+from typing import Any
 
 try:
     from mss import mss
@@ -20,7 +21,7 @@ CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class VisionService:
-    """Serviço de visão multimodal com Gemini ou Groq (Qwen 3.6 Vision)."""
+    """Serviço de visão multimodal com Gemini ou Groq."""
 
     def __init__(
         self,
@@ -35,6 +36,7 @@ class VisionService:
         self.api_key = api_key or ""
         self.groq_api_key = groq_api_key or self.api_key
         self.model = model
+        self.groq_model = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b")
         self._groq_client = None
         self._genai_client = None
 
@@ -57,7 +59,7 @@ class VisionService:
 
     def capture_pil(self) -> Image.Image:
         """Captura tela como PIL Image."""
-        with mss.MSS() as sct:
+        with mss() as sct:
             monitor = sct.monitors[0]
             screenshot = sct.grab(monitor)
             return Image.frombytes("RGB", screenshot.size, screenshot.rgb)
@@ -123,16 +125,18 @@ class VisionService:
 
         if not active_key:
             return {
+                "ok": False,
                 "reply": f"Chave de API do {active_provider.capitalize()} necessária para visão computacional.",
                 "capture_path": filepath,
                 "capture_filename": filename,
             }
 
+        ok = True
         try:
             if active_provider == "groq":
                 client = self._get_client("groq", active_key)
                 res = client.chat.completions.create(
-                    model="qwen/qwen3.6-27b",
+                    model=self.groq_model,
                     messages=[{
                         "role": "user",
                         "content": [
@@ -160,12 +164,14 @@ class VisionService:
                 )
                 reply = response.text or "Nenhum detalhe visual extraído."
         except Exception as e:
+            ok = False
             reply = f"Erro na análise visual ({active_provider}): {e}"
 
         if qr_info:
             reply += qr_info
 
         return {
+            "ok": ok,
             "reply": reply,
             "capture_path": filepath,
             "capture_filename": filename,
@@ -184,7 +190,7 @@ class VisionService:
             if active_provider == "groq":
                 client = self._get_client("groq", active_key)
                 res = client.chat.completions.create(
-                    model="qwen/qwen3.6-27b",
+                    model=self.groq_model,
                     messages=[{
                         "role": "user",
                         "content": [

@@ -1336,12 +1336,16 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                 print(f"[Orchestrator] Falha LLM: {e}")
                 print(f"[Orchestrator] Traceback: {traceback.format_exc()}")
                 # Retorna erro mais detalhado para debug
-                error_msg = "N?o consegui gerar a resposta. " + failure_reason(e)
+                error_msg = "Não consegui gerar a resposta. " + failure_reason(e)
                 if "API key" in str(e).lower() or "401" in str(e) or "403" in str(e):
                     error_msg = "Erro de autenticação com a API. Verifique as chaves no .env."
                 elif "429" in str(e):
                     from app.services.rate_limits import ProviderRateLimit
-                    error_msg = str(e) if isinstance(e, ProviderRateLimit) else "Limite de taxa da API excedido. Tente novamente em alguns instantes."
+                    if isinstance(e, ProviderRateLimit):
+                        # Sanitize: show user-facing message instead of technical details
+                        error_msg = "Estou um pouco sobrecarregado no momento. Tente novamente em alguns segundos."
+                    else:
+                        error_msg = "Limite de taxa da API excedido. Tente novamente em alguns instantes."
                 elif "timeout" in str(e).lower():
                     error_msg = "Timeout na conexão com a API. Verifique sua internet."
                 elif "connection" in str(e).lower():

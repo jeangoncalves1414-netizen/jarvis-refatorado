@@ -78,3 +78,12 @@ def test_wait_intent_and_alarm_detection():
     # Pergunta e loop desligado continuam fora do loop.
     assert should_use_agent_loop("dá para abrir o spotify, esperar 5 s e abrir o youtube?", "general", AUTO)[0] is False
     assert should_use_agent_loop("abre o spotify, espera 50 s e abre o youtube", "general", {"mode": "off"})[0] is False
+
+
+@pytest.mark.parametrize("text", [
+    "você consegue abrir o Spotify esperar 20 segundos e depois fechar ele",
+    "Você consegue abrir o Spotify, esperar 2 segundos e depois fechar ele?",
+    "Copie TESTE para a área de transferência e depois crie uma checklist de compras",
+])
+def test_polite_sequences_and_clipboard_use_loop(text):
+    assert should_use_agent_loop(text, "general", AUTO)[0]

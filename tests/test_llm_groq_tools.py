@@ -33,6 +33,8 @@ class _FakeCompletions:
         step = self.script.pop(0)
         if isinstance(step, Exception):
             raise step
+        if not kwargs.get("stream", True):
+            return step
         return iter(step)
 
 
@@ -73,7 +75,21 @@ def test_lists_then_creates_in_the_same_turn(groq_script):
                                        on_function_call=lambda n, a: calls.append(a["action"]) or "ok")
     assert calls == ["list", "create"] and reply == "Criado."
     from app.agent.context_budget import estimate_tokens
-    assert sum(estimate_tokens(c["messages"], c["tools"]) for c in completions.calls) <= 6000
+    assert all(estimate_tokens(c["messages"], c["tools"]) <= 6000 for c in completions.calls)
+
+
+def test_realistic_context_keeps_budget_for_followup_and_synthesis(groq_script):
+    completions = groq_script([[_tool_chunk("notes", '{"action":"list"}', "a")],
+                               [_tool_chunk("notes", '{"action":"create"}', "b")],
+                               [_text_chunk("Criado uma vez.")]])
+    calls = []
+    reply = _service()._chat_groq_stream("regras " * 1500, _MESSAGES, tools=_TOOLS,
+        on_function_call=lambda n, a: calls.append(a["action"]) or "ok")
+    assert calls == ["list", "create"]
+    assert reply == "Criado uma vez."
+    from app.agent.context_budget import estimate_tokens
+    costs = [estimate_tokens(c["messages"], c["tools"]) for c in completions.calls]
+    assert sum(costs) > 6000 and max(costs) <= 6000
 
 
 def test_unoffered_tool_is_not_executed(groq_script):
@@ -152,7 +168,7 @@ def test_final_quota_error_never_reexecutes_tools(groq_script, monkeypatch):
     service = LLMService(SimpleNamespace(groq_api_keys=['chave-falsa']))
     reply = service._chat_groq_stream('sys', _MESSAGES, tools=_TOOLS, on_function_call=lambda *args: calls.append(args) or 'Nota registrada.')
     assert len(calls) == 1 and len(completions.calls) == 2
-    assert 'Nota registrada.' in reply and 'sem repetir' in reply and '604 segundos' in reply
+    assert 'Nota registrada.' in reply and 'sobrecarregado' in reply
 
 
 def test_synthesis_error_after_tool_returns_results_without_rerun(groq_script) -> None:
@@ -169,12 +185,28 @@ def test_synthesis_quota_with_free_second_key_never_reruns_tools(groq_script, mo
     from app.services import llm
     monkeypatch.setattr(llm, '_key_rotator', llm.KeyRotator())
     monkeypatch.setattr(LLMService, "_api_key_for", lambda self, provider: llm._key_rotator.get_key(provider, self.settings))
-    completions = groq_script([[_tool_chunk("notes")], RuntimeError("429 rate limit reached. Please try again in 5s.")])
+    completions = groq_script([[_tool_chunk("notes")], RuntimeError("429 rate limit reached. Please try again in 5s."),
+        SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Nota registrada uma vez."))])])
     calls = []
     service = LLMService(SimpleNamespace(groq_api_keys=['chave-a', 'chave-b']))
     reply = service._chat_groq_stream('sys', _MESSAGES, tools=_TOOLS, on_function_call=lambda *args: calls.append(args) or 'Nota registrada.')
-    assert len(calls) == 1 and len(completions.calls) == 2
-    assert 'Nota registrada.' in reply and 'sem repetir' in reply
+    assert len(calls) == 1 and len(completions.calls) == 3
+    assert reply == 'Nota registrada uma vez.'
+    assert completions.calls[-1]['tools'] is None
+    assert all('tool_calls' not in row for row in completions.calls[-1]['messages'])
+
+
+def test_synthesis_recovery_failure_is_bounded(groq_script, monkeypatch):
+    from app.services import llm
+    monkeypatch.setattr(llm, '_key_rotator', llm.KeyRotator())
+    monkeypatch.setattr(LLMService, '_api_key_for', lambda self, provider: llm._key_rotator.get_key(provider, self.settings))
+    completions = groq_script([[_tool_chunk('notes')], RuntimeError('429 rate limit'), RuntimeError('429 rate limit')])
+    calls = []
+    service = LLMService(SimpleNamespace(groq_api_keys=['chave-a', 'chave-b']))
+    reply = service._chat_groq_stream('sys', _MESSAGES, tools=_TOOLS,
+        on_function_call=lambda *args: calls.append(args) or 'Nota registrada.')
+    assert len(calls) == 1 and len(completions.calls) == 3
+    assert 'Nota registrada.' in reply and 'sobrecarregado' in reply
 
 
 def test_oversize_retry_is_bounded_and_preserves_rules_and_latest_request(groq_script):

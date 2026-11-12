@@ -53,3 +53,11 @@ def test_playback_request_keeps_browser_search_and_spotify_in_loop():
     registry.tools = {n: SimpleNamespace() for n in ["spotify", "browser", "web_search", "open_windows_app", "media_tool", "wait"]}
     allowed = registry.allowed_tool_names(provider="groq", user_text="Abra o spotify, aguarde 10 segundos e abra um video aleatório no youtube", narrow=True)
     assert {"spotify", "browser", "web_search", "wait"} <= allowed
+
+
+def test_portuguese_clipboard_requests_offer_the_tool():
+    registry = ToolRegistry.__new__(ToolRegistry)
+    registry.tools = {n: SimpleNamespace() for n in ["clipboard", "memory", "web_search"]}
+    for text in ("Copie o texto TESTE", "copia para a área de transferência", "leia a area de transferencia"):
+        for narrow in (True, False):
+            assert "clipboard" in registry.allowed_tool_names(provider="groq", user_text=text, narrow=narrow)

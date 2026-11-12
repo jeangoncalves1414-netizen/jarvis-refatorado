@@ -10,6 +10,7 @@ _ACTION_STEMS = (
     "adicion", "cri", "coloc", "marc", "marqu", "registr", "lanc", "anot", "agend", "abr", "abre",
     "apag", "remov", "mud", "atualiz", "mand", "envi", "pesquis", "procur", "lig", "deslig",
     "toc", "bebi", "gastei", "comprei", "exclu", "conclu", "complet", "corrij", "corrig", "cancel",
+    "copi", "fech",
 )
 # Palavras que começam com os radicais curtos mas não são pedidos de ação.
 _NOT_ACTIONS = frozenset({
@@ -42,7 +43,10 @@ _CONVERSATION_ANYWHERE = ("voce acha", "por que")
 
 
 def _is_conversation(normalized: str, words: list[str]) -> bool:
-    if "?" in normalized:
+    polite_sequence = bool(re.match(r"(?:voce\s+)?(?:consegue|pode|poderia)\s+", normalized)) and (
+        wait_intent(normalized) is not None or _action_verbs(normalized) >= 2
+    )
+    if "?" in normalized and not polite_sequence:
         return True
     padded = f" {normalized} "
     if any(f" {phrase} " in padded for phrase in _CONVERSATION_ANYWHERE):
@@ -59,6 +63,7 @@ def _action_verbs(normalized: str) -> int:
     count = 0
     for clause in _CLAUSE_SPLIT.split(normalized.replace("por favor", " ")):
         clause = re.sub(r"^\s*(?:(?:ta|ok|ola|certo)\s+)*(?:eu\s+)?quero\s+(?:que\s+voce\s+)?", "", clause)
+        clause = re.sub(r"^\s*(?:voce\s+)?(?:consegue|pode|poderia)\s+", "", clause)
         clause = re.sub(r"^\s*ao mesmo tempo\s+", "", clause)
         clause = re.sub(r"^\s*(?:de\s+)?(?:aguardar|esperar)\s+\d+\s+(?:segundos?|minutos?)\s+(?:eu\s+)?quero\s+(?:que\s+voce\s+)?", "", clause)
         words = re.findall(r"[a-z0-9]+", clause)
@@ -109,7 +114,7 @@ def requires_tool_action(text: str) -> bool:
         return True
     return is_action_request(text) and bool(re.search(
         r"\b(?:spotify|youtube|navegador|chrome|app|aplicativo|arquivo|pasta|janela|site|url|link|"
-        r"habito\w*|tarefa\w*|agenda\w*|lembrete\w*|checklist\w*|despesa\w*|receita\w*|lancamento\w*|financ\w*|lista\w*|nota\w*|rotina\w*|pesquis\w*|documentacao|agua|volume|brilho|whatsapp)\b|https?://",
+        r"habito\w*|tarefa\w*|agenda\w*|lembrete\w*|checklist\w*|despesa\w*|receita\w*|lancamento\w*|financ\w*|lista\w*|nota\w*|rotina\w*|pesquis\w*|documentacao|agua|volume|brilho|whatsapp|clipboard|transferencia)\b|https?://",
         normalize(text),
     ))
 
@@ -226,7 +231,7 @@ def should_use_agent_loop(text: str, mode: str, settings: dict[str, Any]) -> tup
     if len(words) < 4:
         return False, "pedido curto"
     # Espera entre ações ("abre o Spotify, aguarde 50 s e abre o YouTube") só funciona no loop, em ordem.
-    if "?" not in normalized and wait_intent(normalized) is not None and _action_verbs(normalized) >= 1:
+    if not _is_conversation(normalized, words) and wait_intent(normalized) is not None and _action_verbs(normalized) >= 1:
         return True, "pedido com espera"
     if _is_conversation(normalized, words):
         return False, "pergunta ou conversa"

@@ -102,6 +102,7 @@ from .lifestyle_tools import normalize_name
 GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
     (re.compile(pattern), tools)
     for pattern, tools in (
+        (r"\bclipboard\b|\btransferencia\b|\bcopi\w*\b.*\btexto\b", ("clipboard",)),
         (r"\bhabit", ("personal_records", "habit_tool")),
         (r"\bchecklist|\blista\b|\blistas\b|\bmercado\b|\bcompras\b", ("checklist_tool",)),
         (r"\btaref|\bpendencia", ("task_tool",)),

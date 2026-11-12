@@ -76,7 +76,7 @@ class VisionTool(BaseTool):
             reply = res.get("reply", "Sem resposta.")
             filename = res.get("capture_filename", "")
             return ToolResult(
-                ok=True,
+                ok=res.get("ok", False),
                 message=f"[Visão Computacional - Captura: {filename}]\n{reply}",
                 data={"capture_filename": filename, "reply": reply}
             )

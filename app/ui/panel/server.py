@@ -1828,7 +1828,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 res = vs.analyze(prompt=prompt, image=img, api_key=api_key, provider=provider)
                 fn = res.get("capture_filename", "")
                 self._send_json(200, {
-                    "ok": True,
+                    "ok": res.get("ok", False),
                     "reply": res.get("reply", ""),
                     "filename": fn,
                     "capture_url": f"/api/vision/file/{fn}" if fn else None,
@@ -1870,7 +1870,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 )
                 filename = result.get("capture_filename", "")
                 self._send_json(200, {
-                    "ok": True,
+                    "ok": result.get("ok", False),
                     "reply": result.get("reply", "Análise concluída."),
                     "capture_url": f"/api/vision/file/{filename}" if filename else None,
                 })
