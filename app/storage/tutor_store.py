@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -153,20 +154,46 @@ class TutorStore:
         stats["flashcards_due"] = sum(1 for c in cards if is_due(c))
 
     def add_flashcard(self, front: str, back: str, topic: str = "", stage: str = "") -> str:
-        cards = self._data.setdefault("flashcards", [])
-        card_id = f"fc-{uuid.uuid4().hex}"
-        cards.append(self._normalize_card({
-            "id": card_id,
-            "front": front,
-            "back": back,
+        return self._append_cards([(front, back)], topic, stage, [])[0]
+
+    def _append_cards(self, pairs, topic, stage, tags) -> list[str]:
+        cards = [{
+            "id": f"fc-{uuid.uuid4().hex}", "front": front, "back": back,
             "topic": topic or self._data.get("current_stage", ""),
             "stage": stage or self._data.get("current_stage", ""),
-            "created": str(date.today()),
-            **new_card_fields(),
-        }))
+            "tags": tags, "created": str(date.today()), **new_card_fields(),
+        } for front, back in pairs]
+        self._data.setdefault("flashcards", []).extend(cards)
         self._refresh_flashcard_stats()
         self._save()
-        return card_id
+        return [card["id"] for card in cards]
+
+    def create_note(self, payload: dict) -> list[str]:
+        def field(key, maximum):
+            value = payload.get(key, "")
+            if not isinstance(value, str) or len(value) > maximum:
+                raise ValueError("Campo inválido: " + key)
+            return value.strip()
+
+        front, back = field("front", 4000), field("back", 4000)
+        deck = "::".join(part.strip() for part in field("deck", 200).split("::") if part.strip())
+        tags = list(dict.fromkeys(t.strip() for t in field("tags", 500).split(",") if t.strip()))
+        kind = payload.get("kind", "basic")
+        if kind == "cloze":
+            pattern = re.compile(r"\{\{c([1-9][0-9]*)::([^{}]+?)\}\}")
+            groups = list(dict.fromkeys(pattern.findall(front)))
+            if not groups or "{{" in pattern.sub("", front) or "}}" in pattern.sub("", front):
+                raise ValueError("Use {{c1::resposta}} para marcar a lacuna.")
+            solution = pattern.sub(lambda m: m[2], front)
+            pairs = [(pattern.sub(lambda m: "[…]" if m[1] == number else m[2], front), solution)
+                     for number in dict.fromkeys(number for number, _ in groups)]
+        elif kind in ("basic", "reversed") and front and back:
+            pairs = [(front, back)]
+            if kind == "reversed":
+                pairs.append((back, front))
+        else:
+            raise ValueError("Preencha a frente e o verso do cartão.")
+        return self._append_cards(pairs, deck, "", tags)
 
     def get_flashcards(self) -> list[dict[str, Any]]:
         return [self._normalize_card(dict(c)) for c in self._data.get("flashcards", [])]

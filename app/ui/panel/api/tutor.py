@@ -12,7 +12,7 @@ def undo_response(result: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     return (404 if result.get("error") == "nothing_to_undo" else 409), result
 
 
-def _store(handler: Any) -> Any | None:
+def _orchestrator_for(handler: Any) -> Any | None:
     orch = getattr(handler, "orchestrator", None)
     if orch is None:
         orch = getattr(type(handler), "orchestrator", None)
@@ -22,7 +22,7 @@ def _store(handler: Any) -> Any | None:
             orch = _orchestrator
         except ImportError:
             pass
-    return getattr(orch, "tutor_store", None) if orch else None
+    return orch
 
 
 def handle_tutor_get(parts: list[str], handler: Any) -> tuple[int, dict[str, Any]] | None:
@@ -30,7 +30,7 @@ def handle_tutor_get(parts: list[str], handler: Any) -> tuple[int, dict[str, Any
     if len(parts) < 2 or parts[1] != "tutor":
         return None
 
-    store = _store(handler)
+    store = getattr(_orchestrator_for(handler), "tutor_store", None)
     if not store:
         return 200, {"progress": {}, "summary": ""}
 
@@ -70,6 +70,8 @@ def handle_tutor_get(parts: list[str], handler: Any) -> tuple[int, dict[str, Any
 
 def handle_tutor_post(path: str, body: bytes, handler: Any) -> tuple[int, dict[str, Any]] | None:
     tutor_paths = {
+        "/api/tutor/flashcards",
+        "/api/tutor/flashcards/suggest",
         "/api/tutor/flashcards/review",
         "/api/tutor/flashcards/undo",
         "/api/tutor/feynman",
@@ -78,7 +80,7 @@ def handle_tutor_post(path: str, body: bytes, handler: Any) -> tuple[int, dict[s
     if path not in tutor_paths:
         return None
 
-    store = _store(handler)
+    store = getattr(_orchestrator_for(handler), "tutor_store", None)
     if not store:
         return 503, {"ok": False, "error": "tutor_store_unavailable"}
 
@@ -86,6 +88,36 @@ def handle_tutor_post(path: str, body: bytes, handler: Any) -> tuple[int, dict[s
         payload = json.loads(body.decode("utf-8") or "{}")
     except Exception:
         payload = {}
+
+    if not isinstance(payload, dict):
+        return 400, {"error": "Esperado objeto JSON."}
+    if path == "/api/tutor/flashcards":
+        try:
+            return 201, {"ids": store.create_note(payload)}
+        except ValueError as exc:
+            return 400, {"error": str(exc)}
+    if path == "/api/tutor/flashcards/suggest":
+        from app.storage.session_store import get_session, get_session_history
+        session_id = str(payload.get("session_id", ""))
+        if (get_session(session_id) or {}).get("type") != "tutor":
+            return 404, {"error": "Sessão de estudos não encontrada."}
+        history = [str(row.get("content", ""))[:1200] for row in get_session_history(session_id)[-12:]
+                   if row.get("role") in ("user", "assistant") and not row.get("failed")]
+        if not any(history):
+            return 400, {"error": "Converse com o tutor antes de gerar cartões."}
+        result = _orchestrator_for(handler).llm_service.ask(
+            json.dumps(history, ensure_ascii=False),
+            system_instruction='Com base na aula fornecida, sugira até cinco cartões. Responda apenas com um array JSON de objetos com strings front e back.',
+        )
+        try:
+            rows = json.loads(result.strip().removeprefix("```json").removeprefix("```").removesuffix("```"))
+            cards = [row for row in rows if isinstance(row, dict) and
+                     all(isinstance(row.get(k), str) and 0 < len(row[k].strip()) <= 4000 for k in ("front", "back"))]
+            if not cards:
+                raise ValueError
+        except (ValueError, TypeError):
+            return 502, {"error": "O tutor não conseguiu gerar cartões. Tente novamente."}
+        return 200, {"cards": cards[:5]}
 
     if path == "/api/tutor/flashcards/review":
         try:

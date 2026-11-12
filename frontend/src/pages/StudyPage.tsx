@@ -9,6 +9,7 @@ import { MessageContent } from '../components/MessageContent'
 import { useReviewShortcuts } from '../hooks/useReviewShortcuts'
 import { useNextDueRefresh } from '../hooks/useNextDueRefresh'
 import { useStudyStats } from '../hooks/useStudyStats'
+import { CardEditor } from '../components/study/CardEditor'
 import { StudyDashboard } from '../components/study/StudyDashboard'
 import { StudyProgress } from '../components/study/StudyProgress'
 import { LanguagePage, type LangTab } from './LanguagePage'
@@ -255,6 +256,7 @@ export function StudyPage(props: StudyPageProps) {
                 </div>
               )) : <span>Pergunte ao professor sobre qualquer tópico.</span>}
             </div>
+            {props.studySessionId && props.studyMessages.length > 0 && <CardEditor key={props.studySessionId} session={props.studySessionId} onSaved={props.refreshStudy} />}
             <form className="study-tutor-form" onSubmit={props.sendStudyMessage}>
               <input value={props.studyQuery} onChange={e => props.setStudyQuery(e.target.value)} placeholder="Ex.: explique função quadrática" />
               <button type="submit">Enviar</button>
@@ -267,6 +269,7 @@ export function StudyPage(props: StudyPageProps) {
         )}
         {activeMode === 'review' && (
           <div className="study-overlay-panel">
+            <CardEditor onSaved={props.refreshStudy} />
             <p className="eyebrow">REVISÃO ESPAÇADA</p>
             {currentCard ? (
               <>
