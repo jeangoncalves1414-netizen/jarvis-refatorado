@@ -7,6 +7,7 @@ Stores data in a persistent SQLite database (data/lifestyle.db).
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 from datetime import datetime, date, timedelta
@@ -130,6 +131,11 @@ def init_db() -> None:
 init_db()
 
 
+def _local_hour() -> int:
+    """Retorna a hora local atual (0-23)."""
+    return datetime.now().hour
+
+
 class HabitService:
     """Service to manage habits, streaks, granular schedules, and habit check-ins."""
 
@@ -205,7 +211,7 @@ class HabitService:
         routine_block: str = "anytime",
         frequency_type: str = "daily",
         days_of_week: list[str | int] | None = None,
-        start_time: str = "15:00",
+        start_time: str = "",
         time_exceptions: dict[str, str] | None = None,
         items_list: list[str] | None = None,
         day_slots: dict[str, Any] | None = None,
@@ -365,18 +371,33 @@ class HabitService:
         """
         raw = (text or "").strip().lower()
         evt = (event_type or "").strip().lower()
-        checked_habits: list[dict[str, Any]] = []
-
-        is_morning = any(w in raw for w in ("bom dia", "acordei", "já acordei", "acabei de acordar", "levantando", "de pé", "acordar")) or evt in ("morning_greeting", "wake_up")
+        
+        # Ignore registration verbs in dialogue
+        if evt == "dialogue":
+            registration_verbs = (
+                r'\b(?:registr[ea]|cri[ea]|adicion[ea]|cadastr[ea]|inclu[ai]|anot[ea]|'
+                r'registrar|criar|adicionar|cadastrar|incluir|anotar)\b'
+            )
+            if re.search(registration_verbs, raw) or 'hábito' in raw or 'novo hábito' in raw or 'hábitos de' in raw:
+                return []
+        
+        # Morning greetings only valid before 12h
+        morning_phrases = ("bom dia", "acordei", "já acordei", "acabei de acordar", "levantei", "já estou de pé")
+        is_morning_greeting = evt in ("morning_greeting", "wake_up")
+        if not is_morning_greeting and any(phrase in raw for phrase in morning_phrases):
+            if _local_hour() < 12:
+                is_morning_greeting = True
+        
         is_water = any(w in raw for w in ("bebi água", "tomei água", "copo d'água", "copo de água", "bebi agua")) or evt in ("water_added", "add_water")
         is_workout = any(w in raw for w in ("terminei o treino", "treino feito", "fui pra academia", "malhei hoje", "treinei")) or evt in ("workout_completed", "workout")
         is_finance = any(w in raw for w in ("anotei gastos", "registrei despesa", "gasto anotado")) or evt in ("finance_added", "finance")
 
-        if not (is_morning or is_water or is_workout or is_finance):
+        if not (is_morning_greeting or is_water or is_workout or is_finance):
             return []
 
         active_habits = cls.list_habits()
         today_code = CANONICAL_WEEK_DAYS[date.today().weekday()]
+        checked_habits: list[dict[str, Any]] = []
 
         for habit in active_habits:
             habit_days = habit.get("days_of_week") or list(CANONICAL_WEEK_DAYS)
@@ -389,7 +410,7 @@ class HabitService:
             matched = False
             notes = ""
 
-            if is_morning and any(k in h_name for k in ("acordar", "levantar", "despertar", "matinal")):
+            if is_morning_greeting and any(k in h_name for k in ("acordar", "levantar", "despertar", "matinal")):
                 matched = True
                 notes = "Auto-check contextual: saudação matinal"
             elif is_water and any(k in h_name for k in ("água", "agua", "hidrat")):

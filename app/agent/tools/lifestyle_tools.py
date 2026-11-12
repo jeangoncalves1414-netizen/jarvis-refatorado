@@ -97,19 +97,64 @@ def _norm_days(raw_list: Any) -> list[str]:
 
 
 def _norm_time(time_str: Any) -> str:
+    """Normaliza horário para HH:MM. Retorna '' se vazio."""
     if not time_str:
-        return "15:00"
+        return ""
     t = str(time_str).lower().strip()
     if "às " in t: t = t.replace("às ", "")
     if "as " in t: t = t.replace("as ", "")
     if "horas" in t: t = t.replace("horas", "").strip()
     if "hora" in t: t = t.replace("hora", "").strip()
-    if "h" in t and ":" not in t: t = t.replace("h", "").strip()
+    # HH:MM already — just ensure leading zero
+    if ":" in t:
+        parts = t.split(":")
+        try:
+            h = int(parts[0])
+            m = int(parts[1]) if len(parts) > 1 else 0
+            return f"{h:02d}:{m:02d}"
+        except ValueError:
+            return str(time_str)
+    if "h" in t:
+        raw = t.replace("h", "").strip()
+        try:
+            val = int(raw)
+            return f"{val:02d}:00"
+        except ValueError:
+            pass
     try:
         val = int(t)
         return f"{val:02d}:00"
     except ValueError:
         return str(time_str)
+
+
+def _time_from_name(name: str) -> str:
+    """Extrai horário do nome do hábito. Retorna '' se não encontrar.
+
+    Suporta: 'às 5:00', 'as 5h', '5h30', '05:00', 'da tarde/da noite' soma 12h quando hora < 12.
+    """
+    import re as _re
+    text = (name or "").lower().strip()
+    # Detecta modificadores de período
+    is_afternoon = bool(_re.search(r'\bda tarde\b|\bda noite\b', text))
+
+    # Padrões: às/as HH:MM, às/as HHh[MM], HHhMM, HH:MM isolado
+    patterns = [
+        r'(?:às|as)\s+(\d{1,2}):(\d{2})',   # às 5:00
+        r'(?:às|as)\s+(\d{1,2})h(\d{2})?',  # as 5h30
+        r'\b(\d{1,2})h(\d{2})\b',            # 5h30
+        r'\b(\d{2}):(\d{2})\b',              # 05:00
+        r'\b(\d{1,2})h\b',                   # 5h
+    ]
+    for pat in patterns:
+        m = _re.search(pat, text)
+        if m:
+            h = int(m.group(1))
+            mins = int(m.group(2)) if m.lastindex >= 2 and m.group(2) else 0
+            if is_afternoon and h < 12:
+                h += 12
+            return f"{h:02d}:{mins:02d}"
+    return ""
 
 
 def _norm_exceptions(raw: Any) -> dict[str, str]:
@@ -140,7 +185,20 @@ def _prepare_habit(spec: Any) -> dict[str, Any]:
     if not isinstance(spec, dict):
         raise ValueError("Cada hábito deve ser um objeto com pelo menos 'name'.")
     name = _clean_text(spec.get("name"), "Nome do hábito")
-    block = str(spec.get("routine_block") or "anytime").strip().lower()
+    # Horário: prefere o explícito; fallback ao nome
+    raw_time = spec.get("start_time")
+    start_time = _norm_time(raw_time) if raw_time else _time_from_name(name)
+    # Bloco de rotina: infere 'morning' antes das 12h quando não informado
+    block = str(spec.get("routine_block") or "").strip().lower()
+    if not block:
+        if start_time:
+            try:
+                hour = int(start_time.split(":")[0])
+                block = "morning" if hour < 12 else "anytime"
+            except (ValueError, IndexError):
+                block = "anytime"
+        else:
+            block = "anytime"
     if block not in ROUTINE_BLOCKS:
         raise ValueError(f"Bloco de rotina inválido em '{name}': use " + ", ".join(ROUTINE_BLOCKS) + ".")
     items = spec.get("items_list") or []
@@ -151,7 +209,7 @@ def _prepare_habit(spec: Any) -> dict[str, Any]:
         "category": _clean_text(spec.get("category"), "Categoria", 60, required=False) or "general",
         "routine_block": block,
         "days_of_week": _norm_days(spec.get("days_of_week")) or list(WEEK_DAYS),
-        "start_time": _norm_time(spec.get("start_time")),
+        "start_time": start_time,
         "time_exceptions": _norm_exceptions(spec.get("time_exceptions")),
         "items_list": [item.strip() for item in items if item.strip()],
         "day_slots": spec.get("day_slots") or {},
@@ -233,7 +291,7 @@ class HabitTool(BaseTool):
         category: str | None = None,
         routine_block: str | None = None,
         days_of_week: list[str] | None = None,
-        start_time: str = "15:00",
+        start_time: str = "",
         time_exceptions: dict[str, str] | None = None,
         items_list: list[str] | None = None,
         day_slots: dict[str, Any] | None = None,
@@ -272,13 +330,22 @@ class HabitTool(BaseTool):
                 "day_slots": a.get("day_slots"),
             }
             prepared = _prepare_habit(spec)
+            # Idempotence: return existing active habit with same normalized name
+            existing = next((h for h in HabitService.list_habits() if normalize_name(h.get("name")) == normalize_name(prepared["name"])), None)
+            if existing:
+                return {
+                    "ok": True,
+                    "message": f"Hábito '{existing['name']}' já existia.",
+                    "habit": existing, "habit_ids": [existing["id"]], "habits": [_habit_brief(existing)],
+                }
             h_id = habit_id or f"habit_{uuid.uuid4().hex[:8]}"
             res = HabitService.create_habit(h_id, **prepared)
             items_desc = f" ({', '.join(prepared['items_list'])})" if prepared["items_list"] else ""
             days_desc = ", ".join(prepared["days_of_week"])
+            time_desc = f" às {prepared['start_time']}" if prepared["start_time"] else " sem horário"
             return {
                 "ok": True,
-                "message": f"Hábito '{prepared['name']}'{items_desc} criado para [{days_desc}] às {prepared['start_time']}!",
+                "message": f"Hábito '{prepared['name']}'{items_desc} criado para [{days_desc}]{time_desc}!",
                 "habit": res, "habit_ids": [h_id], "habits": [_habit_brief(res)],
             }
 
@@ -294,14 +361,35 @@ class HabitTool(BaseTool):
                     prepared_list.append(_prepare_habit(spec))
                 except ValueError as exc:
                     raise ValueError(f"Hábito {index}: {exc} Nada foi criado.") from None
+            # Deduplicate within batch by normalized name
+            seen_names: set[str] = set()
+            deduped: list[dict[str, Any]] = []
+            for item in prepared_list:
+                key = normalize_name(item["name"])
+                if key not in seen_names:
+                    seen_names.add(key)
+                    deduped.append(item)
+            existing_habits = HabitService.list_habits()
             created = []
-            for prepared in prepared_list:
-                h_id = f"habit_{uuid.uuid4().hex[:8]}"
-                created.append(HabitService.create_habit(h_id, **prepared))
-            names_desc = ", ".join(item["name"] for item in prepared_list)
+            already_existed: list[str] = []
+            for prepared in deduped:
+                existing = next((h for h in existing_habits if normalize_name(h.get("name")) == normalize_name(prepared["name"])), None)
+                if existing:
+                    already_existed.append(existing["name"])
+                    created.append(existing)
+                else:
+                    h_id = f"habit_{uuid.uuid4().hex[:8]}"
+                    created.append(HabitService.create_habit(h_id, **prepared))
+            new_count = len(created) - len(already_existed)
+            names_desc = ", ".join(item["name"] for item in created)
+            msg_parts = []
+            if new_count > 0:
+                msg_parts.append(f"{new_count} hábito(s) criado(s).")
+            if already_existed:
+                msg_parts.append(f"Já existiam: {', '.join(already_existed)}.")
             return {
                 "ok": True,
-                "message": f"{len(created)} hábito(s) criado(s): {names_desc}.",
+                "message": " ".join(msg_parts) if msg_parts else f"0 hábitos criados: {names_desc}.",
                 "habit_ids": [item["id"] for item in created],
                 "habits": [_habit_brief(item) for item in created],
             }
@@ -332,7 +420,7 @@ class HabitTool(BaseTool):
                     current_items.remove(item)
 
             start_time = a["start_time"]
-            new_start = _norm_time(start_time) if start_time and start_time != "15:00" else target.get("start_time", "15:00")
+            new_start = _norm_time(start_time) if start_time else target.get("start_time", "")
             current_exceptions.update(_norm_exceptions(a["time_exceptions"]))
 
             changes: dict[str, Any] = {}
