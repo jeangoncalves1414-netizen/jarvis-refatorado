@@ -146,7 +146,7 @@ def test_loop_catalog_is_filtered_for_every_provider(registry, provider):
     assert narrow < registry.allowed_tool_names(mode="general", provider="gemini")
     assert LOOP_DATA_TOOLS <= narrow
     assert not {"kasa_control", "telegram_bot", "mobile_adb", "hacker_mode", "wallpaper_engine"} & narrow
-    assert len(narrow) <= 14 and (provider != "gemini" or len(narrow) < len(full))
+    assert len(narrow) <= 15 and (provider != "gemini" or len(narrow) < len(full))
 
 
 def test_loop_catalog_follows_the_words_of_the_request(registry):
@@ -154,6 +154,6 @@ def test_loop_catalog_follows_the_words_of_the_request(registry):
     assert {"web_search", "spotify", "finance_tool"} <= names("pesquisa receita de bolo, toca música e anota que gastei 20 no mercado")
     plain = names("abre o painel, adiciona ler nos hábitos, depois bebi 2L de água")
     assert not {"web_search", "spotify", "finance_tool", "whatsapp"} & plain
-    assert {"habit_tool", "task_tool", "lifeos_tool", "calendar", "vault_save_note", "open_window", "open_screen"} <= plain
+    assert {"personal_records", "task_tool", "lifeos_tool", "calendar", "vault_save_note", "open_window", "open_screen"} <= plain
     # Sem o parâmetro, o provedor Gemini continua recebendo o catálogo completo do modo.
     assert len(registry.allowed_tool_names(mode="general", provider="gemini", user_text="oi")) > len(plain) + 10

@@ -129,3 +129,26 @@ def test_voice_phrase_runs_routine_without_calling_the_model(registry, quiet_run
     assert plan.intent == "routine" and 'Rotina "Modo foco" iniciada' in plan.summary
     assert plan.context["routine_run_id"].startswith("run_")
     assert agent._run_routine_phrase("o que Ã© modo foco?", "general") is None
+def test_routine_not_offered_for_habit_without_rotina(registry):
+    '''C3: routine absent for 'Crie o hábito de acordar às 5:00 todo dia' (groq and narrow).'''
+    # Groq provider
+    allowed_groq = registry.allowed_tool_names(mode='general', provider='groq', user_text='Crie o hábito de acordar às 5:00 todo dia')
+    assert 'routine' not in allowed_groq
+    assert 'personal_records' in allowed_groq or 'habit_tool' in allowed_groq
+    
+    # Narrow (loop) mode
+    allowed_narrow = registry.allowed_tool_names(mode='general', provider='gemini', user_text='Crie o hábito de acordar às 5:00 todo dia', narrow=True)
+    assert 'routine' not in allowed_narrow
+
+
+def test_personal_records_step_rejected_with_tool_list(registry):
+    '''C3: personal_records step in routine is rejected with 'Use uma destas' listing tools.'''
+    from app.routines.models import validate_step, RoutineError
+    
+    try:
+        validate_step({'tool': 'personal_records', 'operation': 'create', 'params': {}}, 0, registry)
+        assert False, 'Should have raised RoutineError'
+    except RoutineError as e:
+        # Error should list valid tools
+        assert 'Use uma destas' in str(e)
+        assert 'open_windows_app' in str(e) or 'spotify' in str(e) or 'web_search' in str(e)

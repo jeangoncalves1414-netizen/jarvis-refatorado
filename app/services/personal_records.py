@@ -211,16 +211,14 @@ def mutate(kind, action, fields, target=None):
     from app.services.personal_habits import PersonalHabits, _raw_id
     from app.services.finance import FinanceService
     key = target['id'] if target else 'rec_' + uuid.uuid4().hex
+    ignored_readonly = []
     # Handle read-only keys: ignore with warning instead of error
     if kind in ALLOWED_FIELDS:
         readonly_present = set(fields) & READONLY_FIELDS - ALLOWED_FIELDS[kind]
         if readonly_present:
+            ignored_readonly = sorted(readonly_present)
             fields = {k: v for k, v in fields.items() if k not in readonly_present}
-            # Store ignored fields note in fields for callers that check it
-            fields = dict(fields)
-            fields['_ignored_readonly'] = sorted(readonly_present)
-        ignored_readonly = fields.pop('_ignored_readonly', [])
-        unknown = set(fields) - ALLOWED_FIELDS[kind] - {'_ignored_readonly'}
+        unknown = set(fields) - ALLOWED_FIELDS[kind]
         if unknown:
             raise ValueError('Campos não reconhecidos: ' + ', '.join(sorted(unknown)) + '. Aceitos para ' + kind + ': ' + ', '.join(sorted(ALLOWED_FIELDS[kind] - {'habits'})) + '.')
         # Batch habit creation via fields.habits
@@ -230,15 +228,21 @@ def mutate(kind, action, fields, target=None):
                 raise ValueError("fields.habits deve ser uma lista.")
             if set(fields) - {'habits'}:
                 raise ValueError("Não misture fields.habits com campos de hábito único (name, start_time etc.).")
-            # Clean readonly keys from each item
+            # Clean readonly keys from each item and collect all ignored
             cleaned_items = []
+            item_ignored = set()
             for item in habits_list:
                 if not isinstance(item, dict):
                     raise ValueError("Cada item em fields.habits deve ser um objeto.")
                 # title -> name mapping
                 if 'title' in item and 'name' not in item:
                     item = dict(item, name=item.pop('title'))
+                item_readonly = set(item.keys()) & READONLY_FIELDS
+                if item_readonly:
+                    item_ignored.update(item_readonly)
                 cleaned_items.append({k: v for k, v in item.items() if k not in READONLY_FIELDS})
+            if item_ignored:
+                ignored_readonly.extend(sorted(item_ignored - set(ignored_readonly)))
             from app.agent.tools.lifestyle_tools import HabitTool
             result = HabitTool().execute({'action': 'create_many', 'habits': cleaned_items})
             # Apply target_value/unit per id if provided in items
@@ -260,8 +264,6 @@ def mutate(kind, action, fields, target=None):
                 result = ToolResult(result.ok, result.message + f" Ignorei campos somente leitura: {', '.join(ignored_readonly)}.",
                                     data={**(result.data or {}), 'ignored_fields': ignored_readonly})
             return result
-    else:
-        ignored_readonly = []
     if kind in ALLOWED_FIELDS and set(fields) - ALLOWED_FIELDS[kind]:
         raise ValueError('Campos não reconhecidos: ' + ', '.join(sorted(set(fields) - ALLOWED_FIELDS[kind])) + '. Aceitos para ' + kind + ': ' + ', '.join(sorted(ALLOWED_FIELDS[kind] - {'habits'})) + '.')
     if 'days_of_week' in fields and (not isinstance(fields['days_of_week'], list) or not fields['days_of_week']):

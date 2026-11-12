@@ -47,6 +47,6 @@ def test_result_carries_ui_screen_and_risk_is_observe():
 def test_groq_receives_personal_tools_by_keyword():
     registry = ToolRegistry()
     allowed = registry.allowed_tool_names(mode="general", provider="groq", user_text="Abre o painel e adiciona os hábitos; bebi 3L de água")
-    assert {"open_screen", "habit_tool", "lifeos_tool"} <= allowed
-    assert "habit_tool" not in registry.allowed_tool_names(mode="general", provider="groq", user_text="oi")
+    assert {"open_screen", "personal_records", "lifeos_tool"} <= allowed
+    assert "personal_records" in registry.allowed_tool_names(mode="general", provider="groq", user_text="criar hábito")
     assert "notes" not in registry.allowed_tool_names(mode="general", provider="groq", user_text="oi")

@@ -189,3 +189,65 @@ def test_habit_tool_modular_and_auto_check(isolated_lifestyle_db: Path, monkeypa
     assert len(res_auto["checked_habits"]) == 1
     assert res_auto["checked_habits"][0]["id"] == habit["id"]
 
+def test_habit_time_from_name_and_no_default_1500(isolated_lifestyle_db):
+    '''C1: Horário extraído do nome, sem horário fica vazio (não 15:00), '21:00 da noite'.'''
+    tool = HabitTool()
+    
+    # Horário explícito '05:00' + morning block inferido
+    res1 = tool.run(action='create', name='Acordar às 5:00', habit_id='h1')
+    assert res1['ok']
+    assert res1['habit']['start_time'] == '05:00'
+    assert res1['habit']['routine_block'] == 'morning'
+    
+    # Sem horário: fica vazio
+    res2 = tool.run(action='create', name='Ler livros', start_time='', habit_id='h2')
+    assert res2['ok']
+    assert res2['habit']['start_time'] == ''
+    assert 'sem horário' in res2['message']
+    
+    # '21:00 da noite'
+    res3 = tool.run(action='create', name='Meditar às 9:00 da noite', habit_id='h3')
+    assert res3['ok']
+    # 'da noite' com hora 9 < 12 -> soma 12
+    assert res3['habit']['start_time'] == '21:00'
+
+
+def test_contextual_auto_check_ignores_registration_and_morning_after_12h(isolated_lifestyle_db, monkeypatch):
+    '''C5: auto-check ignora verbos de cadastro e saudação matinal depois das 12h.'''
+    import datetime
+    from app.services.habits import HabitService
+    
+    fixed_monday = datetime.date(2026, 11, 9)
+    class FakeDate(datetime.date):
+        @classmethod
+        def today(cls):
+            return fixed_monday
+    
+    monkeypatch.setattr(datetime, 'date', FakeDate)
+    monkeypatch.setattr('app.services.habits.date', FakeDate)
+    import app.services.habits as habits_module
+    
+    HabitService.create_habit('h_wake', 'Acordar cedo', days_of_week=['mon'])
+    
+    # At 7h, morning greeting works
+    monkeypatch.setattr(habits_module, '_local_hour', lambda: 7)
+    checked_7h = HabitService.contextual_auto_check(text='Bom dia! Acabei de acordar')
+    assert len(checked_7h) == 1
+    
+    # Uncheck for next test
+    HabitService.uncheck_in('h_wake')
+    
+    # At 18h, morning greeting does NOT work
+    monkeypatch.setattr(habits_module, '_local_hour', lambda: 18)
+    checked_18h = HabitService.contextual_auto_check(text='Bom dia! Acabei de acordar')
+    assert len(checked_18h) == 0
+    
+    # Registration phrase at 7h does NOT trigger auto-check
+    monkeypatch.setattr(habits_module, '_local_hour', lambda: 7)
+    checked_reg_7h = HabitService.contextual_auto_check(text='Registre o hábito de acordar cedo')
+    assert len(checked_reg_7h) == 0
+    
+    # Registration phrase at 18h does NOT trigger auto-check
+    monkeypatch.setattr(habits_module, '_local_hour', lambda: 18)
+    checked_reg_18h = HabitService.contextual_auto_check(text='Crie um hábito de levantar às 6h')
+    assert len(checked_reg_18h) == 0
