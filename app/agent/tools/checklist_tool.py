@@ -66,6 +66,11 @@ class ChecklistTool(BaseTool):
             found = checklist_store.find_list_by_title(title)
             if found:
                 return found
+            # Fallback: normalização Unicode para títulos com acento
+            norm = normalize_title(title)
+            for l in checklist_store.list_all():
+                if normalize_title(l.get("title", "")) == norm:
+                    return checklist_store.get_list(l["id"])
             return None
         # Se nenhuma lista foi especificada e só existe uma ativa, pega ela
         all_lists = checklist_store.list_all()
