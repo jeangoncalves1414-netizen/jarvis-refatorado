@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
+import tempfile
 import time
 from typing import Any
 
@@ -29,7 +31,28 @@ def _read() -> dict[str, Any]:
         return {}
     try:
         with open(RUNTIME_SETTINGS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {}
+        keys = data.get("api_keys", {})
+        if isinstance(keys, dict) and any(isinstance(v, str) and v for v in keys.values()):
+            _write_raw(data)  # primeira abertura migra valores legados
+            with open(RUNTIME_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        from app.storage import credential_store as vault
+        refs = {}
+        keys = data.get("api_keys") if isinstance(data.get("api_keys"), dict) else {}
+        for name, value in list(keys.items()):
+            if isinstance(value, dict) and isinstance(value.get("credential_refs"), list):
+                refs[name] = value
+                try:
+                    data["api_keys"][name] = ",".join(vault.load_key(ref) or "" for ref in value["credential_refs"])
+                except vault.CredentialUnavailable:
+                    vault.warn_unavailable()
+                    data["api_keys"][name] = ""
+        if refs:
+            data["_credential_refs"] = refs
+        return data
     except (json.JSONDecodeError, OSError):
         return {}
 
@@ -45,7 +68,7 @@ def flatten_settings(data: dict[str, Any]) -> dict[str, Any]:
     """Achata o JSON em até dois níveis: 'secao.campo' (valores internos ficam inteiros)."""
     flat: dict[str, Any] = {}
     for key, value in data.items():
-        if key == SYNC_META_KEY:
+        if key in (SYNC_META_KEY, "_credential_refs"):
             continue
         if isinstance(value, dict) and value:
             for sub, sub_value in value.items():
@@ -68,8 +91,46 @@ def unflatten_into(data: dict[str, Any], path: str, value: Any) -> None:
 
 
 def _write_raw(data: dict[str, Any]) -> None:
-    with open(RUNTIME_SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    from app.storage import credential_store as vault
+    encoded = dict(data)
+    old_refs = encoded.pop("_credential_refs", {})
+    keys = dict(data.get("api_keys")) if isinstance(data.get("api_keys"), dict) else {}
+    scope = hashlib.sha256(os.path.abspath(RUNTIME_SETTINGS_FILE).casefold().encode()).hexdigest()[:16]
+    for name, value in keys.items():
+        if not isinstance(value, str):
+            continue
+        previous = old_refs.get(name, {}).get("credential_refs", [])
+        try:
+            if value:
+                references = []
+                for index, key in enumerate(part.strip() for part in value.replace("\n", ",").split(",") if part.strip()):
+                    ref = f"{scope}/{name}/{index}"
+                    vault.save_key(ref, key)
+                    if vault.load_key(ref) != key:
+                        raise vault.CredentialUnavailable("A credencial não foi confirmada.")
+                    references.append(ref)
+                keys[name] = {"credential_refs": references}
+            else:
+                # Se o cofre ficou indisponível, mantém a referência ainda recuperável.
+                for ref in previous:
+                    vault.load_key(ref)
+                for ref in previous:
+                    vault.delete_key(ref)
+        except vault.CredentialUnavailable:
+            vault.warn_unavailable()
+            if not value and previous:
+                keys[name] = {"credential_refs": previous}
+    if "api_keys" in data:
+        encoded["api_keys"] = keys
+    folder = os.path.dirname(os.path.abspath(RUNTIME_SETTINGS_FILE))
+    fd, temporary = tempfile.mkstemp(dir=folder, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(encoded, handle, ensure_ascii=False, indent=2)
+        os.replace(temporary, RUNTIME_SETTINGS_FILE)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def _write(data: dict[str, Any]) -> None:

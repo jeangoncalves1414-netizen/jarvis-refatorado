@@ -80,8 +80,9 @@ class TestMergeKeysBehavior:
                 
                 # Check file was updated
                 data = json.loads(settings_file.read_text())
-                assert data["api_keys"]["groq"] == "new_groq_key"
-                assert data["api_keys"]["gemini"] == "new_gemini_key"
+                assert data["api_keys"]["groq"]["credential_refs"]
+                assert data["api_keys"]["gemini"]["credential_refs"]
+                assert "new_groq_key" not in settings_file.read_text()
                 
                 # Check return value
                 assert result["groq"] == "new_groq_key"
@@ -114,9 +115,10 @@ class TestMergeKeysBehavior:
                 assert os.environ.get("GROQ_API_KEY") == "key1,key2,key3"
                 assert os.environ.get("GROQ_API_KEYS") == "key1,key2,key3"
                 
-                # Check file preserves comma-separated format
+                # O arquivo guarda uma referência para cada chave.
                 data = json.loads(settings_file.read_text())
-                assert data["api_keys"]["groq"] == "key1,key2,key3"
+                assert len(data["api_keys"]["groq"]["credential_refs"]) == 3
+                assert rs._read()["api_keys"]["groq"] == "key1,key2,key3"
             finally:
                 rs.DATA_DIR = original_data_dir
                 rs.RUNTIME_SETTINGS_FILE = original_file

@@ -44,6 +44,20 @@ _import_vault_outside_project_data()
 
 
 @pytest.fixture(autouse=True)
+def isolated_credentials(monkeypatch, tmp_path):
+    """Nenhum teste acessa o cofre de credenciais real do Windows."""
+    from app.storage import credential_store
+    from app.storage import runtime_settings
+    monkeypatch.setattr(runtime_settings, "DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(runtime_settings, "RUNTIME_SETTINGS_FILE", str(tmp_path / "runtime_settings.json"))
+    values = {}
+    monkeypatch.setattr(credential_store, "save_key", lambda name, value: values.__setitem__(name, value))
+    monkeypatch.setattr(credential_store, "load_key", lambda name: values.get(name))
+    monkeypatch.setattr(credential_store, "delete_key", lambda name: values.pop(name, None))
+    return values
+
+
+@pytest.fixture(autouse=True)
 def isolated_persona(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_DATA_DIR", str(tmp_path / "persona"))
 
