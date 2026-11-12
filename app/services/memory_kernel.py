@@ -86,5 +86,8 @@ def save_trigger_memory(text: str, *, session_id: str | None = None) -> dict[str
         if memory_slots.parse(text) is None:
             return None
         return save_via_kernel(str(text).strip()[: memory_facts.MAX_TEXT], kind="gatilho", session_id=session_id)
-    except Exception:
+    except Exception as exc:
+        from app.agent.run_tracking import record_run_step
+
+        record_run_step(f"Memória do gatilho não gravada ({type(exc).__name__}).", kind="failure")
         return None

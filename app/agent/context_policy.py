@@ -15,12 +15,26 @@ def is_chat_history_request(text: str) -> bool:
     return bool(re.search(r"\b(?:primeira|ultima|anterior) mensagem\b|\bmensagem anterior\b|\b(?:historico|inicio) (?:do chat|da conversa)\b", value))
 
 
+_SAVED_MEMORY_QUESTION = re.compile(r"\btem (?:alguma )?memoria|\bmemoria[s]? salva")
+_ABOUT_ME = re.compile(
+    r"\b(?:qual|quais)\b(?: (?:e|eh|sao|era))?(?: (?:o|a|os|as))? (?:meu|minha|meus|minhas)\b"
+    r"|\bvoce sabe\b[^.?!]{0,40}\b(?:mim|meu|minha|eu)\b"
+)
+_SOBRE_MIM = re.compile(r"\bsobre mim\b")
+_SOBRE_MIM_LOOKUP = re.compile(r"\b(?:o que|sabe\w*|lembr\w*|conhec\w*)\b")
+
+
 def requests_saved_memory(text: str) -> bool:
-    if is_chat_history_request(text):
-        return False
     value = normalize(text)
     if re.search(r"\b(?:nao|sem)\b[^.!?;]{0,80}\b(?:memoria[s]?|cofre|outro[s]? chat[s]?|outra[s]? conversa[s]?)\b", value):
         return False
+    # Pergunta explícita por memória salva vale mesmo junto de uma pergunta sobre este chat.
+    if _SAVED_MEMORY_QUESTION.search(value):
+        return True
+    if is_chat_history_request(text):
+        return False
+    if _ABOUT_ME.search(value) or (_SOBRE_MIM.search(value) and _SOBRE_MIM_LOOKUP.search(value)):
+        return True
     lookup = re.search(r"\b(?:busc\w*|pesquis\w*|procur\w*|consult\w*|lembr\w*|record\w*|qual|quais|o que)\b", value)
     source = re.search(r"\b(?:memoria[s]?|cofre|outro[s]? chat[s]?|outra[s]? conversa[s]?|conversa[s]? anterior(?:es)?)\b", value)
     return bool((lookup and source) or re.search(r"\b(?:voce (?:se )?lembra|lembra do|lembra da|lembra o que|recorda o que)\b", value))

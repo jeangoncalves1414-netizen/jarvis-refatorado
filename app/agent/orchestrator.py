@@ -31,7 +31,7 @@ from app.storage.tutor_store import TutorStore
 from app.storage.language_store import LanguageStore
 from app.agent.agent_model import AgentManager
 from app.storage.vector import SemanticMemory
-from app.storage.vector.semantic_memory import is_technical_error_memory
+from app.storage.vector.semantic_memory import USER_MEMORY_MAX_DISTANCE, is_technical_error_memory
 from app.core import RateLimiter, ToolGuardrails, CriticalConfirm, Telemetry, Scheduler, Heartbeat, SettingsManager, UserManager, PatternLearner
 from app.services import AppManager, WindowControl, FileProcessor, CalendarService, CalendarEvent
 
@@ -92,6 +92,11 @@ _MEMORY_TRIGGERS = (
     "prefiro", "prefer", "me lembre", "lembra que", "lembre que", "lembre-se",
     "meu nome e", "me chamo", "eu moro", "moro em", "eu trabalho", "eu estudo", "eu sou",
     "minha idade", "meu aniversario", "nao esqueca", "anota que", "guarda que", "sempre que",
+    "salva", "memoriza", "memoria", "sobre mim",
+)
+# Gostos com borda de palavra ("gostaria de abrir" não é gosto) e fatos de idade/família.
+_MEMORY_TRIGGER_RE = re.compile(
+    r"\b(?:gosto|gosta|adoro|odeio)\b|\btenho \d{1,3} anos\b|\b(?:meu|minha|meus|minhas) (?:filh|mae|pai|espos|marido|namorad|irma|cachorr|gat|avo|tia|tio|prim|chefe|amig)\w*"
 )
 
 _RACE_STATUS = {"winner": "respondeu primeiro e foi usado", "empty": "devolveu resposta vazia", "failed": "falhou", "discarded": "descartado (outro respondeu antes)"}
@@ -360,7 +365,7 @@ class AgentOrchestrator:
             pass
         from app.agent.loop_policy import normalize
         value = normalize(normalized)
-        return any(trigger in value for trigger in _MEMORY_TRIGGERS)
+        return any(trigger in value for trigger in _MEMORY_TRIGGERS) or bool(_MEMORY_TRIGGER_RE.search(value))
 
     def _remember_preferences(self, text: str, normalized: str, session_id: str | None = None) -> None:
         preference = explicit_preference(text)
@@ -386,17 +391,28 @@ class AgentOrchestrator:
                 from app.agent.prompts import EXTRACT_MEMORY_PROMPT
                 prompt = f"{EXTRACT_MEMORY_PROMPT}\n\nMensagem do usuário: '{text}'"
                 response = self.llm_service.ask(prompt)
-                
+                from app.services.llm import ProviderErrorText
+                if isinstance(response, ProviderErrorText):
+                    raise RuntimeError(response.reason)
+
+                failed = 0
                 if response and "VAZIO" not in response and not is_technical_error_memory(response):
                     for line in response.splitlines():
                         line = line.strip().strip("-* 1234567890.")
                         if line and len(line) > 5 and line.lower() != "vazio":
-                            # Salva na memória semântica vetorial
-                            self.semantic_memory.add_memory("user_memory", line, metadata={"session_id": session_id or ""})
                             try:
-                                save_via_kernel(line[:300], kind="extracao", session_id=session_id, origin=turn_origin)
+                                saved = save_via_kernel(line[:300], kind="extracao", session_id=session_id, origin=turn_origin)
                             except Exception:
-                                pass
+                                saved = None
+                            if not (saved and saved.get("ok")):
+                                failed += 1
+                                continue
+                            fact = saved.get("fact") or {}
+                            # Salva na memória semântica vetorial, ligada ao fato com fonte
+                            self.semantic_memory.add_memory("user_memory", line, metadata={
+                                "session_id": session_id or "", "fact_id": str(fact.get("id") or "")})
+                if failed:
+                    raise RuntimeError(f"{failed} memória(s) não gravada(s)")
             except Exception as e:
                 print(f"Erro ao extrair memória inteligente: {e}")
                 raise
@@ -471,8 +487,8 @@ class AgentOrchestrator:
             
             # Global recall is deliberate; it must not impersonate this chat's transcript.
             if lookup_memory and self.semantic_memory and self.semantic_memory.is_available():
-                relevant = self.semantic_memory.search_memories("user_memory", text, n_results=3)
-                episodic = self.semantic_memory.search_memories("episodic_memory", text, n_results=1)
+                relevant = self.semantic_memory.search_memories("user_memory", text, n_results=3, max_distance=USER_MEMORY_MAX_DISTANCE)
+                episodic = self.semantic_memory.search_memories("episodic_memory", text, n_results=1, max_distance=USER_MEMORY_MAX_DISTANCE)
             else:
                 relevant = []
                 episodic = []
@@ -502,8 +518,8 @@ class AgentOrchestrator:
                         kind = item.get("kind", "note")
                         evolution_notes.append(f"[Memória privada · {kind}] {item.get('text', '')}")
                         recalled.append({"title": f"Memória privada · {kind} (fora deste chat)", "text": str(item.get("text", ""))[:600]})
-                except Exception:
-                    pass
+                except Exception as exc:
+                    record_run_step(f"Memória privada do perfil indisponível ({type(exc).__name__}).", kind="failure")
 
             # Memory Vault: AI Priming contextual. O perfil do usuário vem do perfil essencial
             # (turn_context, memory_facts), não do USER-PROFILE.md cru.
