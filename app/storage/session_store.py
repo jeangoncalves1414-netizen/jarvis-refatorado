@@ -50,26 +50,53 @@ def list_trash(session_type: str | None = None) -> List[dict]:
     return sessions
 
 
-def trash_session(session_id: str) -> bool:
+def change_chat_trash(ids: list[str], restore: bool = False) -> list[str]:
     import time
-    data = _read()
-    session = _find_session(data, session_id)
-    if not session:
-        return False
-    session["deleted_at"] = time.time()
-    session["updated_at"] = time.time()
-    _write(data)
-    return True
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
+        raise ValueError("Seleção de conversas inválida.")
+    requested = set(ids)
+    with _history_lock:
+        data = _read()
+        changed = []
+        now = time.time()
+        for row in data.get("sessions", []):
+            if row.get("id") not in requested or (row.get("type") or "chat") != "chat":
+                continue
+            if bool(row.get("deleted_at")) != restore:
+                continue
+            if restore:
+                row.pop("deleted_at")
+            else:
+                row["deleted_at"] = now
+            row["updated_at"] = now
+            changed.append(row["id"])
+        if changed:
+            _write(data)
+        return changed
+
+
+def trash_session(session_id: str) -> bool:
+    with _history_lock:
+        import time
+        data = _read()
+        session = _find_session(data, session_id)
+        if not session:
+            return False
+        session["deleted_at"] = time.time()
+        session["updated_at"] = time.time()
+        _write(data)
+        return True
 
 
 def restore_session(session_id: str) -> bool:
-    data = _read()
-    session = _find_session(data, session_id)
-    if not session:
-        return False
-    session.pop("deleted_at", None)
-    _write(data)
-    return True
+    with _history_lock:
+        data = _read()
+        session = _find_session(data, session_id)
+        if not session:
+            return False
+        session.pop("deleted_at", None)
+        _write(data)
+        return True
 
 
 def purge_session(session_id: str) -> bool:
@@ -81,12 +108,13 @@ def list_categories() -> List[dict]:
 
 
 def add_category(category: dict) -> dict:
-    import time
-    data = _read()
-    category.setdefault("created_at", time.time())
-    data.setdefault("study_categories", []).append(category)
-    _write(data)
-    return category
+    with _history_lock:
+        import time
+        data = _read()
+        category.setdefault("created_at", time.time())
+        data.setdefault("study_categories", []).append(category)
+        _write(data)
+        return category
 
 
 def update_session(session_id: str, patch: dict) -> dict | None:
@@ -95,21 +123,22 @@ def update_session(session_id: str, patch: dict) -> dict | None:
 
 
 def _update_session(session_id: str, patch: dict) -> dict | None:
-    import time
-    data = _read()
-    session = _find_session(data, session_id)
-    if not session:
-        return None
-    allowed = {"title", "category_id", "category_color", "deleted_at"}
-    for key, value in patch.items():
-        if key in allowed:
-            if value is None or value == "":
-                session.pop(key, None)
-            else:
-                session[key] = value
-    session["updated_at"] = time.time()
-    _write(data)
-    return dict(session)
+    with _history_lock:
+        import time
+        data = _read()
+        session = _find_session(data, session_id)
+        if not session:
+            return None
+        allowed = {"title", "category_id", "category_color", "deleted_at"}
+        for key, value in patch.items():
+            if key in allowed:
+                if value is None or value == "":
+                    session.pop(key, None)
+                else:
+                    session[key] = value
+        session["updated_at"] = time.time()
+        _write(data)
+        return dict(session)
 
 
 def set_generated_title(session_id: str, title: str) -> dict | None:
@@ -123,37 +152,40 @@ def set_generated_title(session_id: str, title: str) -> dict | None:
 
 
 def update_category(category_id: str, patch: dict) -> dict | None:
-    data = _read()
-    category = next((item for item in data.setdefault("study_categories", []) if item.get("id") == category_id), None)
-    if not category:
-        return None
-    for key in ("name", "color"):
-        if key in patch and patch[key]:
-            category[key] = patch[key]
-    _write(data)
-    return dict(category)
+    with _history_lock:
+        data = _read()
+        category = next((item for item in data.setdefault("study_categories", []) if item.get("id") == category_id), None)
+        if not category:
+            return None
+        for key in ("name", "color"):
+            if key in patch and patch[key]:
+                category[key] = patch[key]
+        _write(data)
+        return dict(category)
 
 
 def delete_category(category_id: str) -> bool:
-    data = _read()
-    categories = data.setdefault("study_categories", [])
-    before = len(categories)
-    data["study_categories"] = [item for item in categories if item.get("id") != category_id]
-    if len(data["study_categories"]) == before:
-        return False
-    for session in data.get("sessions", []):
-        if session.get("category_id") == category_id:
-            session.pop("category_id", None)
-    _write(data)
-    return True
+    with _history_lock:
+        data = _read()
+        categories = data.setdefault("study_categories", [])
+        before = len(categories)
+        data["study_categories"] = [item for item in categories if item.get("id") != category_id]
+        if len(data["study_categories"]) == before:
+            return False
+        for session in data.get("sessions", []):
+            if session.get("category_id") == category_id:
+                session.pop("category_id", None)
+        _write(data)
+        return True
 
 
 def add_session(session: dict) -> None:
-    import time
-    session["updated_at"] = time.time()
-    data = _read()
-    data.setdefault("sessions", []).append(session)
-    _write(data)
+    with _history_lock:
+        import time
+        session["updated_at"] = time.time()
+        data = _read()
+        data.setdefault("sessions", []).append(session)
+        _write(data)
 
 
 def save_session_history(session_id: str, history: List[dict]) -> None:
@@ -199,15 +231,16 @@ def save_turn(session_id: str, run_id: str, text: str, reply: str, *, timestamp:
 
 
 def _save_history(session_id: str, history: List[dict]) -> None:
-    import time
-    data = _read()
-    session = _find_session(data, session_id)
-    if session:
-        session["history"] = history
-        session["updated_at"] = time.time()
-    else:
-        data.setdefault("sessions", []).append({"id": session_id, "history": history, "updated_at": time.time()})
-    _write(data)
+    with _history_lock:
+        import time
+        data = _read()
+        session = _find_session(data, session_id)
+        if session:
+            session["history"] = history
+            session["updated_at"] = time.time()
+        else:
+            data.setdefault("sessions", []).append({"id": session_id, "history": history, "updated_at": time.time()})
+        _write(data)
 
 
 def truncate_session_history(session_id: str, index: int, expected: list[dict]) -> list[dict]:
@@ -265,13 +298,14 @@ def get_whiteboard(session_id: str) -> List[dict]:
 
 
 def save_whiteboard(session_id: str, elements: List[dict]) -> None:
-    data = _read()
-    session = _find_session(data, session_id)
-    if not session:
-        session = {"id": session_id, "title": "Sessão", "history": [], "whiteboard": []}
-        data.setdefault("sessions", []).append(session)
-    session["whiteboard"] = elements
-    _write(data)
+    with _history_lock:
+        data = _read()
+        session = _find_session(data, session_id)
+        if not session:
+            session = {"id": session_id, "title": "Sessão", "history": [], "whiteboard": []}
+            data.setdefault("sessions", []).append(session)
+        session["whiteboard"] = elements
+        _write(data)
 
 
 def append_whiteboard_element(session_id: str, element: dict) -> None:
@@ -281,11 +315,12 @@ def append_whiteboard_element(session_id: str, element: dict) -> None:
 
 
 def delete_session(session_id: str) -> bool:
-    data = _read()
-    sessions = data.get("sessions", [])
-    original_length = len(sessions)
-    data["sessions"] = [s for s in sessions if s.get("id") != session_id]
-    if len(data["sessions"]) < original_length:
-        _write(data)
-        return True
-    return False
+    with _history_lock:
+        data = _read()
+        sessions = data.get("sessions", [])
+        original_length = len(sessions)
+        data["sessions"] = [s for s in sessions if s.get("id") != session_id]
+        if len(data["sessions"]) < original_length:
+            _write(data)
+            return True
+        return False

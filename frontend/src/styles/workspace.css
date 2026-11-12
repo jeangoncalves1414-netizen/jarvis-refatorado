@@ -51,7 +51,7 @@
 .ws-history-search { display: flex; align-items: center; gap: 7px; padding: 0 8px 8px; color: var(--ws-muted); }
 .agent-workspace .ws-history-search input { min-width: 0; width: 100%; font-size: 11px; background: none !important; padding: 3px 0; border: 0 !important; }
 .ws-sidebar .ws-history-list { display: block; overflow-y: auto; min-height: 0; }
-.ws-sidebar .ws-history-list > button { min-height: 36px; line-height: 18px; margin-bottom: 3px; }
+.ws-sidebar .ws-history-row button { min-height: 36px; line-height: 18px; margin-bottom: 3px; }
 .ws-history-list button { display: block; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 9px 8px; border-radius: 6px; font-size: 11px; color: #abb2ae; width: 100%; }
 .ws-history-list button.selected { color: #e3e9e5; background: #ffffff07; }
 .ws-history-list p { color: #89928c; padding: 0 8px; font-size: 11px; }

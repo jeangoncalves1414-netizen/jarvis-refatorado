@@ -2051,6 +2051,17 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": str(exc)})
             return
 
+        if path in ("/api/chat-history/trash", "/api/chat-history/restore"):
+            from app.storage.session_store import change_chat_trash
+            try:
+                payload = json.loads(body)
+                ids = payload.get("ids") if isinstance(payload, dict) else None
+                changed = change_chat_trash(ids, restore=path.endswith("/restore"))
+                self._send_json(200, {"ok": True, "ids": changed})
+            except (ValueError, TypeError) as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
+            return
+
         # /api/sessions (POST — create session)
         if path == "/api/sessions":
             try:

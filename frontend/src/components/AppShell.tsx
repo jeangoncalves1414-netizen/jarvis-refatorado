@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronDown, Command, Menu, PanelLeftClose, PanelLeftOpen, Search, SlidersHorizontal, Sparkles, SquarePen, X } from 'lucide-react'
+import { ChevronDown, Command, Menu, PanelLeftClose, PanelLeftOpen, Trash2, Search, SlidersHorizontal, Sparkles, SquarePen, X } from 'lucide-react'
 import { navigation } from '../navigation'
 import type { ChatSession } from '../types'
 import type { OperationalState } from '../hooks/useOperationalSnapshot'
-import { LiberatedModeBadge } from './AutoApprovals'
+import { confirmRemoval, LiberatedModeBadge } from './AutoApprovals'
 import { WindowHost } from '../windows/WindowManager'
 
 type AppShellProps = {
   active: string; sidebarCollapsed: boolean; onToggleSidebar: () => void; onNavigate: (id: string) => void
   sessions: ChatSession[]; sessionId: string; onSelectSession: (id: string) => void; onNewChat: () => void
+  changeChatTrash?: (ids: string[], restore?: boolean) => Promise<string[]>; chatBusy?: boolean
   onOpenCommands: () => void; operational: OperationalState; controls: ReactNode
   hero?: ReactNode; children: ReactNode; quickActions: ReactNode
   openRun?: (id: string) => void
@@ -20,8 +21,25 @@ const commitLabel = build.commit && `${build.commit}${build.dirty ? '*' : ''}`
 const panelVersion = [`v${build.version}`, commitLabel, import.meta.env.DEV ? 'dev' : builtAt.toLocaleDateString('pt-BR')].filter(Boolean).join(' · ')
 const panelVersionTitle = `Versão do painel ${build.version}${build.commit ? `, commit ${build.commit}${build.dirty ? ' com alterações não commitadas' : ''}` : ''}, ${import.meta.env.DEV ? 'servidor de desenvolvimento iniciado' : 'gerada'} em ${builtAt.toLocaleString('pt-BR')}`
 
-  export function AppShell({ active, sidebarCollapsed, onToggleSidebar, onNavigate, sessions, sessionId, onSelectSession, onNewChat, onOpenCommands, operational, controls, hero, children, quickActions, openRun }: AppShellProps) {
+  export function AppShell({ active, sidebarCollapsed, onToggleSidebar, onNavigate, sessions, sessionId, onSelectSession, onNewChat, changeChatTrash, chatBusy, onOpenCommands, operational, controls, hero, children, quickActions, openRun }: AppShellProps) {
     const [search, setSearch] = useState('')
+    const [selected, setSelected] = useState<string[]>([])
+    const [selecting, setSelecting] = useState(false)
+    const [undoIds, setUndoIds] = useState<string[]>([])
+    const [historyNotice, setHistoryNotice] = useState('')
+    const [changing, setChanging] = useState(false)
+    const changeHistory = async (ids: string[], restore = false) => {
+      if (!changeChatTrash || changing || !ids.length) return
+      setChanging(true)
+      try {
+        if (!restore && !await confirmRemoval(ids.length, `Mover ${ids.length} conversa(s) para a lixeira?`)) return
+        const changed = await changeChatTrash(ids, restore)
+        setUndoIds(restore ? [] : changed)
+        setHistoryNotice(`${changed.length} conversa(s) ${restore ? 'restaurada(s)' : 'na lixeira'}.`)
+        setSelected([]); setSelecting(false)
+      } catch { setHistoryNotice('Não foi possível atualizar as conversas. Tente novamente.') }
+      finally { setChanging(false) }
+    }
     const [navHeight, setNavHeight] = useState(() => { const n = Number(localStorage.getItem('jarvis-nav-height')); return n >= 100 ? Math.min(500, n) : 250 })
     const resizeFrame = useRef(0)
     const pendingHeight = useRef(navHeight)
@@ -62,7 +80,18 @@ const panelVersionTitle = `Versão do painel ${build.version}${build.commit ? `,
           divider.setAttribute('aria-valuenow', String(pendingHeight.current))
         })
       }} onLostPointerCapture={() => { cancelAnimationFrame(resizeFrame.current); resizeFrame.current = 0; resizeNav(pendingHeight.current) }} onPointerUp={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId) }} onPointerCancel={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId) }} />
-      <div className="ws-history"><div className="ws-section-heading"><span>CONVERSAS RECENTES</span><span>{sessions.length}</span></div><label className="ws-history-search"><Search size={13} /><input aria-label="Buscar conversas" placeholder="Filtrar conversas…" value={search} onChange={event => setSearch(event.target.value)} /></label><div className="ws-history-list">{sessions.filter(item => (item.title || 'Nova conversa').toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR'))).map(item => <button key={item.id} className={active === 'Chat' && item.id === sessionId ? 'selected' : ''} onClick={() => { onSelectSession(item.id); navigate('Chat') }} title={item.title || 'Nova conversa'}>{item.title || 'Nova conversa'}</button>)}{!sessions.length && <p>Suas conversas ficam aqui.</p>}</div></div>
+      <div className="ws-history"><div className="ws-section-heading"><span>CONVERSAS RECENTES</span><span>{sessions.length}</span></div><label className="ws-history-search"><Search size={13} /><input aria-label="Buscar conversas" placeholder="Filtrar conversas…" value={search} onChange={event => setSearch(event.target.value)} /></label>{changeChatTrash && !!sessions.length && <div className="mem-actions">
+        <button disabled={changing || chatBusy} onClick={() => { setSelecting(!selecting); setSelected([]) }}>{selecting ? 'Cancelar' : 'Selecionar'}</button>
+        {selecting && <button disabled={changing || chatBusy || !selected.length} onClick={() => void changeHistory(selected)}>Excluir ({selected.length})</button>}
+        <button disabled={changing || chatBusy} onClick={() => void changeHistory(sessions.map(s => s.id))}>Apagar todos</button>
+      </div>}
+      {historyNotice && <p role="status">{historyNotice} {!!undoIds.length && <button disabled={changing} onClick={() => void changeHistory(undoIds, true)}>Desfazer</button>}</p>}
+      <div className="ws-history-list">{sessions.filter(item => (item.title || 'Nova conversa').toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR'))).map(item =>
+        <div key={item.id} className="ws-history-row" style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+          {selecting && <input type="checkbox" aria-label={`Selecionar ${item.title}`} checked={selected.includes(item.id)} onChange={e => setSelected(current => e.target.checked ? [...current, item.id] : current.filter(id => id !== item.id))} />}
+          <button style={{ flex: 1, minWidth: 0 }} className={active === 'Chat' && item.id === sessionId ? 'selected' : ''} onClick={() => { onSelectSession(item.id); navigate('Chat') }} title={item.title || 'Nova conversa'}>{item.title || 'Nova conversa'}</button>
+          {changeChatTrash && <button style={{ width: 'auto' }} aria-label={`Excluir ${item.title || 'conversa'}`} title="Mover para a lixeira" disabled={changing || chatBusy} onClick={() => void changeHistory([item.id])}><Trash2 size={14} /></button>}
+        </div>)}{!sessions.length && <p>Suas conversas ficam aqui.</p>}</div></div>
       <div className="ws-sidebar-footer">{navigation.filter(item => item.group === 'settings').map(navButton)}<div className="ws-local-status" title={statusLabel}><span className={`ws-dot ${status}`} /><span>{statusLabel}</span><Command size={13} /></div><p className="ws-build-version" title={panelVersionTitle}>{panelVersion}</p></div>
     </>
     return <div className={`agent-workspace ${sidebarCollapsed ? 'nav-collapsed' : ''} ${controlsOpen ? 'controls-open' : ''}`}>

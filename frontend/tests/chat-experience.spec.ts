@@ -57,7 +57,7 @@ test('message actions sit outside the bubble and history rows do not shrink', as
   const bubble = await message.locator('.ws-message-bubble').boundingBox()
   const actions = await message.locator('.ws-message-actions').boundingBox()
   expect(actions!.y).toBeGreaterThanOrEqual(bubble!.y + bubble!.height)
-  const rows = page.locator('.ws-sidebar .ws-history-list > button')
+  const rows = page.locator('.ws-sidebar .ws-history-row')
   expect(await rows.count()).toBe(15)
   for (const row of await rows.all()) expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(36)
   await page.screenshot({ path: '../scratch/chat-voice-layout.png' })
@@ -395,7 +395,7 @@ test('new chat stays local until the first message', async ({ page }) => {
   const newChat = page.locator('.ws-sidebar').getByRole('button', { name: 'Nova conversa', exact: true })
   await newChat.click(); await newChat.click(); await newChat.click()
   expect(creates).toBe(0)
-  await expect(page.locator('.ws-sidebar .ws-history-list > button')).toHaveCount(15)
+  await expect(page.locator('.ws-sidebar .ws-history-row')).toHaveCount(15)
   await expect(page.locator('.ws-message')).toHaveCount(0)
   await page.locator('.ws-sidebar').getByRole('button', { name: 'Teste de conversa', exact: true }).click()
   await expect(page.getByLabel('Mensagem para o agente')).toHaveValue('Rascunho antigo')
@@ -514,4 +514,25 @@ test('completed action with quota warning is not turned into a failed retry', as
   await expect(page.locator('.ws-message.assistant').last()).toContainText('Nota registrada.')
   await expect(page.locator('.ws-error')).toHaveCount(0)
   await expect(input).toHaveValue('')
+})
+
+
+test('autoaprovação move chats selecionados para a lixeira e permite desfazer', async ({ page }) => {
+  await setup(page)
+  const sidebar = page.locator('.ws-sidebar')
+  const calls: string[][] = []
+  await page.route('**/api/approvals', route => route.fulfill({ json: { ok: true, mode: { enabled: true }, categories: { bulk: true }, rules: [] } }))
+  await page.route('**/api/chat-history/*', route => {
+    const { ids } = route.request().postDataJSON()
+    calls.push(ids)
+    return route.fulfill({ json: { ok: true, ids } })
+  })
+  await sidebar.getByRole('button', { name: 'Selecionar', exact: true }).click()
+  await sidebar.getByRole('checkbox').nth(1).check()
+  await sidebar.getByRole('checkbox').nth(2).check()
+  await sidebar.getByRole('button', { name: 'Excluir (2)' }).click()
+  await expect(sidebar.locator('.ws-history-row')).toHaveCount(13)
+  await sidebar.getByRole('button', { name: 'Desfazer' }).click()
+  await expect(sidebar.locator('.ws-history-row')).toHaveCount(15)
+  expect(calls).toEqual([['old-0', 'old-1'], ['old-0', 'old-1']])
 })

@@ -1,3 +1,4 @@
+import { autoAllows } from './components/AutoApprovals'
 import { isEvoluteCloudConnected } from './utils/evoluteCloud'
 import { pollVisible } from './utils/panelVisibility'
 import { FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
@@ -458,7 +459,7 @@ export default function App() {
   }
 
   const clearTechnicalMemories = async () => {
-    if (!window.confirm('Remover da memória semântica os erros técnicos antigos? Isso não remove conversas normais.')) return
+    if (!await autoAllows('bulk') && !window.confirm('Remover da memória semântica os erros técnicos antigos? Isso não remove conversas normais.')) return
     const response = await fetch('/api/memories/cleanup', { method: 'POST' })
     const data = await response.json()
     if (!response.ok || !data.ok) {
@@ -499,7 +500,7 @@ export default function App() {
   }
 
   const deleteTask = async (taskId: string) => {
-    if (!window.confirm('Remover esta tarefa?')) return
+    if (!await autoAllows('remove') && !window.confirm('Remover esta tarefa?')) return
     await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', task_id: taskId }) })
     await refreshDashboard()
   }
@@ -1043,6 +1044,8 @@ export default function App() {
         active={active}
         sessions={sessions}
         sessionId={sessionId}
+        changeChatTrash={IS_MOBILE ? undefined : pcChat.changeChatTrash}
+        chatBusy={loading}
         onSelectSession={selectSession}
         onNewChat={() => {
           setActive('Chat')

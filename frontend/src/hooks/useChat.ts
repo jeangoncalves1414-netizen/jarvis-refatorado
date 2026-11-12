@@ -1,3 +1,4 @@
+import { panelRequest as chatHistoryRequest } from '../utils/panelApi'
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatMessage, ChatSession, ScriptRequest, TurnMeta, ToolActivityEntry } from '../types'
 import { notifySyncListeners } from '../utils/syncChannel'
@@ -257,9 +258,7 @@ export function useChat(options: UseChatOptions = {}) {
     const items = (data.sessions || []).filter(sessionFilter) as ChatSession[]
     setSessions(previous => {
       if (requestMutation === sessionMutationRef.current) return items
-      const serverIds = new Set(items.map(item => item.id))
-      const localOnly = previous.filter(item => !serverIds.has(item.id))
-      return [...localOnly, ...items]
+      return previous
     })
     return items as ChatSession[]
   }
@@ -343,6 +342,19 @@ export function useChat(options: UseChatOptions = {}) {
     setAnswer('Nova conversa iniciada.')
     localStorage.setItem('jarvis-react-session', data.id)
     return data.id as string
+  }
+
+  const changeChatTrash = async (ids: string[], restore = false) => {
+    const result = await chatHistoryRequest<{ ids: string[] }>(`/api/chat-history/${restore ? 'restore' : 'trash'}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    })
+    sessionMutationRef.current += 1
+    if (restore) await refreshSessions()
+    else {
+      setSessions(current => current.filter(row => !ids.includes(row.id)))
+      if (ids.includes(activeSessionRef.current)) await createSession()
+    }
+    return result.ids
   }
 
   const deleteSession = async (id: string, confirmed = false) => {
@@ -995,7 +1007,7 @@ export function useChat(options: UseChatOptions = {}) {
     chatError,
     copySession,
     createSession,
-    deleteSession,
+    deleteSession, changeChatTrash,
     exportSession,
     loading,
     liveReasoning,
