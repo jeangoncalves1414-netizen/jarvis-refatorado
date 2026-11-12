@@ -6,6 +6,7 @@ import { useNextDueRefresh } from '../hooks/useNextDueRefresh'
 import { MessageContent } from '../components/MessageContent'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { languageName, speechLang } from '../utils/speechLang'
+import { SkeletonLoader } from '../components/SkeletonLoader'
 import { IpaRecorder } from '../components/study/IpaRecorder'
 import { Curriculum } from '../components/study/Curriculum'
 import { PronunciationFeedback } from '../components/study/PronunciationFeedback'
@@ -75,6 +76,8 @@ type LanguagePageProps = {
   newCategory: string; setNewCategory: (v: string) => void
   pronTarget: string; setPronTarget: (v: string) => void
   pronTranscript: string; pronScore: number | null; pronListening: boolean
+  languageLoad: string
+  pronAttempt: { target:string; kind:PronunciationKind } | null
   pronWrongWords: string[]
   startPronunciation: (target: string, kind?: PronunciationKind) => void
   pronunciationHistory: PronunciationAttempt[]
@@ -111,7 +114,8 @@ export function LanguagePage(props: LanguagePageProps) {
   const phrases = PRONUNCIATION_PHRASES[level] || PRONUNCIATION_PHRASES.A1
   const currentCard = props.dueVocab[props.vocabIndex] as (VocabCard & {reverse_of?: string}) | undefined
   const showTranslation = Boolean(currentCard?.reverse_of) !== props.vocabBackVisible
-  const words = props.vocabulary.filter(card => !('reverse_of' in card) || !props.vocabulary.some(v => v.id === card.reverse_of))
+  const ids = new Set(props.vocabulary.map(card => card.id))
+  const words = props.vocabulary.filter(card => !('reverse_of' in card) || !ids.has(String(card.reverse_of)))
   const [wordLimit, setWordLimit] = useState(30)
 
   const [activeTab, setActiveTab] = useState<LangTab>(props.initialTab || 'home')
@@ -198,6 +202,10 @@ export function LanguagePage(props: LanguagePageProps) {
       </nav>
 
       <div className="lang-panel">
+        {props.languageLoad === 'loading' && <SkeletonLoader variant="card" />}
+        {props.languageLoad === 'error' && <p role="alert">Alguns dados de idioma estão indisponíveis. <button onClick={props.refreshLanguage}>Tentar novamente</button></p>}
+        {((activeTab === 'progress' && props.pronunciationHistory.length > wordLimit) || (activeTab === 'conversation' && props.langMessages.length > wordLimit)) &&
+          <button onClick={() => setWordLimit(n => n + 30)}>Mostrar registros anteriores</button>}
         {/* ── HOME ────────────────────────────────────────── */}
         {activeTab === 'home' && (
           <>
@@ -205,7 +213,7 @@ export function LanguagePage(props: LanguagePageProps) {
             <div className="lang-cefr-select">
               <label>
                 Nível CEFR:{' '}
-                <select value={level} onChange={e => props.setCefrLevel(e.target.value)}>
+                <select value={level} onChange={e => props.setCefrLevel(e.target.value).catch(() => undefined)}>
                   {CEFR_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
                 </select>
               </label>
@@ -372,9 +380,9 @@ export function LanguagePage(props: LanguagePageProps) {
               )}
             </div>
 
-            {props.pronScore !== null && (
+            {props.pronAttempt?.kind === activeTab && props.pronScore !== null && (
               <div className="lang-score">
-                <PronunciationFeedback target={props.pronTarget} transcript={props.pronTranscript} onRepeat={text => speakPhrase(text, true)} />
+                <PronunciationFeedback target={props.pronAttempt.target} transcript={props.pronTranscript} onRepeat={text => speakPhrase(text, true)} />
                 <span className={`lang-score-value ${scoreClass(props.pronScore)}`}>
                   {props.pronScore}%
                 </span>
@@ -410,7 +418,7 @@ export function LanguagePage(props: LanguagePageProps) {
           <>
             <p className="eyebrow">CONVERSA COM TUTOR · {level}</p>
             <div className="study-chat-history">
-              {props.langMessages.length ? props.langMessages.map((m, i) => (
+              {props.langMessages.length ? props.langMessages.slice(-wordLimit).map((m, i) => (
                 <div className={`study-chat-message ${m.role}`} key={`${m.role}-${i}`}>
                   <b>{m.role === 'user' ? 'VOCÊ' : 'TUTOR'}</b>
                   <MessageContent text={m.content} />
@@ -479,9 +487,9 @@ export function LanguagePage(props: LanguagePageProps) {
               </button>
             </div>
 
-            {props.pronScore !== null && (
+            {props.pronAttempt?.kind === activeTab && props.pronScore !== null && (
               <div className="lang-score" style={{ textAlign: 'center' }}>
-                <PronunciationFeedback target={props.pronTarget} transcript={props.pronTranscript} onRepeat={text => speakPhrase(text, true)} />
+                <PronunciationFeedback target={props.pronAttempt.target} transcript={props.pronTranscript} onRepeat={text => speakPhrase(text, true)} />
                 <span className={`lang-score-value ${scoreClass(props.pronScore)}`}>{props.pronScore}%</span>
               </div>
             )}
@@ -542,7 +550,7 @@ export function LanguagePage(props: LanguagePageProps) {
               <>
                 <p className="eyebrow" style={{ marginTop: 20 }}>HISTÓRICO DE PRONÚNCIA</p>
                 <div className="lang-history">
-                  {props.pronunciationHistory.map(a => (
+                  {props.pronunciationHistory.slice(0, wordLimit).map(a => (
                     <div key={a.id} className="lang-history-item">
                       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.target}</span>
                       <span className={scoreClass(a.score)}>{a.score}%</span>

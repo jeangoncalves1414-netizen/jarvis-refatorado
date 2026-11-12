@@ -38,6 +38,8 @@ export function useLanguage(setNotice: SetNotice) {
   const [pronTranscript, setPronTranscript] = useState('')
   const [pronScore, setPronScore] = useState<number | null>(null)
   const [pronListening, setPronListening] = useState(false)
+  const [pronAttempt, setPronAttempt] = useState<{target:string; kind:PronunciationKind} | null>(null)
+  const [languageLoad, setLanguageLoad] = useState<'loading'|'ready'|'error'>('loading')
   const [pronWrongWords, setPronWrongWords] = useState<string[]>([])
 
   // Vocab add form
@@ -55,6 +57,7 @@ export function useLanguage(setNotice: SetNotice) {
       studyGet('/api/language/vocabulary'),
     ])
     const [dashData, dueData, pronData, vocabData] = await Promise.all(results.map(readOkJson))
+    setLanguageLoad(dashData && dueData && pronData && vocabData ? "ready" : "error")
     if (dashData) setDashboard(dashData)
     let dueCards: VocabCard[] | null = null
     if (dueData) {
@@ -179,6 +182,7 @@ export function useLanguage(setNotice: SetNotice) {
       const score = words.length ? Math.round(words.reduce((total, word) => total + word.score, 0) / words.length) : 0
       const wrong = words.filter(word => word.score < 80).map(word => word.word)
 
+      setPronAttempt({target, kind})
       setPronTranscript(transcript)
       setPronScore(score)
       setPronWrongWords(wrong)
@@ -300,7 +304,7 @@ export function useLanguage(setNotice: SetNotice) {
     newWord, setNewWord, newTranslation, setNewTranslation,
     newExample, setNewExample, newCategory, setNewCategory,
     pronTarget, setPronTarget, pronTranscript, pronScore, pronListening,
-    pronWrongWords, startPronunciation,
+    pronWrongWords, pronAttempt, languageLoad, startPronunciation,
     pronunciationHistory,
     langMessages, langQuery, setLangQuery, sendLanguageMessage, endConversation,
     langSessionId,

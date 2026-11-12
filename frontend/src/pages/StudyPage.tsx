@@ -9,6 +9,7 @@ import { MessageContent } from '../components/MessageContent'
 import { useReviewShortcuts } from '../hooks/useReviewShortcuts'
 import { useNextDueRefresh } from '../hooks/useNextDueRefresh'
 import { useStudyStats } from '../hooks/useStudyStats'
+import { SkeletonLoader } from '../components/SkeletonLoader'
 import { StudyPlanner } from '../components/study/StudyPlanner'
 import { CardEditor } from '../components/study/CardEditor'
 import { StudyDashboard } from '../components/study/StudyDashboard'
@@ -28,7 +29,7 @@ type StudyPageProps = {
   studySessionId: string
   selectStudySession: (id: string) => Promise<void>
   createStudySession: () => Promise<void>
-  studyProgress: { current_stage?: string; weak_spots?: string[]; stats?: Record<string, number> }
+  studyProgress: { loadState?: string; current_stage?: string; weak_spots?: string[]; stats?: Record<string, number> }
   dueCards: { id: string; front?: string; back?: string }[]
   studyCardIndex: number
   cardBackVisible: boolean
@@ -197,6 +198,8 @@ export function StudyPage(props: StudyPageProps) {
     props.sendTutorMessage(message).catch(() => undefined)
   }
 
+  if (props.studyProgress.loadState === 'loading') return <SkeletonLoader variant="dashboard" />
+  if (props.studyProgress.loadState === 'error') return <div role="alert">Falha ao carregar os estudos. <button onClick={() => props.refreshStudy().catch(() => undefined)}>Tentar novamente</button></div>
   return (
     <section className="study-layout">
       <StudySidebar

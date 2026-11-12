@@ -139,7 +139,7 @@ async function pushQuestionToWhiteboard(sessionId: string, question: EnemQuestio
 export function useStudy(setNotice: SetNotice) {
   // Confirmações de estudo são renderizadas pelo StudyDialog; nunca abrir o confirm nativo.
   const confirm = (..._args: unknown[]) => true
-  const [studyProgress, setStudyProgress] = useState<{ current_stage?: string; stats?: Record<string, number>; weak_spots?: string[] }>({})
+  const [studyProgress, setStudyProgress] = useState<{ loadState?: string; current_stage?: string; stats?: Record<string, number>; weak_spots?: string[] }>({loadState:'loading'})
   const [dueCards, setDueCards] = useState<Flashcard[]>([])
   const [studyCardIndex, setStudyCardIndex] = useState(0)
   const [cardBackVisible, setCardBackVisible] = useState(false)
@@ -175,13 +175,21 @@ export function useStudy(setNotice: SetNotice) {
   }, [whiteboard])
 
   const refreshStudy = async () => {
-    const [progressResponse, cardsResponse, feynmanResponse, assessmentResponse, enemResponse, sessionsResponse, categoriesResponse, trashResponse] = await Promise.all([
-      studyGet('/api/tutor/progress'), studyGet('/api/tutor/flashcards/due'), studyGet('/api/tutor/feynman'), studyGet('/api/tutor/assessments'), studyGet('/api/enem/questions'), studyGet('/api/sessions'), studyGet('/api/study/categories'), studyGet('/api/study/trash'),
-    ])
-    const [progressData, cardsData, feynmanData, assessmentData, enemData, sessionsData, categoriesData, trashData] = await Promise.all([
-      progressResponse.json(), cardsResponse.json(), feynmanResponse.json(), assessmentResponse.json(), enemResponse.json(), sessionsResponse.json(), categoriesResponse.json(), trashResponse.json(),
-    ])
-    setStudyProgress({ ...(progressData.progress || {}), weak_spots: progressData.weak_spots || progressData.progress?.weak_spots || [] })
+    const paths = ['/api/tutor/progress','/api/tutor/flashcards/due','/api/tutor/feynman','/api/tutor/assessments',
+      '/api/enem/questions','/api/sessions','/api/study/categories','/api/study/trash']
+    let sections
+    try {
+      sections = await Promise.all(paths.map(async path => {
+        const response = await studyGet(path)
+        if (!response.ok) throw new Error('Falha ao carregar os estudos.')
+        return response.json()
+      }))
+    } catch (error) {
+      setStudyProgress(previous => ({...previous,loadState:'error'}))
+      throw error
+    }
+    const [progressData, cardsData, feynmanData, assessmentData, enemData, sessionsData, categoriesData, trashData] = sections
+    setStudyProgress({ ...(progressData.progress || {}), loadState:'ready', weak_spots: progressData.weak_spots || progressData.progress?.weak_spots || [] })
     const cards = (cardsData.cards || []) as Flashcard[]
     // O cartão revisado sai da fila, então o próximo é sempre o índice 0.
     setDueCards(cards)
