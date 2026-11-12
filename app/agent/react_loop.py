@@ -31,9 +31,9 @@ REACT_TOOLS = frozenset({"web_search", "timer", "wait", "calendar", "planning_wo
 MAX_BATCH = 5
 _HISTORY_STEPS = 6
 _OBS_CHARS = 600
-_CONVERSATION_MESSAGES = 4
-_CONVERSATION_CHARS = 300
-_DESCRIPTION_CHARS = 160
+_CONVERSATION_MESSAGES = 6
+_CONVERSATION_CHARS = 1200
+_DESCRIPTION_CHARS = 250
 WAITING_TEXT = "A etapa {n} precisa da sua aprovação na Central: {preview} Assim que você aprovar, eu continuo sozinho."
 
 
@@ -127,6 +127,10 @@ def _compact_schema(parameters: Any) -> dict[str, str]:
         if kind.startswith("array") and isinstance(items, dict):
             inner = items.get("properties")
             kind += "<{" + ",".join(inner) + "}>" if isinstance(inner, dict) else "<" + str(items.get("type") or "any") + ">"
+        # Add description for object params (up to 300 chars)
+        if kind.startswith("object") and spec.get("description"):
+            desc = str(spec["description"])[:300]
+            kind += " — " + desc
         compact[name] = kind
     return compact
 
