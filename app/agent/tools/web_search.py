@@ -55,6 +55,16 @@ def _source_name(url: str) -> str:
         return "web"
 
 
+def _extract_snippet_text(result: dict[str, Any], max_length: int = 400) -> str:
+    """CORREÇÃO REVIEW 5: Helper function para extração consistente de snippet.
+    
+    Prioriza 'excerpt' (texto lido da página) sobre 'snippet' (do buscador),
+    garantindo lógica centralizada e evitando drift entre fallback_snippets
+    e outras partes do código que precisam extrair texto de resultados.
+    """
+    return (result.get("excerpt") or result.get("snippet") or "")[:max_length]
+
+
 def _unwrap_bing_url(url: str) -> str:
     """Converte o redirect do Bing em URL final quando o parâmetro estiver disponível."""
     try:
@@ -438,11 +448,12 @@ class WebSearchTool(BaseTool):
                 synthesis_msg = _format_search_response(query, results, refined_query=refined_from)
 
                 # CORREÇÃO PONTO 8: snippets compactos para recovery
+                # CORREÇÃO REVIEW 5: Usar helper function _extract_snippet_text
                 fallback_snippets = [
                     {
                         "title": r.get("title", "")[:100],
                         "url": r.get("url", ""),
-                        "snippet": (r.get("excerpt") or r.get("snippet") or "")[:400],
+                        "snippet": _extract_snippet_text(r, max_length=400),
                         "source": r.get("source", ""),
                     }
                     for r in results[:5]

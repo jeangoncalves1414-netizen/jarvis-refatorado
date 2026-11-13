@@ -19,6 +19,9 @@ from pathlib import Path
 CAPTURES_DIR = Path("data/captures")
 CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
 
+# CORREÇÃO REVIEW 2: Cache global para validação de modelos Groq
+_GROQ_MODEL_VALIDATION_CACHE: dict[str, bool] = {}
+
 
 class VisionService:
     """Serviço de visão multimodal com Gemini ou Groq."""
@@ -61,18 +64,33 @@ class VisionService:
             return genai.Client(api_key=api_key)
     
     def _validate_groq_model(self) -> None:
-        """CORREÇÃO REVIEW 3: Valida se o modelo Groq configurado existe."""
+        """CORREÇÃO REVIEW 2+3: Valida se o modelo Groq configurado existe (com cache global).
+        
+        LIMITAÇÃO (FINDING 4): Esta validação usa uma chamada de texto simples (max_tokens=1)
+        para verificar se o modelo existe, mas NÃO testa o path multimodal completo (image_url).
+        Se o modelo existir mas não suportar visão, a validação passará e o primeiro analyze()
+        falhará. Tradeoff aceito para evitar latência e custo de validação com imagem na init.
+        """
         if not self.groq_api_key:
             return
+        
+        # CORREÇÃO REVIEW 2: Usar cache global para evitar validação repetida
+        cache_key = f"{self.groq_model}:{mask_key(self.groq_api_key) if self.groq_api_key else 'no-key'}"
+        if cache_key in _GROQ_MODEL_VALIDATION_CACHE:
+            self._groq_model_invalid = not _GROQ_MODEL_VALIDATION_CACHE[cache_key]
+            return
+        
         try:
+            from app.core.secrets_mask import mask_key
             client = self._get_client("groq", self.groq_api_key)
-            # Tentar listar modelos ou fazer uma chamada mínima de validação
-            # Como não há API de listagem direta, tentamos uma chamada dummy
+            # Chamada mínima de validação (não testa multimodal completo, ver docstring)
             client.chat.completions.create(
                 model=self.groq_model,
                 messages=[{"role": "user", "content": [{"type": "text", "text": "test"}]}],
                 max_tokens=1
             )
+            _GROQ_MODEL_VALIDATION_CACHE[cache_key] = True
+            self._groq_model_invalid = False
         except Exception as e:
             error_str = str(e).lower()
             is_model_error = any(keyword in error_str for keyword in [
@@ -81,6 +99,7 @@ class VisionService:
             if is_model_error:
                 import logging
                 logging.warning(f"[VisionService] Modelo Groq '{self.groq_model}' inválido. Fallback para Gemini será usado.")
+                _GROQ_MODEL_VALIDATION_CACHE[cache_key] = False
                 self._groq_model_invalid = True
 
     def capture_screen(self) -> bytes:
@@ -208,8 +227,9 @@ class VisionService:
                     ]
                 )
                 reply = response.text or "Nenhum detalhe visual extraído."
-        except (ImportError, AttributeError, RuntimeError, KeyError) as e:
-            # CORREÇÃO REVIEW 5: Capturar exceções específicas ao invés de Exception genérica
+        except (ImportError, AttributeError, RuntimeError, KeyError, Exception) as e:
+            # CORREÇÃO REVIEW 6: Exception tuple ampliado para capturar erros de rede/API
+            # que podem ser lançados pelos clientes Groq/Gemini (httpx, requests, etc.)
             # CORREÇÃO PONTO 2: Verificar se é erro de modelo e tentar fallback para Gemini
             error_str = str(e).lower()
             is_model_error = any(keyword in error_str for keyword in [
@@ -241,8 +261,8 @@ class VisionService:
                         )
                         reply = response.text or "Nenhum detalhe visual extraído."
                         ok = True
-                except (ImportError, AttributeError, RuntimeError) as fallback_error:
-                    # CORREÇÃO REVIEW 5: Exceções específicas
+                except (ImportError, AttributeError, RuntimeError, Exception) as fallback_error:
+                    # CORREÇÃO REVIEW 6: Exception tuple ampliado
                     ok = False
                     reply = f"Fallback para Gemini Vision também falhou: {fallback_error}. Erro Groq original: {e}"
             else:
@@ -307,8 +327,8 @@ class VisionService:
                     ]
                 )
                 return response.text or "Sem resposta gerada."
-        except (ImportError, AttributeError, RuntimeError, KeyError) as e:
-            # CORREÇÃO REVIEW 5: Exceções específicas
+        except (ImportError, AttributeError, RuntimeError, KeyError, Exception) as e:
+            # CORREÇÃO REVIEW 6: Exception tuple ampliado para capturar erros de rede/API
             # CORREÇÃO PONTO 2: Fallback para Gemini se erro de modelo Groq
             error_str = str(e).lower()
             is_model_error = any(keyword in error_str for keyword in [
@@ -337,8 +357,8 @@ class VisionService:
                         ]
                     )
                     return response.text or "Sem resposta gerada."
-                except (ImportError, AttributeError, RuntimeError) as fallback_error:
-                    # CORREÇÃO REVIEW 5: Exceções específicas
+                except (ImportError, AttributeError, RuntimeError, Exception) as fallback_error:
+                    # CORREÇÃO REVIEW 6: Exception tuple ampliado
                     return f"Fallback para Gemini falhou: {fallback_error}. Erro Groq: {e}"
             else:
                 return f"Erro ao analisar imagem: {e}"

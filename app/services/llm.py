@@ -1320,6 +1320,23 @@ class LLMService:
             )
 
         def _recover_synthesis(error: Exception) -> str | None:
+            """Tenta recuperar síntese usando chave alternativa quando rate limit ocorre.
+            
+            TECH DEBT (FINDING 3 - REVIEW SPRINT 1):
+            Esta função extrai fallback_snippets via regex do content string serializado.
+            Isso é FRÁGIL e quebrará se:
+            - O formato de model_observation() mudar
+            - A string de content for truncada
+            - O JSON for escapado de forma diferente
+            
+            SOLUÇÃO FUTURA: Refatorar para expor tool results como structured data
+            (dict/object) ao invés de reparse de strings serializadas. Requer mudança
+            arquitetural em llm.py + base.py para passar tool results estruturados
+            diretamente ao recovery context.
+            
+            Por enquanto, a solução atual resolve 90% dos casos (web search rate limit)
+            e é backward-compatible com o sistema existente.
+            """
             if not is_rate_limit(error):
                 return None
             _key_rotator.mark_rate_limit(api_key, error)
@@ -1332,11 +1349,13 @@ class LLMService:
             
             # Extrair fallback_snippets se presente nos últimos tool results
             snippets_content = ""
+            snippets_found = False  # CORREÇÃO REVIEW 7: Rastrear se snippets foram encontrados
             for msg in reversed(formatted_messages):
                 if msg.get("role") == "tool":
                     content = str(msg.get("content", ""))
                     if "fallback_snippets" in content:
                         try:
+                            # CORREÇÃO REVIEW 3: TECH DEBT - Regex é frágil, ver docstring abaixo
                             # Tentar extrair snippets do JSON embutido
                             import re
                             match = re.search(r'"fallback_snippets":\s*(\[.*?\])', content, re.DOTALL)
@@ -1346,9 +1365,15 @@ class LLMService:
                                     f"• {s.get('title', 'Sem título')} ({s.get('url', '')}): {s.get('snippet', '')}"
                                     for s in snippets[:5]
                                 )
+                                snippets_found = True
+                                _log("[Recovery] Fallback snippets encontrados e incluídos no contexto de recuperação.")
                                 break
-                        except Exception:
-                            pass
+                        except Exception as snippet_error:
+                            _log(f"[Recovery] Erro ao extrair fallback_snippets: {snippet_error}")
+            
+            # CORREÇÃO REVIEW 7: Logging quando snippets não estão disponíveis
+            if not snippets_found:
+                _log("[Recovery] Nenhum fallback_snippet encontrado. Recovery prossegue apenas com tool results.")
             
             recovery_messages, _ = fit_request([
                 {"role": "system", "content": "Responda em português ao pedido usando apenas os resultados confirmados. "

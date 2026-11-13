@@ -198,6 +198,11 @@ class ChecklistTool(BaseTool):
             if not target:
                 return {"ok": False, "error": "Lista não encontrada para exclusão."}
             # CORREÇÃO PONTO 10: confirmação antes de excluir
+            # DECISÃO DE SEGURANÇA (FINDING 1 - REVIEW SPRINT 1): FAIL-SAFE mode
+            # Se CriticalConfirm falhar (import, init, ou runtime error), a exclusão
+            # é BLOQUEADA ao invés de prosseguir. Operações destrutivas requerem
+            # confirmação obrigatória. Tradeoff: se CriticalConfirm estiver quebrado,
+            # delete_list fica indisponível até correção do sistema de confirmação.
             count = target.get("pending_count", 0) + target.get("completed_count", 0)
             detail = f"Excluir lista '{target['title']}' com {count} item(ns)?"
             try:
@@ -207,7 +212,7 @@ class ChecklistTool(BaseTool):
                 if not approved:
                     return {"ok": False, "error": "Exclusão cancelada pelo usuário."}
             except (ImportError, AttributeError, RuntimeError) as confirm_error:
-                # CORREÇÃO REVIEW 1: Falha de confirmação bloqueia exclusão
+                # CORREÇÃO REVIEW 1: Falha de confirmação bloqueia exclusão (FAIL-SAFE)
                 import logging
                 logging.error(f"[ChecklistTool] Confirmação falhou: {confirm_error}. Bloqueando exclusão por segurança.")
                 return {"ok": False, "error": f"Sistema de confirmação indisponível. Exclusão bloqueada por segurança."}
