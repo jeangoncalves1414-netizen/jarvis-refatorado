@@ -39,6 +39,16 @@ class VisionService:
         self.groq_model = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b")
         self._groq_client = None
         self._genai_client = None
+        self._groq_model_invalid = False  # CORREÇÃO REVIEW 3: Marcador de modelo inválido
+        
+        # CORREÇÃO REVIEW 3 + 4: Validar que ao menos uma chave está configurada
+        if not self.api_key and not self.groq_api_key:
+            import logging
+            logging.warning("[VisionService] Nenhuma chave de API configurada (Gemini ou Groq). Serviço pode falhar.")
+        
+        # CORREÇÃO REVIEW 3: Health-check do modelo Groq na inicialização
+        if self.groq_api_key and self.provider == "groq":
+            self._validate_groq_model()
 
     def _get_client(self, provider: str, api_key: str):
         if provider == "groq":
@@ -49,6 +59,29 @@ class VisionService:
         else:
             from google import genai
             return genai.Client(api_key=api_key)
+    
+    def _validate_groq_model(self) -> None:
+        """CORREÇÃO REVIEW 3: Valida se o modelo Groq configurado existe."""
+        if not self.groq_api_key:
+            return
+        try:
+            client = self._get_client("groq", self.groq_api_key)
+            # Tentar listar modelos ou fazer uma chamada mínima de validação
+            # Como não há API de listagem direta, tentamos uma chamada dummy
+            client.chat.completions.create(
+                model=self.groq_model,
+                messages=[{"role": "user", "content": [{"type": "text", "text": "test"}]}],
+                max_tokens=1
+            )
+        except Exception as e:
+            error_str = str(e).lower()
+            is_model_error = any(keyword in error_str for keyword in [
+                "not found", "invalid model", "404", "model_not_found", "model not found"
+            ])
+            if is_model_error:
+                import logging
+                logging.warning(f"[VisionService] Modelo Groq '{self.groq_model}' inválido. Fallback para Gemini será usado.")
+                self._groq_model_invalid = True
 
     def capture_screen(self) -> bytes:
         """Captura tela como bytes RGB."""
@@ -133,6 +166,18 @@ class VisionService:
 
         ok = True
         try:
+            # CORREÇÃO REVIEW 3: Usar Gemini imediatamente se modelo Groq já foi marcado inválido
+            if active_provider == "groq" and self._groq_model_invalid:
+                if not self.api_key:
+                    return {
+                        "ok": False,
+                        "reply": f"Modelo Groq '{self.groq_model}' inválido e chave Gemini não configurada.",
+                        "capture_path": filepath,
+                        "capture_filename": filename,
+                    }
+                active_provider = "gemini"
+                active_key = self.api_key
+            
             if active_provider == "groq":
                 client = self._get_client("groq", active_key)
                 res = client.chat.completions.create(
@@ -163,7 +208,8 @@ class VisionService:
                     ]
                 )
                 reply = response.text or "Nenhum detalhe visual extraído."
-        except Exception as e:
+        except (ImportError, AttributeError, RuntimeError, KeyError) as e:
+            # CORREÇÃO REVIEW 5: Capturar exceções específicas ao invés de Exception genérica
             # CORREÇÃO PONTO 2: Verificar se é erro de modelo e tentar fallback para Gemini
             error_str = str(e).lower()
             is_model_error = any(keyword in error_str for keyword in [
@@ -172,7 +218,9 @@ class VisionService:
             
             if is_model_error and active_provider == "groq":
                 # FALLBACK AUTOMÁTICO para Gemini Vision
-                print(f"[Vision] Modelo Groq '{self.groq_model}' inválido ou obsoleto. Fallback para Gemini Vision.")
+                import logging
+                logging.info(f"[Vision] Modelo Groq '{self.groq_model}' inválido ou obsoleto. Fallback para Gemini Vision.")
+                self._groq_model_invalid = True  # CORREÇÃO REVIEW 3: Marcar para próximas chamadas
                 try:
                     from google.genai import types
                     gemini_key = self.api_key  # Chave Gemini
@@ -193,7 +241,8 @@ class VisionService:
                         )
                         reply = response.text or "Nenhum detalhe visual extraído."
                         ok = True
-                except Exception as fallback_error:
+                except (ImportError, AttributeError, RuntimeError) as fallback_error:
+                    # CORREÇÃO REVIEW 5: Exceções específicas
                     ok = False
                     reply = f"Fallback para Gemini Vision também falhou: {fallback_error}. Erro Groq original: {e}"
             else:
@@ -221,6 +270,13 @@ class VisionService:
             return f"Chave de API do {active_provider.capitalize()} necessária para visão computacional."
 
         try:
+            # CORREÇÃO REVIEW 3: Usar Gemini imediatamente se modelo Groq já foi marcado inválido
+            if active_provider == "groq" and self._groq_model_invalid:
+                if not self.api_key:
+                    return f"Modelo Groq '{self.groq_model}' inválido e chave Gemini não configurada."
+                active_provider = "gemini"
+                active_key = self.api_key
+            
             if active_provider == "groq":
                 client = self._get_client("groq", active_key)
                 res = client.chat.completions.create(
@@ -251,7 +307,8 @@ class VisionService:
                     ]
                 )
                 return response.text or "Sem resposta gerada."
-        except Exception as e:
+        except (ImportError, AttributeError, RuntimeError, KeyError) as e:
+            # CORREÇÃO REVIEW 5: Exceções específicas
             # CORREÇÃO PONTO 2: Fallback para Gemini se erro de modelo Groq
             error_str = str(e).lower()
             is_model_error = any(keyword in error_str for keyword in [
@@ -259,7 +316,9 @@ class VisionService:
             ])
             
             if is_model_error and active_provider == "groq":
-                print(f"[Vision] Modelo Groq '{self.groq_model}' inválido. Fallback para Gemini Vision.")
+                import logging
+                logging.info(f"[Vision] Modelo Groq '{self.groq_model}' inválido. Fallback para Gemini Vision.")
+                self._groq_model_invalid = True  # CORREÇÃO REVIEW 3: Marcar para próximas chamadas
                 try:
                     gemini_key = self.api_key
                     if not gemini_key:
@@ -278,7 +337,8 @@ class VisionService:
                         ]
                     )
                     return response.text or "Sem resposta gerada."
-                except Exception as fallback_error:
+                except (ImportError, AttributeError, RuntimeError) as fallback_error:
+                    # CORREÇÃO REVIEW 5: Exceções específicas
                     return f"Fallback para Gemini falhou: {fallback_error}. Erro Groq: {e}"
             else:
                 return f"Erro ao analisar imagem: {e}"

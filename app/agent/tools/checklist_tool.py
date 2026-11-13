@@ -206,8 +206,11 @@ class ChecklistTool(BaseTool):
                 approved = critical.request(tool="checklist_tool", detail=detail)
                 if not approved:
                     return {"ok": False, "error": "Exclusão cancelada pelo usuário."}
-            except Exception:
-                pass  # Se CriticalConfirm falhar, prossegue sem confirmação
+            except (ImportError, AttributeError, RuntimeError) as confirm_error:
+                # CORREÇÃO REVIEW 1: Falha de confirmação bloqueia exclusão
+                import logging
+                logging.error(f"[ChecklistTool] Confirmação falhou: {confirm_error}. Bloqueando exclusão por segurança.")
+                return {"ok": False, "error": f"Sistema de confirmação indisponível. Exclusão bloqueada por segurança."}
             success = checklist_store.delete_list(target["id"])
             return {
                 "ok": success,
