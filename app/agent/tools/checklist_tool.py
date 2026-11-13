@@ -39,8 +39,14 @@ class ChecklistTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["create_list", "add_items", "toggle_item", "get_list", "list_all", "list", "delete_list", "delete_item"],
-                    "description": "create_list deve incluir text ou items quando o usuário pedir itens. Consultar não exclui: use delete_list para excluir.",
+                    "enum": ["create_list", "add_items", "toggle_item", "get_list", "list_summaries", "delete_list", "delete_item"],
+                    "description": (
+                        "Action to perform. Use get_list to retrieve items of ONE specific list (requires title or list_id). "
+                        "Use list_summaries to list ALL checklists without item detail (do NOT use this when user names a specific list). "
+                        "Use create_list to create a new list. Use add_items to add items to an existing list. "
+                        "Use toggle_item to check/uncheck an item. Use delete_list to delete an entire list (requires confirmation). "
+                        "Use delete_item to remove a single item."
+                    ),
                 },
                 "title": {"type": "string", "description": "Título da lista (ex.: 'Mercado', 'Mala de Viagem')."},
                 "list_id": {"type": "string", "description": "ID da lista de checagem."},
@@ -91,7 +97,7 @@ class ChecklistTool(BaseTool):
     ) -> dict[str, Any]:
         act = (action or "get_list").lower().strip()
 
-        if act in ("list", "list_all"):
+        if act in ("list", "list_all", "list_summaries"):
             lists = checklist_store.list_all()
             return {
                 "ok": True,
