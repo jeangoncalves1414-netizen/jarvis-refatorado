@@ -3,10 +3,19 @@ from __future__ import annotations
 import re
 import threading
 import time
+import uuid
 import winsound
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 from .base import BaseTool, ToolResult
+
+
+def _log(message: str) -> None:
+    """Print de diagnóstico que nunca derruba a chamada."""
+    try:
+        print(message)
+    except Exception:
+        pass
 
 
 class _TimerManager:
@@ -17,14 +26,27 @@ class _TimerManager:
         if cls._instance is None:
             obj = super().__new__(cls)
             obj._timers = []
+            obj._fire_callbacks: list[Callable[[str, str, bool], None]] = []
             obj._thread = threading.Thread(target=obj._loop, daemon=True, name="TimerThread")
             obj._thread.start()
             cls._instance = obj
         return cls._instance
 
-    def add(self, fire_at: datetime, label: str) -> None:
+    def add_fire_callback(self, callback: Callable[[str, str, bool], None]) -> None:
+        """Registra callback(timer_id, label, success) que será chamado quando timer disparar.
+        
+        Args:
+            callback: Função (timer_id: str, label: str, success: bool) -> None
+        """
         with self._lock:
-            self._timers.append({"fire_at": fire_at, "label": label, "fired": False})
+            self._fire_callbacks.append(callback)
+
+    def add(self, fire_at: datetime, label: str) -> str:
+        """Adiciona timer e retorna timer_id."""
+        timer_id = str(uuid.uuid4())[:8]
+        with self._lock:
+            self._timers.append({"timer_id": timer_id, "fire_at": fire_at, "label": label, "fired": False})
+        return timer_id
 
     def cancel(self, label: str) -> list[dict[str, Any]]:
         """Cancela timers ativos pelo rótulo: igual (sem diferenciar maiúsculas) ou, sem igual, que contenha o texto."""
@@ -44,7 +66,10 @@ class _TimerManager:
     def list_active(self) -> list[dict[str, Any]]:
         with self._lock:
             now = datetime.now()
-            return [t for t in self._timers if not t["fired"] and t["fire_at"] > now]
+            return [
+                {"timer_id": t["timer_id"], "fire_at": t["fire_at"], "label": t["label"]}
+                for t in self._timers if not t["fired"] and t["fire_at"] > now
+            ]
 
     def _loop(self) -> None:
         while True:
@@ -54,24 +79,59 @@ class _TimerManager:
                 for t in timers_to_fire:
                     t["fired"] = True
             for t in timers_to_fire:
-                threading.Thread(target=self._fire, args=(t["label"],), daemon=True).start()
+                threading.Thread(
+                    target=self._fire,
+                    args=(t["timer_id"], t["label"]),
+                    daemon=True
+                ).start()
             time.sleep(1)
 
-    @staticmethod
-    def _fire(label: str) -> None:
+    def _fire(self, timer_id: str, label: str) -> None:
         stamp = datetime.now().strftime("%H:%M:%S")
-        print(f"\n*** ALERTA TIMER: {label} ({stamp}) ***", flush=True)
+        print(f"\n*** ALERTA TIMER [{timer_id}]: {label} ({stamp}) ***", flush=True)
+        
+        success = False
         try:
             from app.core.logger import logger
-            logger.warn("Timer", f"⏰ Timer disparado: {label}")
+            logger.info("Timer", f"⏰ Timer [{timer_id}] '{label}' disparado.")
         except Exception:
             pass
+        
         try:
             for _ in range(3):
                 winsound.Beep(1000, 350)
                 time.sleep(0.15)
-        except Exception:
-            pass
+            success = True
+            _log(f"[Timer {timer_id}] Áudio tocou com sucesso.")
+        except Exception as e:
+            _log(f"[Timer {timer_id}] Falha ao tocar beep: {e}")
+            try:
+                from app.core.logger import logger
+                logger.error("Timer", f"❌ Timer [{timer_id}] '{label}' falhou ao tocar áudio: {e}")
+            except Exception:
+                pass
+        
+        # NOVO: Registrar em arquivo de auditoria
+        try:
+            from pathlib import Path
+            audit_file = Path("data") / "timer_audit.log"
+            audit_file.parent.mkdir(exist_ok=True)
+            with open(audit_file, "a", encoding="utf-8") as f:
+                status = "SUCCESS" if success else "FAILED"
+                f.write(f"{datetime.now().isoformat()} | {status} | {timer_id} | {label}\n")
+        except Exception as e:
+            _log(f"[Timer {timer_id}] Falha ao gravar auditoria: {e}")
+        
+        # NOVO: Notificar callbacks registrados
+        manager = _TimerManager._instance
+        if manager:
+            _log(f"[Timer {timer_id}] Notificando {len(manager._fire_callbacks)} callback(s)...")
+            for callback in manager._fire_callbacks:
+                try:
+                    callback(timer_id, label, success)
+                    _log(f"[Timer {timer_id}] Callback invocado com sucesso.")
+                except Exception as cb_err:
+                    _log(f"[Timer {timer_id}] Callback falhou: {cb_err}")
 
 
 def list_active_timers() -> list[dict[str, str]]:
@@ -79,6 +139,7 @@ def list_active_timers() -> list[dict[str, str]]:
     manager = _TimerManager()
     return [
         {
+            "timer_id": t["timer_id"],
             "label": str(t.get("label", "Timer")),
             "fire_at": t["fire_at"].isoformat(),
         }
@@ -142,7 +203,7 @@ class TimerTool(BaseTool):
             for t in active:
                 rem = t["fire_at"] - now
                 rem_seconds = int(rem.total_seconds())
-                lines.append(f"- {t['label']} às {t['fire_at'].strftime('%H:%M:%S')} (faltam {self._fmt_duration(rem_seconds)})")
+                lines.append(f"- [{t['timer_id']}] {t['label']} às {t['fire_at'].strftime('%H:%M:%S')} (faltam {self._fmt_duration(rem_seconds)})")
             return ToolResult(ok=True, message="Timers ativos:\n" + "\n".join(lines), data={"active": active})
 
         elif action == "cancel":
@@ -165,11 +226,11 @@ class TimerTool(BaseTool):
             
             fire_at = datetime.now() + timedelta(seconds=seconds)
             desc = label or f"Timer de {duration}"
-            self.manager.add(fire_at, desc)
+            timer_id = self.manager.add(fire_at, desc)
             return ToolResult(
                 ok=True,
-                message=f"Timer criado com sucesso: '{desc}' para disparar às {fire_at.strftime('%H:%M:%S')}.",
-                data={"fire_at": fire_at.isoformat(), "label": desc}
+                message=f"Timer [{timer_id}] criado com sucesso: '{desc}' para disparar às {fire_at.strftime('%H:%M:%S')}.",
+                data={"timer_id": timer_id, "fire_at": fire_at.isoformat(), "label": desc}
             )
 
         elif action == "set_alarm":
@@ -188,11 +249,11 @@ class TimerTool(BaseTool):
                 fire_at += timedelta(days=1)
             
             desc = label or f"Alarme para {time_str}"
-            self.manager.add(fire_at, desc)
+            timer_id = self.manager.add(fire_at, desc)
             return ToolResult(
                 ok=True,
-                message=f"Alarme criado com sucesso: '{desc}' para às {fire_at.strftime('%H:%M')}.",
-                data={"fire_at": fire_at.isoformat(), "label": desc}
+                message=f"Alarme [{timer_id}] criado com sucesso: '{desc}' para às {fire_at.strftime('%H:%M')}.",
+                data={"timer_id": timer_id, "fire_at": fire_at.isoformat(), "label": desc}
             )
 
         return ToolResult(ok=False, message=f"Ação desconhecida: {action}")
