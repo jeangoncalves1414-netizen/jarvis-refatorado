@@ -47,6 +47,7 @@ from app.ui.panel.api.media import handle_media_stream, handle_media_post
 from app.storage.vector.semantic_memory import is_technical_error_memory
 from app.core.control_plane import ControlPlanePolicy, RequestPrincipal
 from app.core.execution_receipts import receipts
+from app.services.app_lock import app_lock
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _STATIC_DIR   = Path(__file__).parent / "static"
@@ -141,6 +142,9 @@ class PanelHandler(BaseHTTPRequestHandler):
         if not ok:
             self._send_json(status, {"ok": False, "error": error})
             return None
+        if path != '/api/app-lock' and not app_lock.authenticated(self.headers.get('Cookie', '')):
+            self._send_json(423, {'ok': False, 'error': 'Desbloqueie o Jarvis para continuar.'})
+            return None
         return principal
 
     def _send_cors(self) -> None:
@@ -192,6 +196,10 @@ class PanelHandler(BaseHTTPRequestHandler):
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
+            if getattr(self, '_unlock_cookie', None):
+                self.send_header('Set-Cookie', self._unlock_cookie)
+                self._unlock_cookie = None
+            self.send_header('Cache-Control', 'no-store')
             self._send_cors()
             self.end_headers()
             self.wfile.write(body)
@@ -250,6 +258,14 @@ class PanelHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = self.path.split("?")[0]
+        if path == '/api/app-lock':
+            if self._authorize_api(path, 'GET') is None:
+                return
+            try:
+                self._send_json(200, app_lock.status(self.headers.get('Cookie', '')))
+            except (OSError, ValueError):
+                self._send_json(503, {'ok': False, 'error': 'Configuração do bloqueio indisponível.'})
+            return
 
         # ── WebSocket upgrade (hand off to asyncio WS server on same port) ──
         if self._is_websocket_upgrade():
@@ -484,6 +500,9 @@ class PanelHandler(BaseHTTPRequestHandler):
                     from app.storage.session_store import get_session, get_session_history, get_whiteboard
                     if sub == "history":
                         self._send_json(200, {"history": get_session_history(session_id)})
+                    elif sub == "context-status":
+                        from app.services.context_compaction import status
+                        self._send_json(200, status(session_id))
                     elif sub == "whiteboard":
                         self._send_json(200, {"whiteboard": get_whiteboard(session_id)})
                     else:
@@ -894,6 +913,21 @@ class PanelHandler(BaseHTTPRequestHandler):
             return
         principal = self._authorize_api(path, self.command)
         if principal is None:
+            return
+
+        if path == '/api/app-lock':
+            try:
+                payload = json.loads(body)
+                if not isinstance(payload, dict):
+                    raise ValueError('Pedido inválido.')
+                result, token = app_lock.perform(payload, self.headers.get('Cookie', ''))
+                if token:
+                    self._unlock_cookie = f'jarvis_unlock={token}; HttpOnly; SameSite=Strict; Path=/'
+                self._send_json(200, result)
+            except (ValueError, TypeError):
+                self._send_json(400, {'ok': False, 'error': 'Não foi possível validar o pedido. Confira a senha, a amostra ou aguarde 30 segundos após várias tentativas.'})
+            except Exception:
+                self._send_json(503, {'ok': False, 'error': 'Não foi possível acessar o bloqueio local.'})
             return
 
         if path in ("/api/sync", "/api/evolute/sync"):
@@ -1811,25 +1845,20 @@ class PanelHandler(BaseHTTPRequestHandler):
                 payload = json.loads(body.decode("utf-8") or "{}")
                 action = payload.get("action", "analyze_screen")
                 prompt = payload.get("prompt", "Analise em detalhes o conteúdo visual.").strip()
-                api_key = ""
-                provider = "gemini"
-                if _orchestrator and hasattr(_orchestrator, "settings"):
-                    st = _orchestrator.settings
-                    provider = getattr(st, "llm_provider", "gemini")
-                    api_key = getattr(st, "groq_api_key", "") if provider == "groq" else getattr(st, "gemini_api_key", "")
-
                 from app.services.vision import VisionService
-                vs = VisionService(api_key=api_key, provider=provider)
+                vs = VisionService.from_settings(getattr(_orchestrator, "settings", None))
                 img = vs.capture_camera() if action == "analyze_camera" else vs.capture_pil()
                 if img is None:
                     self._send_json(400, {"error": "Não foi possível capturar a imagem da câmera ou tela."})
                     return
 
-                res = vs.analyze(prompt=prompt, image=img, api_key=api_key, provider=provider)
+                res = vs.analyze(prompt=prompt, image=img)
                 fn = res.get("capture_filename", "")
                 self._send_json(200, {
                     "ok": res.get("ok", False),
                     "reply": res.get("reply", ""),
+                    "provider": res.get("provider"),
+                    "model": res.get("model"),
                     "filename": fn,
                     "capture_url": f"/api/vision/file/{fn}" if fn else None,
                 })
@@ -1854,24 +1883,17 @@ class PanelHandler(BaseHTTPRequestHandler):
                 encoded_image = image_data.split(",", 1)[1]
                 image = Image.open(BytesIO(base64.b64decode(encoded_image))).convert("RGB")
 
-                api_key = ""
-                provider = "gemini"
-                if _orchestrator and hasattr(_orchestrator, "settings"):
-                    st = _orchestrator.settings
-                    provider = getattr(st, "llm_provider", "gemini")
-                    api_key = getattr(st, "groq_api_key", "") if provider == "groq" else getattr(st, "gemini_api_key", "")
-
                 from app.services.vision import VisionService
-                result = VisionService(api_key=api_key, provider=provider).analyze(
+                result = VisionService.from_settings(getattr(_orchestrator, "settings", None)).analyze(
                     prompt=f"A imagem veio da câmera chamada '{camera_name}'. {prompt}",
                     image=image,
-                    api_key=api_key,
-                    provider=provider,
                 )
                 filename = result.get("capture_filename", "")
                 self._send_json(200, {
                     "ok": result.get("ok", False),
                     "reply": result.get("reply", "Análise concluída."),
+                    "provider": result.get("provider"),
+                    "model": result.get("model"),
                     "capture_url": f"/api/vision/file/{filename}" if filename else None,
                 })
             except Exception as exc:
@@ -2173,13 +2195,34 @@ class PanelHandler(BaseHTTPRequestHandler):
 
 async def _ws_chat_handler(websocket) -> None:
     """Handle /ws/chat — streams Jarvis responses as JSON messages."""
+    headers = getattr(websocket, 'request_headers', None)
+    if headers is None:
+        headers = getattr(getattr(websocket, 'request', None), 'headers', {})
+    cookie = headers.get('Cookie', '')
+    origin = headers.get('Origin', '').rstrip('/').lower()
+    if origin and origin not in ControlPlanePolicy(PanelHandler.settings).allowed_origins():
+        await websocket.close(code=1008, reason='Origem não confiável')
+        return
+    if not app_lock.authenticated(cookie):
+        await websocket.close(code=1008, reason='Jarvis bloqueado')
+        return
+    async def send_authorized(message):
+        # A lock or password change also revokes an already streaming response.
+        if not app_lock.authenticated(cookie):
+            await websocket.close(code=1008, reason='Jarvis bloqueado')
+            return
+        await websocket.send(message)
+
     _ws_clients.add(websocket)
     try:
         async for raw in websocket:
+            if not app_lock.authenticated(cookie):
+                await websocket.close(code=1008, reason='Jarvis bloqueado')
+                break
             try:
                 data = json.loads(raw)
             except Exception:
-                await websocket.send(json.dumps({"type": "error", "message": "JSON inválido."}))
+                await send_authorized(json.dumps({"type": "error", "message": "JSON inválido."}))
                 continue
 
             request_id = str(data.get("request_id") or "")[:100]
@@ -2189,10 +2232,10 @@ async def _ws_chat_handler(websocket) -> None:
                 continue
 
             if _orchestrator is None:
-                await websocket.send(json.dumps({"type": "error", "request_id": request_id, "session_id": session_id, "message": "Orquestrador não disponível."}))
+                await send_authorized(json.dumps({"type": "error", "request_id": request_id, "session_id": session_id, "message": "Orquestrador não disponível."}))
                 continue
 
-            await websocket.send(json.dumps({"type": "status", "status": "processing", "request_id": request_id, "session_id": session_id}))
+            await send_authorized(json.dumps({"type": "status", "status": "processing", "request_id": request_id, "session_id": session_id}))
 
             try:
                 session_id = data.get("session_id")
@@ -2208,7 +2251,7 @@ async def _ws_chat_handler(websocket) -> None:
                     if chunk_text:
                         try:
                             asyncio.run_coroutine_threadsafe(
-                                websocket.send(json.dumps({"type": "chunk", "text": chunk_text, "session_id": session_id, "request_id": request_id})),
+                                send_authorized(json.dumps({"type": "chunk", "text": chunk_text, "session_id": session_id, "request_id": request_id})),
                                 loop
                             )
                         except Exception:
@@ -2218,7 +2261,7 @@ async def _ws_chat_handler(websocket) -> None:
                     if reason_text:
                         try:
                             asyncio.run_coroutine_threadsafe(
-                                websocket.send(json.dumps({"type": "reasoning", "text": reason_text, "session_id": session_id, "request_id": request_id})),
+                                send_authorized(json.dumps({"type": "reasoning", "text": reason_text, "session_id": session_id, "request_id": request_id})),
                                 loop
                             )
                         except Exception:
@@ -2227,7 +2270,7 @@ async def _ws_chat_handler(websocket) -> None:
                 def on_search(payload: dict) -> None:
                     try:
                         asyncio.run_coroutine_threadsafe(
-                            websocket.send(json.dumps({"type": "search", "payload": payload, "session_id": session_id, "request_id": request_id}, ensure_ascii=False)),
+                            send_authorized(json.dumps({"type": "search", "payload": payload, "session_id": session_id, "request_id": request_id}, ensure_ascii=False)),
                             loop,
                         )
                     except Exception:
@@ -2240,7 +2283,7 @@ async def _ws_chat_handler(websocket) -> None:
                 prefix = _calendar_conversation_prefix()
                 if prefix and getattr(plan, "summary", "").strip() and plan.intent != "error" and not is_technical_error_memory(plan.summary):
                     plan.summary = prefix + getattr(plan, "summary", str(plan))
-                await websocket.send(json.dumps({
+                await send_authorized(json.dumps({
                     "type":    "complete",
                     "request_id": request_id,
                     "session_id": session_id,
@@ -2273,7 +2316,7 @@ async def _ws_chat_handler(websocket) -> None:
                         pass
 
             except Exception as exc:
-                await websocket.send(json.dumps({"type": "error", "message": str(exc), "session_id": session_id, "request_id": request_id}))
+                await send_authorized(json.dumps({"type": "error", "message": str(exc), "session_id": session_id, "request_id": request_id}))
     except Exception:
         pass
     finally:
@@ -2298,6 +2341,13 @@ async def _broadcast_json(message: str) -> None:
     dead = set()
     for ws in list(_ws_clients):
         try:
+            headers = getattr(ws, 'request_headers', None)
+            if headers is None:
+                headers = getattr(getattr(ws, 'request', None), 'headers', {})
+            if not app_lock.authenticated(headers.get('Cookie', '')):
+                await ws.close(code=1008, reason='Jarvis bloqueado')
+                dead.add(ws)
+                continue
             await ws.send(message)
         except Exception:
             dead.add(ws)
@@ -2378,6 +2428,8 @@ class PanelServer:
         self.settings.validate_control_plane()
         from app.storage.action_store import action_store
         action_store.start_runtime()
+        from app.services import bank_sync
+        bank_sync.start(getattr(_orchestrator, 'llm_service', None))
 
         self._http_thread = threading.Thread(
             target=self._run_http, daemon=True, name="PanelHTTP"
@@ -2413,6 +2465,8 @@ class PanelServer:
             print(f"[Jarvis] Wake word desativado: {e}")
 
     def stop(self) -> None:
+        from app.services import bank_sync
+        bank_sync.stop()
         try:
             from app.mcp import mcp_manager
             mcp_manager.stop()

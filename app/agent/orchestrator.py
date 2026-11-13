@@ -240,11 +240,10 @@ class AgentOrchestrator:
         self.vision_service = None
         self.browser_agent = None
         if VISION_AVAILABLE:
-            api_key = getattr(settings, "gemini_api_key", "")
-            if api_key:
+            if getattr(settings, "gemini_api_key", "") or getattr(settings, "groq_api_key", ""):
                 try:
-                    self.vision_service = VisionService(api_key=api_key)
-                except RuntimeError:
+                    self.vision_service = VisionService.from_settings(settings)
+                except (RuntimeError, ValueError):
                     pass
             try:
                 self.browser_agent = BrowserAgent(headless=False)
@@ -687,12 +686,16 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                 action = native_executor.last_action
                 from app.agent.tool_activity import action_description
                 if action is not None and action.status == 'succeeded':
+                    completion = action_description(name, args or {})['completion']
+                    if completion == 'Ação concluída.' and tr is not None and tr.message:
+                        completion = tr.message
                     action_receipts.append("Enviei a solicitação, mas o efeito não foi confirmado." if action.effect_status == 'unconfirmed'
-                                           else action_description(name, args or {})['completion'])
+                                           else completion)
                 elif action is not None and action.status == 'awaiting_confirmation':
                     action_receipts.append("A ação aguarda sua aprovação no painel.")
                 else:
-                    action_receipts.append("Não consegui concluir a ação. Veja os detalhes nas ferramentas usadas.")
+                    detail = tr.message if current_origin.get() != 'voice' and tr is not None and tr.message else 'Veja os detalhes nas ferramentas usadas.'
+                    action_receipts.append(f"Não consegui concluir a ação. {detail}")
                 completion_steps.append({'name': name, 'args': args or {}, 'status': action.status if action else 'failed', 'message': message, 'effect_status': getattr(action, 'effect_status', '')})
                 if action is not None and getattr(action, 'effect_status', '') in {'confirmed', 'unconfirmed'}:
                     effect_receipt = True
@@ -790,6 +793,8 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             personal_calls = [call for call in executed_tool_calls if call['name'] in {'task_tool', 'habit_tool', 'finance_tool', 'checklist_tool', 'personal_records'}]
             if personal_calls and len(personal_calls) == len(executed_tool_calls):
                 summary = "\n".join(dict.fromkeys(call['message'] for call in personal_calls))
+            if executed_tool_calls and all(call['name'] == 'routine' for call in executed_tool_calls):
+                summary = '\n'.join(dict.fromkeys(call['message'] for call in executed_tool_calls))
             search_result = executed_tool_results.get('web_search', {})
             if executed_actions and set(executed_actions) == {'web_search'} and (search_result.get('data') or {}).get('evidence_status') == 'insufficient':
                 summary = search_result['message']
@@ -1100,12 +1105,18 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
         on_progress: Any = None,
         on_popup: Any = None,
     ) -> AgentPlan:
+        from app.services.app_lock import app_lock
+        if app_lock.locked():
+            return AgentPlan(intent='error', summary='Desbloqueie o Jarvis para continuar.', actions=[], context={'success': False})
         from app.core import ui_events
         import time
         requested_at = time.time() * 1000
 
         if history is None:
             history = get_session_history(session_id) if session_id else []
+        if session_id:
+            from app.services.context_compaction import working_history
+            history = working_history(session_id, history)
         resolved_mode, mode_meta = resolve_active_mode(text, explicit_mode=mode, history=history)
         from app.core.model_routing import current_model_mode, route_key
         model_token = current_model_mode.set(route_key(resolved_mode, origin or current_origin.get()))

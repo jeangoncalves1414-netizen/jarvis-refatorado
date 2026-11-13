@@ -33,13 +33,13 @@ export function useConversationRun(sessionId: string, enabled: boolean, loading:
       controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 10000)
       try {
-        const pages = await Promise.all(['running', 'cancel_requested'].map(status => {
+        const pages = await Promise.all(['running', 'awaiting_confirmation', 'cancel_requested'].map(status => {
           const query = new URLSearchParams({ session_id: sessionId, status, limit: '2' })
           return panelRequest<{ runs: Run[] }>(`/api/runs?${query}`, { signal: controller.signal })
         }))
         if (pages.some(page => !Array.isArray(page.runs))) throw new Error('Pedidos de execução indisponíveis.')
         const runs = [...new Map(pages.flatMap(page => page.runs)
-          .filter(run => run.session_id === sessionId && ['running', 'cancel_requested'].includes(run.status))
+          .filter(run => run.session_id === sessionId && ['running', 'awaiting_confirmation', 'cancel_requested'].includes(run.status))
           .map(run => [run.id, run])).values()]
         activeRun = loading || runs.length > 0 || !!requested.current
         if (!disposed) setSnapshot({ session: sessionId, runs, error: '' })
@@ -113,7 +113,7 @@ export function useConversationRun(sessionId: string, enabled: boolean, loading:
   return {
     stop,
     hasActive: enabled && !!current?.runs.length,
-    canStop: enabled && !!run && !current?.error && run.status === 'running' && requested.current?.id !== run.id && busy !== sessionId,
+    canStop: enabled && !!run && !current?.error && ['running', 'awaiting_confirmation'].includes(run.status) && requested.current?.id !== run.id && busy !== sessionId,
     message: busy === sessionId && sessionId ? 'Solicitando cancelamento…'
       : run?.status === 'cancel_requested' ? 'Cancelamento solicitado. Aguardando o encerramento da etapa em andamento.'
       : current?.error || (multiple ? 'Há vários pedidos nesta conversa. Escolha o pedido em Execuções.' : feedback.session === sessionId ? feedback.text : ''),

@@ -26,11 +26,7 @@ class DevAgentTool(BaseTool):
     
     def execute(self, args: dict[str, Any], context: dict[str, Any] | None = None) -> ToolResult:
         task = args.get("task")
-        if task == "review":
-            return ToolResult(ok=True, message="Code review concluído")
-        elif task == "debug":
-            return ToolResult(ok=True, message="Debugging realizado")
-        elif task == "test":
-            return ToolResult(ok=True, message="Testes gerados")
-        
+        if task in {"review", "debug", "test"}:
+            return ToolResult(ok=False, message="O agente de desenvolvimento ainda não está implementado. Nenhuma revisão, depuração ou teste foi executado.")
+
         return ToolResult(ok=False, message="Tarefa desconhecida")

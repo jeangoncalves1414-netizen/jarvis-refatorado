@@ -33,6 +33,9 @@ class DesktopAPI:
             print("AVISO: microfone nativo indisponível. A interface continua disponível.")
 
     def startRecording(self):
+        from app.services.app_lock import app_lock
+        if app_lock.locked():
+            return 'Desbloqueie o Jarvis para continuar.'
         if not self._has_sr:
             return "Erro: microfone nativo indisponível."
             
@@ -102,6 +105,9 @@ class DesktopAPI:
         
     def captureVision(self):
         """Captura tela e retorna base64 para uso no Spotlight."""
+        from app.services.app_lock import app_lock
+        if app_lock.locked():
+            return {'ok': False, 'error': 'Desbloqueie o Jarvis para continuar.'}
         try:
             from mss import mss
             from PIL import Image
@@ -261,6 +267,10 @@ def start_desktop(settings: Any, panel_server: Any = None) -> None:
     def on_closing():
         set_panel_standby(True)
         window.hide()
+        from app.services.app_lock import app_lock
+        if app_lock.enabled():
+            app_lock.lock()
+            window.evaluate_js('window.location.reload()')
         return False  # cancela o fechamento real
 
     window.events.closing += on_closing

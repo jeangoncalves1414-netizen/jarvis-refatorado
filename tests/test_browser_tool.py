@@ -368,3 +368,26 @@ def test_real_playwright_local_integration(local_http_server, tmp_path):
 
     finally:
         service.stop()
+
+@pytest.mark.parametrize('entrypoint', ['run', 'execute'])
+def test_extract_url_navigates_first_and_never_reads_stale_page(entrypoint):
+    service = MagicMock()
+    service.navigate.return_value = {'ok': True}
+    service.extract_content.return_value = {'ok': True, 'message': 'target content'}
+    tool = BrowserTool(service)
+    args = {'action': 'extract', 'url': 'https://example.com', 'selector': 'main'}
+    result = tool.run(**args) if entrypoint == 'run' else tool.execute(args)
+    assert (result['ok'] if entrypoint == 'run' else result.ok)
+    service.navigate.assert_called_once_with('https://example.com')
+    service.extract_content.assert_called_once_with(selector='main')
+    service.extract_content.reset_mock()
+    service.navigate.return_value = {'ok': False, 'error': 'navigation failed'}
+    result = tool.run(**args) if entrypoint == 'run' else tool.execute(args)
+    assert not (result['ok'] if entrypoint == 'run' else result.ok)
+    service.extract_content.assert_not_called()
+
+def test_general_exposes_workflow_simulation(tmp_path):
+    registry = ToolRegistry(base_folder=str(tmp_path))
+    for name in ('workflow',):
+        assert name in registry.allowed_tool_names('general', 'groq', f'Use {name}')
+        assert name not in registry.allowed_tool_names('tutor', 'groq', f'Use {name}')

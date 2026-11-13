@@ -183,6 +183,8 @@ class VoiceCallEngine:
             state=CallState.CONNECTING
         )
         self.active_sessions[session_id] = session
+        from app.services.context_compaction import voice_started
+        voice_started(session_id)
         session.state = CallState.LISTENING
 
         # Initialise per-session emotion analyzer
@@ -289,7 +291,8 @@ class VoiceCallEngine:
             "session_id": session_id,
             "state": session.state.value,
             "cancelled": True,
-            "confirmation": "Cancelado. O que você gostaria de fazer agora?",
+            "scope": "voice_session",
+            "confirmation": "Interrompi a fala. O estado das tarefas deve ser consultado em Execuções.",
         }
 
     def register_abort_callback(self, session_id: str, callback: Callable[[], Any]) -> bool:
@@ -426,6 +429,8 @@ class VoiceCallEngine:
 
         session.state = CallState.IDLE
         del self.active_sessions[session_id]
+        from app.services.context_compaction import voice_ended
+        voice_ended(session_id)
 
         return {
             "ok": True,

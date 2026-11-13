@@ -341,6 +341,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   const audioUrlRef = useRef<string | null>(null)
   const speechRequestRef = useRef(0)
   const speechAbortRef = useRef<AbortController | null>(null)
+  const voiceCancellationRef = useRef<Promise<string> | null>(null)
   const isSpeakingRef = useRef(false)
   const spokenSentencesRef = useRef<string[]>([])
   const lastInterruptionRef = useRef<{ text: string; time: number } | null>(null)
@@ -652,13 +653,23 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     const abortController = new AbortController()
     speechAbortRef.current = abortController
     let voiceRunId: string | null = null
+    voiceCancellationRef.current = null
     let turnActivity: ToolActivityEntry[] = []
     let turnMeta: TurnMeta | undefined
     const announcedActions = new Set<string>()
     const cancelVoiceRun = () => {
-      if (voiceRunId) void fetch(`/api/runs/${encodeURIComponent(voiceRunId)}/cancel`, {
+      if (!voiceRunId) return
+      const runId = voiceRunId
+      voiceCancellationRef.current = fetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
-      }).catch(() => undefined)
+        signal: AbortSignal.timeout(5000),
+      }).then(async response => {
+        const data = await response.json()
+        if (!response.ok || !data.ok || data.run?.id !== runId) throw new Error('Cancelamento não confirmado')
+        if (data.run.status === 'cancelled') return 'Pedido cancelado. As etapas já concluídas foram preservadas.'
+        if (data.run.status === 'cancel_requested') return 'Cancelamento solicitado. Uma etapa já iniciada ainda pode terminar.'
+        throw new Error('Cancelamento não confirmado')
+      }).catch(() => 'Não consegui confirmar o cancelamento do pedido. Confira em Execuções.')
     }
     abortController.signal.addEventListener('abort', cancelVoiceRun, { once: true })
 
@@ -1031,6 +1042,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   async function handleVoiceCancellation() {
     clearPendingSpeech()
     captureEpochRef.current += 1
+    const cancellationEpoch = captureEpochRef.current
+    const cancelledRequest = lastVoiceRequestRef.current
     speechRequestRef.current += 1
     transcriptionAbortRef.current?.abort()
     if (liveCallRecorderRef.current?.state === 'recording') liveCallRecorderRef.current.stop()
@@ -1096,8 +1109,11 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
 
     // 5. Atualiza UI e emite áudio curto de confirmação
     setLiveOrbState('speaking')
-    setLiveCallStatus('Cancelado por voz.')
-    const confirmationText = 'Cancelado. O que você gostaria de fazer agora?'
+    setLiveCallStatus('Fala interrompida. Verificando o pedido…')
+    const cancellation = voiceCancellationRef.current
+    voiceCancellationRef.current = null
+    const confirmationText = 'Interrompi a fala. ' + (cancellation ? await cancellation : 'Se houver uma tarefa em andamento, confira em Execuções.')
+    if (!liveCallActiveRef.current || captureEpochRef.current !== cancellationEpoch || lastVoiceRequestRef.current !== cancelledRequest) return
     setLiveJarvisTranscript(confirmationText)
 
     try {

@@ -163,8 +163,7 @@ class BrowserTool(BaseTool):
             return service.navigate(url)
 
         if action in {"extract", "extract_content"}:
-            selector = kwargs.get("selector")
-            return service.extract_content(selector=selector)
+            return self._extract(service, kwargs)
 
         if action == "clean_text":
             url = kwargs.get("url")
@@ -214,6 +213,14 @@ class BrowserTool(BaseTool):
 
         return {"ok": False, "error": f"Ação desconhecida: '{action}'. Use navigate, extract, search_and_extract, click, fill_form ou screenshot."}
 
+    @staticmethod
+    def _extract(service, args):
+        if args.get("url"):
+            navigation = service.navigate(args["url"])
+            if not navigation.get("ok"):
+                return navigation
+        return service.extract_content(selector=args.get("selector"))
+
     def execute(self, args: dict[str, Any], context: dict[str, Any] | None = None) -> ToolResult:
         args = args or {}
         action = str(args.get("action") or "").strip().lower()
@@ -232,8 +239,7 @@ class BrowserTool(BaseTool):
                 return ToolResult(ok=ok, message=msg, data=res)
 
             elif action in {"extract", "extract_content"}:
-                selector = args.get("selector")
-                res = service.extract_content(selector=selector)
+                res = self._extract(service, args)
                 ok = res.get("ok", False)
                 msg = res.get("message", res.get("error", "Conteúdo extraído."))
                 return ToolResult(ok=ok, message=msg, data=res)

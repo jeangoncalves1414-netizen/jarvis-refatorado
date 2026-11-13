@@ -169,6 +169,9 @@ def test_final_quota_error_never_reexecutes_tools(groq_script, monkeypatch):
     reply = service._chat_groq_stream('sys', _MESSAGES, tools=_TOOLS, on_function_call=lambda *args: calls.append(args) or 'Nota registrada.')
     assert len(calls) == 1 and len(completions.calls) == 2
     assert 'Nota registrada.' in reply and 'sobrecarregado' in reply
+    assert 'não repeti as ações' in reply
+    assert 'Não é necessário reenviar' in reply
+    assert 'tente novamente' not in reply.lower()
 
 
 def test_synthesis_error_after_tool_returns_results_without_rerun(groq_script) -> None:
@@ -218,3 +221,22 @@ def test_oversize_retry_is_bounded_and_preserves_rules_and_latest_request(groq_s
     assert completions.calls[1]['messages'][0]['content'] == 'regras' * 500
     assert completions.calls[1]['messages'][-1]['content'] == 'x' * 4000
     assert completions.calls[1]['tools']
+
+
+def test_context_usage_measures_payload_and_history_reduction(groq_script):
+    from app.agent import turn_meta
+    from app.agent.context_budget import estimate_tokens
+    completions = groq_script([[_text_chunk('ok')]])
+    messages = [{'role': 'user', 'content': 'antigo ' * 150}] * 11 + [{'role': 'user', 'content': 'oi'}]
+    token = turn_meta.start()
+    try:
+        _service()._chat_groq_stream('regras', messages)
+        usage = turn_meta.snapshot()['context_usage']
+        assert len(usage) == 1
+        assert usage[0]['estimated_tokens'] == estimate_tokens(completions.calls[0]['messages'])
+        assert usage[0]['before_tokens'] > usage[0]['estimated_tokens']
+        assert usage[0]['reduced'] and usage[0]['budget'] == 6000
+        assert 'antigo' not in str(usage)
+    finally:
+        turn_meta.reset(token)
+    assert not turn_meta.snapshot()

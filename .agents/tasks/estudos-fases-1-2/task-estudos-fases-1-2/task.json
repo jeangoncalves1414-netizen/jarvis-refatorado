@@ -1,0 +1,7 @@
+{
+  "task_id": "task-estudos-fases-1-2",
+  "task_description": "Implement Phases 1 and 2 (plus 6.5, 6.8, item 9) of the Jarvis study-system review: language mode wiring, tool isolation, py-fsrs scheduler with learning steps, migration, immutable review log and undo, unified XP/streak service, study dashboard and stats API, language wiring endpoints, and frontend fixes, dashboard 'Hoje', progress visuals, gamification, Pomodoro XP, keyboard shortcuts. Full plan: c:/Users/maria/Desktop/Jarvis/.agents/tasks/estudos-fases-1-2/plan.md",
+  "status": "pending",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005"],
+  "blocked_reason": null
+}

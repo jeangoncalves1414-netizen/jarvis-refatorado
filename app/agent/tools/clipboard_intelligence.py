@@ -60,7 +60,7 @@ class ClipboardIntelligenceTool(BaseTool):
             return ToolResult(
                 ok=True,
                 message=f"📋 Conteúdo do Clipboard ({len(content)} caracteres):\n{preview}",
-                data={"text": content, "length": len(content)},
+                data={"text": content, "content": content, "length": len(content)},
             )
 
         # Instruções prontas para passar pro orchestrator/LLM
@@ -76,6 +76,6 @@ class ClipboardIntelligenceTool(BaseTool):
 
         return ToolResult(
             ok=True,
-            message=f"⚡ Ação Clipboard '{action}' disparada com sucesso.",
-            data={"action": action, "prompt": full_prompt, "original_text": content},
+            message=f"Texto preparado para '{action}'; a transformação ainda depende da resposta do modelo.",
+            data={"action": action, "content": content, "prompt": full_prompt, "original_text": content},
         )

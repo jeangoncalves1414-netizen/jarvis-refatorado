@@ -26,6 +26,7 @@ export function PlacesWindow({ params }: WindowComponentProps<PlacesWindowParams
   const [near, setNear] = useState(params.near ?? '')
   const [state, setState] = useState<SearchState>({ kind: 'idle' })
   const [selected, setSelected] = useState(0)
+  const [copyNotice, setCopyNotice] = useState('')
   const controllerRef = useRef<AbortController | null>(null)
 
   const search = useCallback(async (rawQuery: string, rawNear: string) => {
@@ -45,6 +46,7 @@ export function PlacesWindow({ params }: WindowComponentProps<PlacesWindowParams
       const bbox = parseBbox(data.bbox)
       if (results.some(item => item === null) || bbox === undefined) throw new Error('O servidor devolveu resultados inválidos.')
       setSelected(0)
+      setCopyNotice('')
       setState({ kind: 'done', label, provider: data.provider === 'google' ? 'google' : 'osm', results: results as PlaceResult[], bbox, notice: typeof data.notice === 'string' ? data.notice : '' })
     } catch (error) {
       if (controller.signal.aborted) return
@@ -101,7 +103,7 @@ export function PlacesWindow({ params }: WindowComponentProps<PlacesWindowParams
           <ul className="ws-places-list" aria-label="Resultados">
             {done.results.map((place, index) => (
               <li key={`${place.lat},${place.lon},${index}`}>
-                <button type="button" className={index === selected ? 'selected' : ''} aria-pressed={index === selected} onClick={() => setSelected(index)}>
+                <button type="button" className={index === selected ? 'selected' : ''} aria-pressed={index === selected} onClick={() => { setSelected(index); setCopyNotice('') }}>
                   <MapPin size={14} aria-hidden="true" />
                   <span className="ws-places-what">
                     <strong>{place.name}</strong>
@@ -117,6 +119,15 @@ export function PlacesWindow({ params }: WindowComponentProps<PlacesWindowParams
             <div className="ws-places-map-foot">
               <span className="ws-places-attribution">Mapa: {OSM_ATTRIBUTION}{done.provider === 'google' ? ' · Resultados: Google Places' : ''}</span>
               {current && <a href={osmLink(current)} target="_blank" rel="noopener noreferrer"><ExternalLink size={12} /> Abrir no mapa</a>}
+              {current && <>
+                <span>{current.lat}, {current.lon}</span>
+                <button type="button" onClick={() => {
+                  void navigator.clipboard.writeText(`${current.lat}, ${current.lon}`).then(() => setCopyNotice('Coordenadas copiadas.')).catch(() => setCopyNotice('Não foi possível copiar. Selecione as coordenadas acima.'))
+                }}>Copiar coordenadas</button>
+                <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${current.lat},${current.lon}`)}`} target="_blank" rel="noopener noreferrer">Google Maps</a>
+                <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${current.lat},${current.lon}`)}`} target="_blank" rel="noopener noreferrer">Traçar rota</a>
+                <span role="status">{copyNotice}</span>
+              </>}
             </div>
           </div>
         </div>

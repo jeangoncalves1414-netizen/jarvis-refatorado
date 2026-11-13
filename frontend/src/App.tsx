@@ -75,6 +75,9 @@ function readActiveScreen() {
 }
 
 export default function App() {
+  useEffect(() => {
+    void panelRequest('/api/finance/banks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'opened' }) }).catch(() => {})
+  }, [])
   const operational = useOperationalSnapshot()
   const [isToolForgeOpen, setIsToolForgeOpen] = useState(false)
   const [active, setActive] = useState(readActiveScreen)

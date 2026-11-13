@@ -206,7 +206,8 @@ def save_session_history(session_id: str, history: List[dict]) -> None:
         _save_history(session_id, history)
 
 
-def save_turn(session_id: str, run_id: str, text: str, reply: str, *, timestamp: float, failed: bool = False) -> None:
+def save_turn(session_id: str, run_id: str, text: str, reply: str, *, timestamp: float, failed: bool = False,
+              context_usage: list[dict] | None = None) -> None:
     """Persiste um turno completo uma única vez, inclusive falhas e cancelamentos."""
     import time
     with _history_lock:
@@ -227,6 +228,9 @@ def save_turn(session_id: str, run_id: str, text: str, reply: str, *, timestamp:
                 history.append(user)
             history.append({"role": "assistant", "content": reply, "run_id": run_id,
                             "timestamp": time.time() * 1000, "failed": failed})
+        if context_usage:
+            assistant = next(row for row in reversed(history) if row.get('run_id') == run_id and row.get('role') == 'assistant')
+            assistant.setdefault('meta', {})['context_usage'] = context_usage[:32]
         _save_history(session_id, history)
 
 

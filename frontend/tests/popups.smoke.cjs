@@ -69,7 +69,8 @@ const notesPopup = (draft, title, dictate, format = 'bullets') => envelope(`note
       const url = new URL(request.url())
       apiCalls.push(url.pathname)
       let data = { ok: true }, status = 200
-      if (url.pathname === '/api/sessions') data = { sessions: [{ id: 'session-1', title: 'Conversa um', type: 'chat' }] }
+      if (url.pathname === '/api/app-lock') data = { ok: true, configured: true, enabled: false, unlocked: true }
+      else if (url.pathname === '/api/sessions') data = { sessions: [{ id: 'session-1', title: 'Conversa um', type: 'chat' }] }
       else if (url.pathname.endsWith('/history')) data = { history: [] }
       else if (url.pathname === '/api/runs') data = { ok: true, runs: [], next_cursor: null }
       else if (url.pathname === '/api/mission-control') data = { ok: true, components: [], summary: {}, goals: [], pending_actions: [], recent_actions: [] }
@@ -401,6 +402,11 @@ const notesPopup = (draft, title, dictate, format = 'bullets') => envelope(`note
     assert.ok(iframeUrl.searchParams.get('bbox') && iframeUrl.searchParams.get('marker') === '-23.55,-46.63', src)
     await placesWindow.getByText('Mapa: © colaboradores do OpenStreetMap', { exact: false }).waitFor()
     await placesWindow.getByRole('link', { name: 'Abrir no mapa' }).waitFor()
+    assert.ok((await placesWindow.getByRole('link', { name: 'Google Maps', exact: true }).getAttribute('href')).includes('query=-23.55%2C-46.63'))
+    assert.ok((await placesWindow.getByRole('link', { name: 'Traçar rota', exact: true }).getAttribute('href')).includes('destination=-23.55%2C-46.63'))
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    await placesWindow.getByRole('button', { name: 'Copiar coordenadas' }).click()
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '-23.55, -46.63')
     // Escolher outro resultado move o marcador.
     await placesWindow.getByRole('button', { name: /Padaria Bela Vista/ }).click()
     await page.waitForFunction(() => document.querySelector('.ws-places-map iframe')?.getAttribute('src')?.includes('marker=-23.56%2C-46.64'))

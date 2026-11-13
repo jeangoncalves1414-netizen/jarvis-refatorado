@@ -506,8 +506,8 @@ class LLMService:
             )
             for chunk in response_stream:
                 text_piece = getattr(chunk, "text", None)
-                for candidate in getattr(chunk, "candidates", []):
-                    for part in getattr(getattr(candidate, "content", None), "parts", []):
+                for candidate in (getattr(chunk, "candidates", None) or []):
+                    for part in (getattr(getattr(candidate, "content", None), "parts", None) or []):
                         if getattr(part, "thought", False):
                             thought_text = getattr(part, "text", None)
                             if thought_text and on_reasoning:
@@ -888,8 +888,8 @@ class LLMService:
                         on_chunk(text_piece)
 
                 # Procura por tools, pedacos de texto e raciocinio (thought) dentro dos candidates
-                for candidate in getattr(chunk, "candidates", []):
-                    for part in getattr(getattr(candidate, "content", None), "parts", []):
+                for candidate in (getattr(chunk, "candidates", None) or []):
+                    for part in (getattr(getattr(candidate, "content", None), "parts", None) or []):
                         # Parts de raciocinio (thought=True) -> reasoning ao vivo
                         if getattr(part, "thought", False):
                             thought_text = getattr(part, "text", None)
@@ -958,8 +958,8 @@ class LLMService:
                     if on_chunk:
                         on_chunk(text_piece)
                 # Parts de raciocinio (thought=True) -> reasoning ao vivo
-                for candidate in getattr(chunk, "candidates", []):
-                    for part in getattr(getattr(candidate, "content", None), "parts", []):
+                for candidate in (getattr(chunk, "candidates", None) or []):
+                    for part in (getattr(getattr(candidate, "content", None), "parts", None) or []):
                         if getattr(part, "thought", False):
                             thought_text = getattr(part, "text", None)
                             if thought_text and on_reasoning:
@@ -1240,19 +1240,27 @@ class LLMService:
                 except Exception:
                     pass
 
+        first_context_measurement = True
+
         def _stream_turn(
             msgs: list[dict[str, Any]], with_tools: bool = True
         ) -> tuple[str, dict[int, dict[str, str]]]:
             """Streams one turn. Emite reasoning (delta.reasoning | delta.reasoning_content)
             e conteudo (delta.content) em tempo real.
             Retorna (texto_acumulado, tool_calls_agrupadas_por_index)."""
-            nonlocal offered_names
+            nonlocal offered_names, first_context_measurement
             selected = groq_tools if with_tools else []
             # Context capacity applies to each API request, not the sum of successive calls.
             fitted, selected = fit_request(msgs, selected, REQUEST_BUDGET)
             cost = estimate_tokens(fitted, selected)
             if cost > REQUEST_BUDGET:
                 raise RuntimeError("Orçamento de contexto do turno esgotado; resultados preservados.")
+            from app.agent.context_budget import record_context_usage
+            before = estimate_tokens(original_rows if first_context_measurement else msgs,
+                                     groq_tools if with_tools else [])
+            first_context_measurement = False
+            record_context_usage(before, cost,
+                                 provider="groq", model=model_name, budget=REQUEST_BUDGET)
             offered_names = {t["function"]["name"] for t in selected}
             kwargs: dict[str, Any] = {
                 "model": model_name,
@@ -1528,7 +1536,7 @@ class LLMService:
                         return recovered
                     _key_rotator.mark_rate_limit(api_key, final_err)
                     _warn_synthesis_failed(final_err)
-                    result = tool_summary + "\n\nResultados preservados. Estou um pouco sobrecarregado; tente novamente em alguns segundos para uma resposta completa."
+                    result = tool_summary + "\n\nOs resultados acima foram preservados; não repeti as ações. O modelo está sobrecarregado e não consegui elaborar a resposta final. Não é necessário reenviar o pedido para executar essas ações novamente."
                     _emit_chunk(result)
                     return result
                 if "413" in str(final_err) or "too large" in str(final_err).lower():
@@ -1562,7 +1570,7 @@ class LLMService:
                 except Exception as retry_err:
                     if is_rate_limit(retry_err):
                         _key_rotator.mark_rate_limit(api_key, retry_err)
-                        result = tool_summary + "\n\nResultados preservados. Estou um pouco sobrecarregado; tente novamente em alguns segundos para uma resposta completa."
+                        result = tool_summary + "\n\nOs resultados acima foram preservados; não repeti as ações. O modelo está sobrecarregado e não consegui elaborar a resposta final. Não é necessário reenviar o pedido para executar essas ações novamente."
                         _emit_chunk(result)
                         return result
                     _log(f"[Groq] Retry do turno final falhou: {retry_err}")
@@ -1597,7 +1605,7 @@ class LLMService:
                 result = (_tool_results_text() or "As ferramentas foram chamadas, mas não devolveram resultado; nada foi confirmado.")
                 if is_rate_limit(e):
                     _key_rotator.mark_rate_limit(api_key, e)
-                    result += "\n\nResultados preservados. Estou um pouco sobrecarregado; tente novamente em alguns segundos para uma resposta completa."
+                    result += "\n\nOs resultados acima foram preservados; não repeti as ações. O modelo está sobrecarregado e não consegui elaborar a resposta final. Não é necessário reenviar o pedido para executar essas ações novamente."
                 else:
                     result += "\n\nResultados preservados; não consegui redigir a resposta final, sem repetir as ações."
                 _emit_chunk(result)

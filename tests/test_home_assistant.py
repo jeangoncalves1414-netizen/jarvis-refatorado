@@ -376,6 +376,7 @@ def test_home_tool_allowed_tools_filtering():
 
     # Sem HA configurado: home NÃO pode aparecer em allowed_tool_names
     assert "home" not in registry.allowed_tool_names(mode="general")
+    assert 'home' in registry.allowed_tool_names(mode='general', provider='groq', user_text='Use home para listar entidades')
     assert "home" not in registry.allowed_tool_names(mode="general", provider="groq", user_text="liga a luz")
     assert "home" not in registry.allowed_tool_names(mode="general", narrow=True, user_text="luz da sala")
 

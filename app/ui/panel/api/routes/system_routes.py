@@ -29,6 +29,18 @@ def handle_system_routes(path: str, body: bytes, send_json_fn: Callable[[int, di
 
 def _handle_system_routes(path: str, body: bytes, send_json_fn: Callable[[int, dict[str, Any]], None]) -> bool:
     """Processa requisições REST para o domínio de Inteligência do Sistema e Segurança."""
+    if path == '/api/finance/banks':
+        try:
+            from app.services.bank_sync import command
+            payload = json.loads(body or b'{}')
+            if not isinstance(payload, dict):
+                raise ValueError('Requisição inválida.')
+            send_json_fn(200, command(payload))
+        except ValueError as exc:
+            send_json_fn(400, {'ok': False, 'error': str(exc)})
+        except Exception:
+            send_json_fn(502, {'ok': False, 'error': 'Não foi possível consultar o provedor bancário.'})
+        return True
     if path == "/api/llm/route":
         try:
             from app.services.llm_router import SmartLLMRouter

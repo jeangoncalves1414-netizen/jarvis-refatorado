@@ -15,6 +15,19 @@ from app.storage.checklist_store import ChecklistStore, parse_spoken_items
 from app.ui.panel.api.checklists import handle_checklists_get, handle_checklists_post
 
 
+def test_list_summaries_is_read_only():
+    from app.agent.tools.catalog import TOOL_CATALOG
+    assert TOOL_CATALOG['checklist_tool'].risk_for({'action': 'list_summaries'}) == 'observe'
+
+
+def test_get_list_receipt_contains_item_states(isolated_checklist_store):
+    tool = ChecklistTool()
+    tool.run(action='create_list', title='Receipt test', items=[{'text': 'Coffee'}, {'text': 'Paper', 'completed': True}])
+    result = tool.run(action='get_list', title='Receipt test')
+    assert '[ ] Coffee' in result['message']
+    assert '[x] Paper' in result['message']
+
+
 @pytest.fixture
 def isolated_checklist_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Instância isolada de ChecklistStore em arquivo temporário."""

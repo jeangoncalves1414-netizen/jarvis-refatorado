@@ -223,6 +223,7 @@ class ReActLoopEngine:
     def _drive(self, state: _LoopState) -> None:
         """Roda até um motivo de parada; ``waiting_approval`` deixa um ponto de retomada."""
         t = state.trajectory
+        invalid_plans = 0
         while True:
             check_run_cancelled()
             if state.queue:
@@ -243,6 +244,10 @@ class ReActLoopEngine:
             except RunCancelled:
                 raise
             except Exception as exc:
+                if isinstance(exc, ValueError) and invalid_plans == 0 and t.model_calls < t.max_model_calls:
+                    invalid_plans += 1
+                    state.history.append('O plano anterior estava malformado e nenhuma ação dele foi executada. Reenvie apenas FERRAMENTA: nome e ARGS: objeto JSON válido, ou FINISH: resposta.')
+                    continue
                 t.stopped_reason = "invalid_plan"
                 t.success = False
                 t.final_output = "O planejamento ReAct falhou ou retornou uma ação inválida. Consulte as etapas na Central."

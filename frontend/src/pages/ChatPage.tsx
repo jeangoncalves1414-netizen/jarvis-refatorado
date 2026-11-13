@@ -1,4 +1,5 @@
 import { autoAllows } from '../components/AutoApprovals'
+import { ContextMaintenance } from '../components/chat/ContextMaintenance'
 import { useEffect, useRef, useState } from 'react'
 import { ArrowDown, ArrowUpRight, Code2, Copy, Download, Lightbulb, Pencil, Search, Sparkles, Trash2, Volume2, X } from 'lucide-react'
 import type { ChatMode } from '../components/ChatComposer'
@@ -121,6 +122,7 @@ export function ChatPage(props: ChatPageProps) {
       </div>}
     </div>
     {!following && !empty && <button className="ws-jump-latest" aria-label="Ir para a última mensagem" onClick={() => setFollowing(true)}><ArrowDown size={16} /> Últimas mensagens</button>}
+    <ContextMaintenance sessionId={props.sessionId} />
     {props.chatError && <div className="ws-error" role="alert"><span>{props.chatError}</span><button className="ws-icon-button" aria-label="Fechar erro" onClick={props.onClearChatError}><X size={16} /></button></div>}
     {feedback && <div className="ws-feedback" role="status">{feedback}<button aria-label="Fechar aviso" onClick={() => setFeedback('')}><X size={13} /></button></div>}
     <WorkspaceComposer hasActiveRequest={props.hasActiveRequest} canStopRequest={props.canStopRequest} runStatus={props.runStatus} supportsRuns={!!props.onOpenRun} commandHandlers={props.commandHandlers} wakeWord={props.wakeWord} wakeHeard={props.wakeHeard} value={props.query} loading={props.loading} mode={props.chatMode} attachment={props.chatAttachment} recording={props.recording} onChange={props.onQueryChange} onModeChange={props.onModeChange} onAttachment={props.onAttachment} onClearAttachment={props.onClearAttachment} onSubmit={props.onSubmit} onVoice={props.onVoice} onScreen={props.onScreen} onCinema={props.onCinema} onOpenLiveCall={props.onOpenLiveCall} />

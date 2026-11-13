@@ -58,3 +58,13 @@ def test_react_loop_stops_on_provider_error_without_running_tools():
     assert "Erro ao acessar a API" not in trajectory.final_output and "sk-" not in trajectory.final_output
     assert trajectory.final_output.startswith("O planejamento falhou: Erro do provedor (RuntimeError).")
     assert "Nada mais foi executado" in trajectory.final_output
+
+def test_gemini_stream_tolerates_empty_candidates_and_parts(monkeypatch):
+    from google import genai
+    chunks = [SimpleNamespace(text=None, candidates=None), SimpleNamespace(text=None, candidates=[SimpleNamespace(content=SimpleNamespace(parts=None))]), SimpleNamespace(text='Resposta real', candidates=[])]
+    client = SimpleNamespace(models=SimpleNamespace(generate_content_stream=lambda **kwargs: iter(chunks)))
+    monkeypatch.setattr(genai, 'Client', lambda **kwargs: client)
+    monkeypatch.setattr(LLMService, '_api_key_for', lambda self, provider: 'fixture-key')
+    monkeypatch.setattr(LLMService, '_effective_chat_model', lambda *args: 'fixture-model')
+    service = LLMService(settings=SimpleNamespace())
+    assert service._chat_gemini_stream('', [{'role':'user','content':'oi'}]) == 'Resposta real'

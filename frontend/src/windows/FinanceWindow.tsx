@@ -1,4 +1,5 @@
 import { autoAllows } from '../components/AutoApprovals'
+import { BankConnections } from '../components/BankConnections'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -251,6 +252,7 @@ export function FinanceWindow({ params, operational }: WindowComponentProps<Fina
 
   return (
     <div className="ws-finance">
+      <BankConnections />
       <div className="ws-finance-head">
         {manualMode && <span className="ws-finance-mode" title={providers?.reason || 'A IA está indisponível; o registro manual segue funcionando.'}>Modo manual · IA indisponível</span>}
         <span className="ws-muted">Valores calculados pelo servidor</span>

@@ -38,7 +38,7 @@ def _parameter_summary(name: str, schema: Any) -> dict[str, Any]:
 def build_inventory(registry: ToolRegistry) -> list[dict[str, Any]]:
     """Uma linha por ferramenta registrada, em ordem alfabética."""
     rows: list[dict[str, Any]] = []
-    for tool in sorted(registry.list_tools(), key=lambda t: t.name):
+    for tool in sorted({tool.name: tool for tool in registry.list_tools()}.values(), key=lambda t: t.name):
         metadata = registry.get_tool_metadata(tool.name)
         parameters = tool.parameters or {}
         key = _operation_key(parameters, metadata)

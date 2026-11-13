@@ -204,6 +204,30 @@ test('cancelar não suspende o microfone e permite a próxima fala', async ({ pa
   await expect.poll(() => app.chats().length).toBe(1)
 })
 
+for (const status of ['cancel_requested', 'cancelled', 'failed']) {
+  test(`confirmação por voz usa o recibo de cancelamento: ${status}`, async ({ page }) => {
+    const app = await setup(page, 'auto')
+    await page.route('**/api/runs/run_cancel_test/cancel', route => route.fulfill({
+      status: status === 'failed' ? 503 : 200, contentType: 'application/json',
+      body: JSON.stringify({ ok: status !== 'failed', run: { id: 'run_cancel_test', status } }),
+    }))
+    await page.evaluate(() => { (window as any).voiceTest.holdAudio = true })
+    app.control.streamEvents = [
+      { status: 'progress', phase: 'started', run_id: 'run_cancel_test' },
+      { status: 'complete', plan: { summary: 'Esta fala ainda está tocando.' } },
+    ]
+    app.events.push({ type: 'transcript', text: 'Explique esse assunto', turn_id: 'cancel', semantic: true, turn_complete: true })
+    await expect.poll(() => page.evaluate(() => (window as any).voiceTest.plays)).toBeGreaterThan(0)
+    await page.evaluate(() => { (window as any).voiceTest.holdAudio = false })
+    await page.getByRole('button', { name: 'Cancelar pedido' }).click()
+    const expected = status === 'cancel_requested' ? 'Cancelamento solicitado.'
+      : status === 'cancelled' ? 'Pedido cancelado.' : 'Não consegui confirmar o cancelamento'
+    await expect.poll(() => app.requests.filter(r => r.path === '/api/voice/tts').map(r => r.body.text).join('\n')).toContain(expected)
+    expect(app.requests.filter(r => r.path === '/api/voice/tts').some(r => r.body.text.startsWith('Cancelado.'))).toBe(false)
+    await expect(page.getByTestId('orb')).toHaveText('listening')
+  })
+}
+
 test('captura do PC despacha fala e não inicia outro reconhecedor', async ({ page }) => {
   const app = await setup(page, 'auto')
   app.events.push({ type: 'transcript', text: 'Olá pelo PC', turn_id: 'pc-1' })
@@ -357,7 +381,8 @@ test('fim de turno sem novo texto libera segmentos já transcritos', async ({ pa
   const app = await setup(page, 'auto')
   app.events.push({ type: 'processing', turn_id: 'segment' }, { type: 'turn_end' },
     { type: 'transcript', text: 'Explique o assunto', turn_id: 'segment', semantic: true, turn_complete: false })
-  await expect.poll(() => app.chats().length, { timeout: 2000 }).toBe(1)
+  await expect.poll(() => app.chats().length).toBe(1)
+  expect(app.chats()[0].body.message).toBe('Explique o assunto')
 })
 
 test('interrupção cancela a execução exata e preserva o pedido para o complemento', async ({ page }) => {

@@ -229,8 +229,8 @@ class TimerTool(BaseTool):
             timer_id = self.manager.add(fire_at, desc)
             return ToolResult(
                 ok=True,
-                message=f"Timer [{timer_id}] criado com sucesso: '{desc}' para disparar às {fire_at.strftime('%H:%M:%S')}.",
-                data={"timer_id": timer_id, "fire_at": fire_at.isoformat(), "label": desc}
+                message=f"Timer [{timer_id}] criado com sucesso: '{desc}', duração {self._fmt_duration(seconds)}, para disparar às {fire_at.strftime('%H:%M:%S')}.",
+                data={"timer_id": timer_id, "fire_at": fire_at.isoformat(), "label": desc, "duration_seconds": seconds}
             )
 
         elif action == "set_alarm":
@@ -264,10 +264,10 @@ class TimerTool(BaseTool):
         total = 0
         found = False
         for pattern, mult in [
-            (r"(\d+)\s*h(?:ora)?s?", 3600),
-            (r"(\d+)\s*min(?:uto)?s?", 60),
-            (r"(\d+)\s*s(?:eg(?:undo)?)?s?\b", 1),
-            (r"(\d+)\s*m\b", 60),
+            (r"(\d+)\s*h(?:ora|our)?s?(?![a-z])", 3600),
+            (r"(\d+)\s*min(?:uto|ute)?s?(?![a-z])", 60),
+            (r"(\d+)\s*(?:s(?:eg(?:undo)?)?s?|seconds?|secs?)\b", 1),
+            (r"(\d+)\s*m(?![a-z])", 60),
         ]:
             for m in re.finditer(pattern, text):
                 total += int(m.group(1)) * mult

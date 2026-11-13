@@ -36,6 +36,8 @@ class Settings:
     llm_provider: str = "gemini"
     llm_model: str = "gemini-2.5-flash"
     groq_model: str = "llama-3.3-70b-versatile"
+    vision_provider: str = ""
+    gemini_vision_model: str = "gemini-flash-latest"
     tts_voice: str = "pt-BR-AntonioNeural"
     tts_provider: str = "fish"            # fish | gemini | edge | oxyy | auto
     tts_gemini_voice: str = "Charon"       # Charon, Fenrir, Puck, Aoede, Kore, Zephyr
@@ -107,6 +109,8 @@ def load_settings() -> Settings:
         llm_provider=os.getenv("LLM_PROVIDER", "gemini"),
         llm_model=os.getenv("GEMINI_MODEL", os.getenv("LLM_MODEL", "gemini-flash-latest")),
         groq_model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        vision_provider=os.getenv("VISION_PROVIDER", "").strip().lower(),
+        gemini_vision_model=os.getenv("GEMINI_VISION_MODEL", "gemini-flash-latest"),
         tts_voice=os.getenv("TTS_VOICE", "pt-BR-AntonioNeural"),
         tts_provider=os.getenv("TTS_PROVIDER", "fish"),
         tts_gemini_voice=os.getenv("TTS_GEMINI_VOICE", "Charon"),

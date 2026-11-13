@@ -309,6 +309,14 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         scope="Só timers e alarmes do Jarvis; somem se o backend reiniciar.",
     ),
     # Espera real entre ações (risco low para aparecer na Central sem "incluir leituras").
+    "run_control": ToolMetadata(
+        ("execution", "control"), "low", operation_arguments=("action",), default_operation="status",
+        operation_risks=_by_operation(observe=("status",), low=("cancel",)),
+        target_arguments=("run_id",), default_target="pedidos desta conversa",
+        effect="Consulta recibos reais ou solicita o cancelamento de um pedido identificado.",
+        reversibility="Etapas concluídas não são desfeitas. Uma etapa já iniciada pode continuar até retornar.",
+        scope="Somente outros pedidos vinculados à mesma conversa.",
+    ),
     "wait": ToolMetadata(
         ("wait", "control"), "low", reversible=True, default_target="pausa entre ações",
         effect="Apenas espera; nada é alterado.",
@@ -782,7 +790,7 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         ("checklists", "personal"), "critical",
         operation_arguments=("action", "command"), default_operation="get_list",
         operation_risks=_by_operation(
-            observe=("get_list", "list_all", "list"),
+            observe=("get_list", "list_all", "list", "list_summaries"),
             low=("create_list", "add_items", "toggle_item", "update_item"),
             high=("delete_list", "delete_item"),
         ),
@@ -790,6 +798,7 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         target_detail=_checklist_target_detail,
         operation_effects=(
             ("get_list", "Lê a lista de checagem e seus itens; nada é alterado."),
+            ("list_summaries", "Lista os resumos das checklists; nada é alterado."),
             ("list_all", "Lista todas as checklists; nada é alterado."),
             ("list", "Lista todas as checklists; nada é alterado."),
             ("create_list", "Cria uma nova lista de checagem inteligente."),
@@ -801,6 +810,7 @@ TOOL_CATALOG: dict[str, ToolMetadata] = {
         ),
         operation_reversibility=(
             ("get_list", "Nada a desfazer."),
+            ("list_summaries", "Nada a desfazer."),
             ("list_all", "Nada a desfazer."),
             ("list", "Nada a desfazer."),
             ("create_list", "Reversível: exclua a lista se não precisar dela."),

@@ -124,6 +124,14 @@ Usuário: "que apps estão abertos?" → Resposta: [tool:system_control:list_pro
 
 AGENT_SYSTEM_PROMPT_FUNCTION_CALLING_TEMPLATE = """Você é {agent_name}, assistente de IA pessoal.
 
+EXECUÇÕES DA CONVERSA
+Para saber o que está em andamento, se um pedido terminou ou quanto falta na execução,
+consulte run_control action=status. Não use personal_records summary para essa pergunta:
+registros do organizador não são execuções do agente. Use o organizador quando o usuário
+especificar tarefas pessoais, hábitos, finanças ou planos. Para parar um pedido, consulte
+status e use cancel com o run_id exato. Limites de etapas/chamadas são tetos de execução,
+não trabalho restante; wait_remaining informa só a espera atual, não o prazo da tarefa toda.
+
 ORGANIZAÇÃO PESSOAL
 Use personal_records para desfazer, corrigir por contexto (record_id="last"), treinos detalhados,
 planos, sono, humor, contas, parcelas, transferências, estornos, recorrências e relações.

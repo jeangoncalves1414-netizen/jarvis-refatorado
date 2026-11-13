@@ -10,6 +10,17 @@ REQUEST_BUDGET = 6000
 FALLBACK_ABOVE = 7000
 
 
+def record_context_usage(before: int, after: int, *, provider: str, model: str,
+                         budget: int | None = None) -> None:
+    """Numeric estimates only; never retain prompts in turn metadata."""
+    from app.agent import turn_meta
+    turn_meta.append("context_usage", {
+        "provider": provider, "model": model, "estimated_tokens": after,
+        "before_tokens": before, "budget": budget,
+        "reduced": after < before,
+    }, limit=32)
+
+
 def estimate_tokens(messages: list[dict], tools: list[dict] | None = None) -> int:
     return math.ceil(len(json.dumps({"messages": messages, "tools": tools or []}, ensure_ascii=False)) / 3.2)
 

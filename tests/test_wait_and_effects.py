@@ -9,6 +9,12 @@ from app.agent.tool_guardrails import ToolCallGuardrailController
 from app.agent.tools.base import ToolResult
 from app.agent.tools.catalog import TOOL_CATALOG
 from app.agent.tools.wait import TOO_LONG_TEXT, WaitTool
+from app.agent.tools.timer import TimerTool
+
+
+@pytest.mark.parametrize('value,expected', [('3 seconds', 3), ('2 minutes', 120), ('1 hour 5 minutes', 3900), ('3 segundos', 3), ('5min', 300), ('1h 30m', 5400), ('1h30m', 5400)])
+def test_timer_accepts_model_units(value, expected):
+    assert TimerTool._parse_duration(value) == expected
 from app.core import waits
 from app.core.runs import RunCancelled, current_run
 from app.storage.action_store import ActionStore

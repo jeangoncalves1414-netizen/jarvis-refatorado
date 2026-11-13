@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from datetime import datetime, timezone
 from .base import BaseTool, ToolResult
 from app.services.vision import VisionService, VISION_AVAILABLE
 
@@ -40,6 +41,8 @@ class VisionTool(BaseTool):
 
     def execute(self, args: dict[str, Any], context: dict[str, Any] | None = None) -> ToolResult:
         action = str(args.get("action", "analyze_screen")).lower()
+        if action not in {"analyze_screen", "analyze_camera"}:
+            return ToolResult(False, "Ação de visão inválida. Use analyze_screen ou analyze_camera.")
         # The React camera workspace owns device selection and consent.  The
         # assistant must not silently open the operating-system default camera.
         if action == "analyze_camera":
@@ -51,34 +54,23 @@ class VisionTool(BaseTool):
             return ToolResult(ok=False, message="Visão computacional indisponível (dependências mss/Pillow ausentes).")
         prompt = str(args.get("prompt", "Descreva detalhadamente o conteúdo desta imagem.")).strip()
 
-        # Obter API Key dos settings do context ou settings globais
-        api_key = ""
-        provider = "gemini"
-        if context and "settings" in context:
-            settings = context["settings"]
-            provider = getattr(settings, "llm_provider", "gemini")
-            if provider == "groq":
-                api_key = getattr(settings, "groq_api_key", "")
-            else:
-                api_key = getattr(settings, "gemini_api_key", "")
-
         try:
-            service = VisionService(api_key=api_key, provider=provider)
-            if action == "analyze_camera":
-                image = service.capture_camera()
-                if image is None:
-                    return ToolResult(ok=False, message="Não foi possível capturar a webcam (câmera não encontrada ou desabilitada).")
-                res = service.analyze(prompt=prompt, image=image, api_key=api_key, provider=provider)
-            else:
-                image = service.capture_pil()
-                res = service.analyze(prompt=prompt, image=image, api_key=api_key, provider=provider)
+            service = VisionService.from_settings((context or {}).get("settings"))
+            image = service.capture_pil()
+            if image is None:
+                return ToolResult(False, "Não foi possível capturar a tela; nenhuma observação visual foi feita.")
+            captured_at = datetime.now(timezone.utc).isoformat()
+            res = service.analyze(prompt=prompt, image=image)
 
             reply = res.get("reply", "Sem resposta.")
             filename = res.get("capture_filename", "")
             return ToolResult(
                 ok=res.get("ok", False),
-                message=f"[Visão Computacional - Captura: {filename}]\n{reply}",
-                data={"capture_filename": filename, "reply": reply}
+                message=(f"[Observação da tela em {captured_at}; imagem única: {filename}; "
+                         f"provedor: {res.get('provider') or 'não informado'}; "
+                         f"modelo: {res.get('model') or 'não informado'}]\n{reply}"),
+                data={"capture_filename": filename, "reply": reply, "captured_at": captured_at, "source": "screen",
+                      "provider": res.get("provider"), "model": res.get("model")}
             )
         except Exception as exc:
             return ToolResult(ok=False, message=f"Falha na execução da ferramenta de visão: {exc}")

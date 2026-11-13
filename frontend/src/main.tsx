@@ -1,6 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { AppLockGate } from './components/AppLock'
+import { isMobileStandalone } from './hooks/useDirectChat'
 import { WindowProvider } from './windows/WindowManager'
 import { PopupProvider } from './popups/PopupProvider'
 import './memory-and-chat.css'
@@ -17,11 +19,13 @@ import './styles/popups.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    <AppLockGate standalone={isMobileStandalone()}>
     <WindowProvider>
       <PopupProvider>
         <App />
       </PopupProvider>
     </WindowProvider>
+    </AppLockGate>
   </StrictMode>,
 )
 

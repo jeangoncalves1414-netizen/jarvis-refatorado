@@ -90,6 +90,21 @@ def approve(action_id):
 BATCH3 = 'ACOES: [{"ferramenta": "timer", "args": {"n": 1}}, {"ferramenta": "calendar", "args": {"n": 2}}, {"ferramenta": "timer", "args": {"n": 3}}]'
 
 
+def test_malformed_plan_retries_once_without_replaying_actions(env):
+    prompts = script(env, ['not a plan', 'FERRAMENTA: timer\nARGS: {"n": 1}', 'FINISH: Pronto.'])
+    plan = env.agent.handle_request(MULTI, session_id='repair-plan')
+    assert len(prompts) == 3
+    assert len(env.agent.registry.calls) == 1
+
+
+def test_malformed_plan_retry_is_bounded(env):
+    prompts = script(env, ['not a plan', 'still invalid'])
+    plan = env.agent.handle_request(MULTI, session_id='invalid-plan')
+    assert len(prompts) == 2
+    assert not env.agent.registry.calls
+    assert plan.context['stopped_reason'] == 'invalid_plan'
+
+
 def test_empty_finish_retries_once_then_fails_without_inventing_effects(env):
     prompts = script(env, ["FINISH: Abri o Spotify e esperei 10 segundos."] * 2)
     plan = env.agent.handle_request("Abra o spotify, aguarde 10 segundos e abra um video no youtube", session_id="s1")

@@ -21,6 +21,7 @@ const { assertSourceHasNoBrokenText, assertPageHasNoBrokenText } = require('./br
     await page.route('**/api/**', async route => {
       const url = new URL(route.request().url())
       let data = { ok: true }, status = 200
+      if (url.pathname === '/api/app-lock') data = { ok: true, configured: true, enabled: false, unlocked: true }
       if (url.pathname === '/api/sessions') data = { sessions: [{ id: 'session-1', title: 'Conversa um', type: 'chat' }, { id: 'session-2', title: 'Conversa dois', type: 'chat' }] }
       else if (url.pathname.endsWith('/history')) data = { history: [] }
       else if (url.pathname === '/api/runs') {
@@ -52,7 +53,7 @@ const { assertSourceHasNoBrokenText, assertPageHasNoBrokenText } = require('./br
     assert.equal(other.status, 'running')
     run.status = 'cancelled'
     await page.getByText('Pedido cancelado. Os efeitos das etapas concluídas foram preservados.', { exact: true }).waitFor()
-    run.status = 'running'
+    run.status = 'awaiting_confirmation'
     await page.reload()
     await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent.includes('Parar pedido') && !b.disabled))
     extra = { ...run, id: 'run-3' }
@@ -76,6 +77,6 @@ const { assertSourceHasNoBrokenText, assertPageHasNoBrokenText } = require('./br
     assert.equal(await page.locator('.live-call-orb-wrapper, .reactor-orb-stage').count(), 0)
     assertSourceHasNoBrokenText(); await assertPageHasNoBrokenText(page)
     assert.deepEqual(errors, [])
-    console.log('PASS — cancelamento pelo chat, paleta e /parar, retry, isolamento, reload, desconexão, 360 px e ligação sem orb')
+    console.log('PASS — cancelamento pelo chat, paleta e /parar, aprovação pendente, retry, isolamento, reload, desconexão, 360 px e ligação sem orb')
   } finally { await browser.close() }
 })().catch(err => { console.error(err); process.exit(1) })

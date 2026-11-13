@@ -29,11 +29,7 @@ class CodeHelperTool(BaseTool):
         action = args.get("action")
         code = args.get("code", "")
         
-        if action == "explain":
-            return ToolResult(ok=True, message=f"Explicação: {code[:100]}...")
-        elif action == "generate":
-            return ToolResult(ok=True, message=f"Snippet gerado para {args.get('language', 'python')}")
-        elif action == "refactor":
-            return ToolResult(ok=True, message="Código refatorado")
-        
+        if action in {"explain", "generate", "refactor"}:
+            return ToolResult(ok=False, message="Esta ferramenta de código ainda não possui implementação. Nenhum código foi gerado, explicado ou refatorado.")
+
         return ToolResult(ok=False, message="Ação desconhecida")

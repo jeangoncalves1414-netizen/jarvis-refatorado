@@ -1,0 +1,51 @@
+{
+  "verdict": "APPROVED",
+  "reviewDoc": "c:/Users/maria/Desktop/Jarvis/.agents/tasks/estudos-fases-1-2/2026-11-11-195016-review.md",
+  "findings": [
+    {
+      "severity": "minor",
+      "file": "frontend/src/hooks/useReviewShortcuts.ts",
+      "issue": "Keydown auto-repeat (event.repeat) is not filtered, and reviewCard (useStudy.ts) / reviewVocab (useLanguage.ts) have no in-flight guard. A fast double press or a held key posts the same card_id twice before the queue refreshes, which means two reviews, 20 XP and two log entries for one card.",
+      "fix": "Return early on event.repeat in the hook, and keep a pending ref/flag in reviewCard/reviewVocab that ignores grade calls until the current request resolves."
+    },
+    {
+      "severity": "minor",
+      "file": "app/storage/tutor/review_log.py",
+      "issue": "Undo always targets last_active_review(). If that review's card was deleted (card_not_found) or changed (stale), every later undo returns 409 and no older review in that deck can ever be undone.",
+      "fix": "When the newest active review can't be undone, append a marker entry (e.g. {type:'undo_skipped', target}) that active_reviews() excludes, or let undo_last_review fall through to the next older review."
+    },
+    {
+      "severity": "minor",
+      "file": "app/storage/language_store.py",
+      "issue": "LanguageStore.undo_last_review restores the card but doesn't recompute stats.vocab_mastered. A review that crossed the mastered threshold stays counted after undo. TutorStore.undo_last_review does call _refresh_flashcard_stats().",
+      "fix": "Set stats['vocab_mastered'] = self._count_mastered() after restore(card, ...) and before _save()."
+    },
+    {
+      "severity": "minor",
+      "file": "app/agent/tools/catalog.py",
+      "issue": "tutor_add_flashcard ('Reversível: exclua o flashcard criado.') and language_add_weak_phoneme ('Reversível: remova o fonema da lista...') are marked reversible=True, but there is no flashcard delete and no weak-phoneme removal anywhere in the app. action_proposals.py shows this text to the user.",
+      "fix": "Set reversible=False with accurate 'Não reversível...' text for both, or add the missing delete/remove features."
+    }
+  ],
+  "verified": [
+    "Read the full diff `git diff 7cab802..HEAD` (6 commits, 43 files). git status shows only the untracked .agents/tasks/ directories; no uncommitted source changes.",
+    "Re-ran the context.json pytest list (14 files): 268 passed, 2 failed. Both failures are tests/test_tool_catalog.py personal_records catalog checks. Confirmed pre-existing: 'personal_records' appears in registry.py and not in catalog.py at 7cab802 (git show).",
+    "Re-ran `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json` (exit 0) and `node tests/broken-text.cjs` (exit 0).",
+    "No test writes to data/: data/study absent before and after pytest; data/tutor/progress.json and data/language/progress.json mtimes unchanged; no review_log.jsonl created there.",
+    "Invariant allowed_tool_names == declared tools: get_tool_declarations still filters by allowed_tool_names; language mode uses LANGUAGE_TOOL_NAMES and STUDY_MODES excludes MCP, the Groq core list and video routing; tests/test_language_mode.py asserts equality for gemini and groq and no language_* tools in tutor mode.",
+    "All study tools (4 language_*, tutor_save_progress, tutor_add_flashcard, tutor_save_feynman, enem_save_question; whiteboard_* already present) have TOOL_CATALOG entries at low risk; test_tool_catalog study-mode test passes.",
+    "Orchestrator language branch builds build_language_system from language_store progress with no memory/persona/situational block; racing exclusion includes language; useLanguage sends mode:'language'.",
+    "Migration (fsrs.normalize_card): only adds keys; legacy unreviewed -> new; reviewed legacy -> review with due at local midnight and is_due by local date, so the due day is kept; date-only due strings use the old comparison; read paths normalize copies. Covered by test_fsrs migration tests.",
+    "Grades: validate_grade accepts only int 0..3 (not bool); called before card lookup; tutor and language review APIs return 400 invalid_grade for missing/bool/str/float.",
+    "Interval cap: Scheduler(maximum_interval=365); test_intervals_capped_at_365_days. Retrievability computed from the scheduler before review_card, None for new cards.",
+    "Review log is append-only (open 'a', undo appends {type:'undo'}); snapshot/restore covers present and absent keys; test_undo_restores_exact_legacy_card, test_log_only_grows, test_undo_survives_reload.",
+    "One scheduler (both stores import app/storage/tutor/fsrs.py; srs.py deleted, __init__ repointed) and one XP service (get_study_xp cache per resolved path; orchestrator passes tutor_store.xp to LanguageStore; api/study reads orchestrator stores; api/dashboard TutorStore() resolves to the same data/study instance).",
+    "StudyPage listener cleanup: paste/drop/dragover handlers defined inside the effect with deps [activeMode] and removed by the same reference.",
+    "Pomodoro onComplete fires from an effect guarded by cycleRef/firedCycleRef, not inside a setState updater; study.smoke.cjs asserts pomodoroPosts deep-equals [{minutes:25}].",
+    "Vocabulary delete uses ConfirmDialog (danger); the only window.confirm calls in frontend/src are pre-existing and outside the study area.",
+    "UI text is pt-BR in the new components; broken-text checks pass.",
+    "No changes under app/services/, mobile_app/ or habit/lifestyle/personal_records tools (git diff --name-only on those paths is empty; git status mobile_app clean).",
+    "Smoke evidence is real: viewed study-dashboard.png and study-progress.png (rendered dashboard with streak, goal and level bars; 371-cell heatmap, 30-day bars, retention, states, badges). study.smoke.cjs makes real assertions against a stateful mock.",
+    "Not yet present: docs/estudos-fases-1-2-2026-11-11.md and graphify update (plan item 6, the final step after review); not counted as a finding."
+  ]
+}

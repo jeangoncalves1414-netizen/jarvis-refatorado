@@ -155,6 +155,18 @@ def missing_requested_steps(text: str, steps: list[dict[str, Any]]) -> list[str]
                 required.append((match.start(), "wait", seconds))
                 previous_wait = match
     missing, cursor = [], 0
+    # A status lookup alone does not fulfill a request to cancel an execution.
+    status_read = any(s.get('name') == 'run_control' and s.get('status') == 'succeeded'
+                      and (s.get('args') or {}).get('action') == 'status' for s in steps)
+    cancel_attempted = any(s.get('name') == 'run_control' and (s.get('args') or {}).get('action') == 'cancel'
+                           for s in steps)
+    if status_read and not cancel_attempted:
+        for clause in _CLAUSE_SPLIT.split(normalized):
+            if not re.search(r'\bnao\b', clause) and re.search(
+                r'\b(?:cancel\w*|pare|parar|interromp\w*)\b.{0,100}\b(?:pedido|execucao|espera|run_[a-z0-9_]+)\b', clause
+            ):
+                missing.append('cancelar a execução solicitada (run_control action=cancel com o run_id consultado)')
+                break
     domains = {"tarefa": "task_tool", "habito": "habit_tool", "checklist": "checklist_tool",
                "lancamento": "finance_tool", "despesa": "finance_tool", "receita": "finance_tool"}
     for clause in _CLAUSE_SPLIT.split(normalized):

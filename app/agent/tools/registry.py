@@ -12,6 +12,7 @@ from .browser_agent import BrowserAgentTool
 from .browser_tool import BrowserTool
 from .timer import TimerTool
 from .wait import WaitTool
+from .run_control import RunControlTool
 from .whatsapp import WhatsAppTool
 from .spotify import SpotifyTool
 from .whiteboard import WhiteboardAddTextTool, WhiteboardAddImageTool, WhiteboardClearTool, WhiteboardEditTool
@@ -125,7 +126,7 @@ GROQ_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
 
 # Loop agêntico: ferramentas de dados do dia a dia que entram em qualquer pedido, para qualquer provedor.
 LOOP_DATA_TOOLS = frozenset({
-    "personal_records", "memory",
+    "personal_records", "memory", "run_control",
     "task_tool", "checklist_tool", "lifeos_tool", "calendar", "vault_save_note", "vault_search",
     "open_window", "open_screen", "wait", "persona_tool",
 })
@@ -154,6 +155,7 @@ LOOP_KEYWORD_TOOLS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = tuple(
 )
 
 GENERAL_TOOL_NAMES = {
+    "run_control",
     "personal_records", "memory",
     "file_manager", "system_control", "jarvis_mode", "web_search", "browser", "browser_agent", "timer", "wait",
     "whatsapp", "spotify", "clipboard", "news_reader", "open_windows_app", "script_runner",
@@ -165,6 +167,7 @@ GENERAL_TOOL_NAMES = {
     "notification", "persona_tool",
     "places_search",
     "planning_workspace", "routine",
+    "workflow",
     "vault_search", "vault_daily_log", "vault_save_note",
 }
 
@@ -257,6 +260,7 @@ class ToolRegistry:
         self._register(BrowserAgentTool())
         self._register(TimerTool())
         self._register(WaitTool())
+        self._register(RunControlTool())
         self._register(WhatsAppTool())
         self._register(SpotifyTool())
         self._register(ClipboardTool())
@@ -408,7 +412,7 @@ class ToolRegistry:
         # Otimização de TPM para provedores com limite estrito de taxa (ex: Groq)
         if (provider == "groq" or narrow) and mode not in STUDY_MODES:
             core_groq = {
-                "personal_records", "memory", "web_search", "open_windows_app",
+                "personal_records", "memory", "run_control", "web_search", "open_windows_app",
                 "timer", "wait", "spotify", "calendar",
             }
             user_lower = (user_text or "").lower()
@@ -460,7 +464,7 @@ class ToolRegistry:
         if "home" in allowed_set:
             try:
                 from app.services import home_assistant
-                if not home_assistant.is_configured():
+                if not home_assistant.is_configured() and not re.search(r'\bhome\b', user_text, re.IGNORECASE):
                     allowed_set.discard("home")
             except Exception:
                 allowed_set.discard("home")

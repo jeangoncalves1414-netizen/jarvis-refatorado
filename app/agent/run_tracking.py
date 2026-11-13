@@ -63,12 +63,19 @@ def track_run(method):
                     from app.storage.session_store import save_turn
                     save_turn(session_id, run.id, bound.arguments["text"],
                               result.summary if result is not None else "Não foi possível concluir o pedido. Tente novamente.",
-                              timestamp=requested_at, failed=failed)
+                              timestamp=requested_at, failed=failed,
+                              context_usage=result.context.get("context_usage") if result is not None else None)
             finally:
                 try:
                     action_store.finish_run(run.id, failed=failed)
                 finally:
                     current_run.reset(token)
+                    if result is not None and not failed and result.intent != 'cancelled' and not result.context.get('pending_action_id'):
+                        try:
+                            from app.services.context_compaction import schedule
+                            schedule(bound.arguments.get('session_id'), getattr(args[0], 'llm_service', None), voice=origin == 'voice')
+                        except Exception:
+                            pass  # Maintenance cannot invalidate a completed turn.
 
     return tracked
 

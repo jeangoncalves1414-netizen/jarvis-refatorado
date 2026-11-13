@@ -61,3 +61,16 @@ def test_portuguese_clipboard_requests_offer_the_tool():
     for text in ("Copie o texto TESTE", "copia para a área de transferência", "leia a area de transferencia"):
         for narrow in (True, False):
             assert "clipboard" in registry.allowed_tool_names(provider="groq", user_text=text, narrow=narrow)
+
+
+def test_context_usage_survives_history_reload_and_stale_client(tmp_path, monkeypatch):
+    from app.storage import session_store
+    monkeypatch.setattr(session_store, 'SESSIONS_FILE', str(tmp_path / 'sessions.json'))
+    usage = [{'provider': 'groq', 'model': 'test', 'estimated_tokens': 100,
+              'before_tokens': 200, 'budget': 6000, 'reduced': True}]
+    session_store.save_turn('test', 'run-test', 'oi', 'olá', timestamp=1, context_usage=usage)
+    history = session_store.get_session_history('test')
+    assert history[-1]['meta']['context_usage'] == usage
+    stale = [{key: value for key, value in row.items() if key != 'meta'} for row in history]
+    session_store.save_session_history('test', stale)
+    assert session_store.get_session_history('test')[-1]['meta']['context_usage'] == usage

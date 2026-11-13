@@ -8,17 +8,18 @@ import type { SearchPayload } from '../components/tools/SearchTool'
 /** Copia do contexto da resposta só os metadados do turno (contexto usado e memórias citadas). */
 function pickTurnMeta(context: unknown): TurnMeta | undefined {
   if (!context || typeof context !== 'object') return undefined
-  const { situational_context, memory_used, memory_lookup, tool_activity } = context as TurnMeta
+  const { situational_context, memory_used, memory_lookup, tool_activity, context_usage } = context as TurnMeta
   const meta: TurnMeta = {}
   if (situational_context && typeof situational_context.text === 'string' && Array.isArray(situational_context.sources)) meta.situational_context = situational_context
   if (Array.isArray(memory_used) && memory_used.length) meta.memory_used = memory_used
   if (memory_lookup) meta.memory_lookup = memory_lookup
   if (tool_activity) meta.tool_activity = tool_activity
+  if (Array.isArray(context_usage)) meta.context_usage = context_usage.filter(item => item && Number.isFinite(item.estimated_tokens) && item.estimated_tokens >= 0 && Number.isFinite(item.before_tokens)).slice(0, 32)
   return Object.keys(meta).length ? meta : undefined
 }
 
-/** Persist only intentional memory citations; ambient context is transient. */
-const withoutMeta = (history: ChatMessage[]) => history.map(({ meta, ...rest }) => ({ ...rest, ...(meta?.memory_lookup ? { meta: { memory_lookup: meta.memory_lookup } } : {}) }))
+/** Persist citations and numeric usage; ambient context is transient. */
+const withoutMeta = (history: ChatMessage[]) => history.map(({ meta, ...rest }) => ({ ...rest, ...((meta?.memory_lookup || meta?.context_usage) ? { meta: { memory_lookup: meta.memory_lookup, context_usage: meta.context_usage } } : {}) }))
 
 /** Origem do pedido registrada nas ações da Central (C10); sem valor, o servidor usa "chat". */
 export type RequestOrigin = 'voice'

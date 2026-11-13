@@ -112,7 +112,7 @@ class ActionExecutor:
             self.store.check_cancelled(self.run_id)
         args = deepcopy(args or {})
         from app.agent.loop_policy import is_action_discussion
-        if is_action_discussion(user_text):
+        if is_action_discussion(user_text) and not (name == "run_control" and args.get("action", "status") == "status"):
             return "O usuário pediu uma explicação sobre ações anteriores, não uma nova execução. Responda usando os recibos do histórico."
         
         # Filter by allowed tools
@@ -246,6 +246,10 @@ class ActionExecutor:
         return self._execute(action, name, args, user_text)
 
     def _execute(self, action: ActionRecord, name: str, args: dict, user_text: str) -> str:
+        from app.services.app_lock import app_lock
+        if app_lock.locked():
+            self.last_action = self.store.transition(action.id, 'cancelled', result_summary='Jarvis bloqueado.', expected_status=action.status)
+            return 'Desbloqueie o Jarvis para continuar.'
         from app.agent.tool_activity import current_activity, emit_activity, record_memory_lookup
         action_id = action.id
         before = self.guardrails.before_call(name, args)

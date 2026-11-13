@@ -74,6 +74,8 @@ class ClipboardTool(BaseTool):
             return ToolResult(ok=False, message="pyperclip não instalado.")
 
         action = str(args.get("action", "read")).lower()
+        if action not in {"read", "write", "copy", "history"}:
+            return ToolResult(ok=False, message="Ação inválida. Use read, write, copy ou history.")
 
         if action == "history":
             items = get_clipboard_history(10)
@@ -86,10 +88,23 @@ class ClipboardTool(BaseTool):
             text = str(args.get("text", ""))
             if not text:
                 return ToolResult(ok=False, message="Texto vazio para copiar.")
-            pyperclip.copy(text)
+            try:
+                pyperclip.copy(text)
+            except Exception:
+                return ToolResult(ok=False, message="Não foi possível copiar o texto para a área de transferência.")
+            try:
+                verified = pyperclip.paste() == text
+            except Exception:
+                verified = False
+            if not verified:
+                return ToolResult(
+                    ok=True,
+                    message="O comando de cópia foi enviado, mas não consegui confirmar o conteúdo atual. Não repita automaticamente a cópia.",
+                    data={"length": len(text), "verified": False},
+                )
             add_clipboard_history(text)
             preview = text[:100] + ("..." if len(text) > 100 else "")
-            return ToolResult(ok=True, message=f"Texto copiado com sucesso para a área de transferência: '{preview}'", data={"length": len(text)})
+            return ToolResult(ok=True, message=f"Texto copiado e conferido na área de transferência: '{preview}'", data={"length": len(text), "verified": True})
         else:
             content = pyperclip.paste()
             if content:

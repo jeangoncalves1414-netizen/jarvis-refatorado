@@ -319,8 +319,9 @@ class HabitTool(BaseTool):
             if a["only_today"]:
                 today = WEEK_DAYS[date.today().weekday()]
                 habits = [h for h in habits if today in (h.get("days_of_week") or WEEK_DAYS)]
-                return {"ok": True, "message": f"{len(habits)} hábito(s) para hoje.", "habits": habits}
-            return {"ok": True, "message": f"{len(habits)} hábito(s) cadastrado(s).", "habits": habits}
+            label = 'para hoje' if a['only_today'] else 'cadastrado(s)'
+            details = '\n'.join(f"- {h['name']}" + (f" às {h['start_time']}" if h.get('start_time') else '') for h in habits)
+            return {"ok": True, "message": f"{len(habits)} hábito(s) {label}." + (f'\n{details}' if details else ''), "habits": habits}
 
         if act == "create":
             spec = {
@@ -610,7 +611,8 @@ class TaskTool(BaseTool):
             if act == "list":
                 listed = TaskService.list_tasks(completed=None if include_completed else False, project=project if project and project != "Geral" else "")
                 label = "tarefa(s)" if include_completed else "tarefa(s) pendente(s)"
-                return {"ok": True, "message": f"{len(listed)} {label}.", "tasks": listed}
+                details = '\n'.join(f"- {'[x]' if task.get('completed') else '[ ]'} {task['title']}" + (f" — prazo: {task['due_date']}" if task.get('due_date') else '') for task in listed)
+                return {"ok": True, "message": f"{len(listed)} {label}." + (f'\n{details}' if details else ''), "tasks": listed}
 
             if act == "create":
                 prepared = _prepare_task({"title": title, "priority": 3 if priority is None else priority, "project": project, "due_date": due_date})

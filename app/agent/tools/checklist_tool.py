@@ -184,9 +184,10 @@ class ChecklistTool(BaseTool):
             target = self._resolve_list(list_id, title)
             if not target:
                 return {"ok": False, "error": f"Lista não encontrada para '{list_id or title}'."}
+            details = '\n'.join(f"- {'[x]' if item['completed'] else '[ ]'} {item['text']}" for item in target.get('items', []))
             return {
                 "ok": True,
-                "message": f"Lista '{target['title']}': {target['pending_count']} pendente(s), {target['completed_count']} concluído(s).",
+                "message": f"Lista '{target['title']}': {target['pending_count']} pendente(s), {target['completed_count']} concluído(s)." + (f'\n{details}' if details else ''),
                 "checklist": target,
             }
 
