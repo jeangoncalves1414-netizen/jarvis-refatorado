@@ -553,11 +553,18 @@ async function calendar(request: Request, env: Env): Promise<Response> {
     await env.JARVIS_DB.prepare("UPDATE calendar_events SET reminder_status = 'cancelled' WHERE id = ?").bind(eventId).run();
     return json({ ok: true });
   }
-  const title = cleanText(body?.title, 300), start = cleanText(body?.start, 40), startAt = Date.parse(start);
+  const toCalendarTimestamp = (value: string): number => {
+    // Browser date/time inputs do not carry an offset. The owner's cloud uses
+    // Brazil time, so preserve the wall-clock time rather than treating it as UTC.
+    const zoned = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}-03:00`;
+    return Date.parse(zoned);
+  };
+  const title = cleanText(body?.title, 300), start = cleanText(body?.start, 40), startAt = toCalendarTimestamp(start);
   if (!title || !Number.isFinite(startAt)) return error("Informe um evento e uma data válidos.");
   const minutes = Math.max(0, Math.min(10_080, Number(body?.reminder_minutes) || 0));
   const requestedReminder = cleanText(body?.reminder_at, 40);
-  const reminderAt = requestedReminder && Number.isFinite(Date.parse(requestedReminder)) ? new Date(Date.parse(requestedReminder)).toISOString() : new Date(startAt - minutes * 60_000).toISOString();
+  const requestedAt = toCalendarTimestamp(requestedReminder);
+  const reminderAt = requestedReminder && Number.isFinite(requestedAt) ? new Date(requestedAt).toISOString() : new Date(startAt - minutes * 60_000).toISOString();
   const policy = cleanText(body?.reminder_policy, 40);
   const entry: CalendarEntry = { id: id(), title, start: new Date(startAt).toISOString(), reminder_minutes: minutes, reminder_policy: ["once", "until_confirmed", "next_conversation"].includes(policy) ? policy : "once", reminder_at: reminderAt, reminder_status: "scheduled" };
   await env.JARVIS_DB.prepare("INSERT INTO calendar_events (id, title, start, reminder_minutes, reminder_policy, reminder_at, reminder_status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(entry.id, entry.title, entry.start, entry.reminder_minutes, entry.reminder_policy, entry.reminder_at, entry.reminder_status, now()).run();
