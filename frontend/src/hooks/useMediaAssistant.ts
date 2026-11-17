@@ -509,7 +509,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       setAnswer('Gravação encerrada.')
       return
     }
-    if (hasNativeVoice() && isMobileStandalone() && !(await loadMicrophone()).device_name) {
+    if (hasNativeVoice() && (isMobileStandalone() || pairedAndroid) && !(await loadMicrophone()).device_name) {
       nativeVoiceModeRef.current = 'composer'
       setRecording(true)
       setAnswer('Estou ouvindo… fale e pause para transcrever.')
@@ -2083,7 +2083,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       await startFallbackContinuousCapture()
       return
     }
-    if (isMobileStandalone() && hasNativeVoice() && !(await loadMicrophone()).device_name) {
+    if ((isMobileStandalone() || pairedAndroid) && hasNativeVoice() && !(await loadMicrophone()).device_name) {
       nativeCallActiveRef.current = true
       nativeVoiceModeRef.current = 'call'
       setLiveAudioDiagnostics({ mode: 'native-speech' })
@@ -2242,7 +2242,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   }
 
   useEffect(() => {
-    if (!isMobileStandalone()) return undefined
+    if (!isMobileStandalone() && !pairedAndroid) return undefined
     return installNativeVoiceHandlers({
       onSpeechPartial: text => {
         if (nativeVoiceModeRef.current === 'call') setLiveUserTranscript(text)

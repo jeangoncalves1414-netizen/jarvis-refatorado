@@ -8,6 +8,11 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="Jarvis" />
     <meta name="jarvis-mobile-android" content="cloud" />
+    <script>
+      if (!document.cookie.split('; ').some(cookie => cookie.startsWith('jarvis_mobile_lock='))) {
+        document.cookie = 'jarvis_mobile_lock=off; Path=/; Max-Age=31536000; Secure; SameSite=Strict'
+      }
+    </script>
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="apple-touch-icon" href="/icon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -15,7 +20,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@400;600;700;800&display=swap" rel="stylesheet" />
     <title>Workspace · Agente pessoal</title>
-    <script type="module" crossorigin src="/assets/index-c4Jgm0R1.js"></script>
+    <script type="module" crossorigin src="/assets/index-z3aXeAJr.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/vendor-icons-CDOxNCTb.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-motion-DS5Be5Oy.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-react-C99NDq-K.js">
@@ -25,10 +30,5 @@
   </head>
   <body>
     <div id="root"></div>
-    <script>
-      if (!document.cookie.split('; ').some(cookie => cookie.startsWith('jarvis_mobile_lock='))) {
-        document.cookie = 'jarvis_mobile_lock=off; Path=/; Max-Age=31536000; Secure; SameSite=Strict'
-      }
-    </script>
   </body>
 </html>

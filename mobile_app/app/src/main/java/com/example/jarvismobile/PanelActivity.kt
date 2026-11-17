@@ -17,6 +17,7 @@ import org.json.JSONObject
 
 class PanelActivity : Activity() {
     private lateinit var page: WebView
+    private lateinit var nativeSpeech: NativeSpeechBridge
     private val origin by lazy { getString(R.string.panel_origin) }
     private val cloudMode by lazy { getString(R.string.panel_mode) == "cloud" }
     private var dialog: AlertDialog? = null
@@ -58,6 +59,8 @@ class PanelActivity : Activity() {
                 startActivity(Intent(this@PanelActivity, RoutineActivity::class.java))
             }
         }, "JarvisMobile")
+        nativeSpeech = NativeSpeechBridge(this, page)
+        page.addJavascriptInterface(nativeSpeech, "Android")
         page.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 if (!request.isForMainFrame || paired(request.url)) return false
@@ -163,6 +166,7 @@ class PanelActivity : Activity() {
         dialog?.dismiss()
         mediaRequest?.deny()
         picker?.onReceiveValue(null)
+        nativeSpeech.destroy()
         page.destroy()
         super.onDestroy()
     }
