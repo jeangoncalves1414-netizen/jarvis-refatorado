@@ -3,7 +3,7 @@
  * Synchronized with PC settings: Oxxy, Groq, Gemini, Fish keys and Oxxy per-capability models.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ChatMessage, ChatSession } from '../types'
+import type { ChatMessage, ChatSession, ToolActivityEntry } from '../types'
 import { getJarvisSystemPrompt } from '../utils/jarvisVaultKeys'
 
 const SESSIONS_KEY = 'jarvis-direct-sessions'
@@ -474,6 +474,23 @@ async function callProvider(
   }
 }
 
+type CloudChatResponse = { reply: string; activity: ToolActivityEntry[] }
+
+async function callMobileCloud(message: string, sessionId: string, signal: AbortSignal): Promise<CloudChatResponse> {
+  const response = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, session_id: sessionId }),
+    signal,
+  })
+  const data = await response.json().catch(() => ({})) as { reply?: unknown; error?: unknown; context?: { tool_activity?: unknown } }
+  if (!response.ok || typeof data.reply !== 'string') throw new Error(typeof data.error === 'string' ? data.error : `Jarvis respondeu HTTP ${response.status}`)
+  const activity = Array.isArray(data.context?.tool_activity)
+    ? data.context.tool_activity.filter((item): item is ToolActivityEntry => Boolean(item) && typeof item === 'object' && typeof (item as ToolActivityEntry).id === 'string' && typeof (item as ToolActivityEntry).tool === 'string')
+    : []
+  return { reply: data.reply, activity }
+}
+
 export function useDirectChat() {
   const [sessions, setSessions] = useState<ChatSession[]>(loadSessions)
   const [sessionId, setSessionId] = useState<string>(() => localStorage.getItem(ACTIVE_SESSION_KEY) || '')
@@ -484,6 +501,7 @@ export function useDirectChat() {
   const [chatError, setChatError] = useState('')
   const [query, setQuery] = useState('')
   const abortRef = useRef<AbortController | null>(null)
+  const lastResponseActivityRef = useRef<ToolActivityEntry[]>([])
 
   useEffect(() => {
     if (!sessionId) return
@@ -554,7 +572,7 @@ export function useDirectChat() {
     if (!message.trim() || loading) return ''
     const provider = getMobileProvider()
     const apiKey = resolveActiveKey(provider)
-    if (!apiKey) {
+    if (!apiKey && !isMobileStandalone()) {
       const err = `Nenhuma chave de API configurada para o provedor ${provider.toUpperCase()}. Va em Configuracoes -> Mobile e insira sua chave.`
       setChatError(err); setAnswer(err); return ''
     }
@@ -562,6 +580,7 @@ export function useDirectChat() {
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
+    lastResponseActivityRef.current = []
 
     const userMsg: ChatMessage = { role: 'user', content: message }
     let activeId = sessionId
@@ -572,12 +591,21 @@ export function useDirectChat() {
     setMessages(newHistory); setLoading(true); setStreamingReply('Pensando...'); setChatError('')
 
     let reply = ''
+    let activity: ToolActivityEntry[] = []
     try {
-      reply = await callProvider(provider, apiKey, model, newHistory, (chunk) => {
-        setStreamingReply(prev => (prev === 'Pensando...' ? chunk : prev + chunk))
-      }, controller.signal)
+      if (isMobileStandalone()) {
+        const cloud = await callMobileCloud(message, activeId, controller.signal)
+        reply = cloud.reply
+        activity = cloud.activity
+        setStreamingReply(reply)
+      } else {
+        reply = await callProvider(provider, apiKey, model, newHistory, (chunk) => {
+          setStreamingReply(prev => (prev === 'Pensando...' ? chunk : prev + chunk))
+        }, controller.signal)
+      }
 
-      const assistantMsg: ChatMessage = { role: 'assistant', content: reply }
+      lastResponseActivityRef.current = activity
+      const assistantMsg: ChatMessage = { role: 'assistant', content: reply, activity }
       const finalHistory = [...newHistory, assistantMsg]
       setMessages(finalHistory); setAnswer(reply)
       saveHistory(activeId, finalHistory)
@@ -607,6 +635,7 @@ export function useDirectChat() {
     sessions, sessionId, messages, answer, loading, streamingReply,
     liveSearch: null, liveReasoning: '', chatError, pendingScript: null, query,
     createSession, selectSession, deleteSession, exportSession, copySession, sendText,
+    getLastResponseActivity: () => lastResponseActivityRef.current,
     setAnswer, setChatError, setQuery,
     setPendingScript: () => {},
     sendVisionQuestion: async (prompt: string, _image: string, _cam?: string) => sendText(prompt),

@@ -4867,6 +4867,21 @@ body.floating-overlay-active {
   transform: translateY(-1px);
 }
 
+@media (max-width: 720px) {
+  .live-call-floating-bar {
+    top: auto;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    min-width: 0;
+    width: min(300px, calc(100vw - 28px));
+    padding: 7px 10px;
+    gap: 8px;
+  }
+  .live-call-floating-status { display: none; }
+  .live-call-floating-actions { gap: 5px; }
+  .live-call-floating-btn { padding: 7px 9px; }
+  .live-call-floating-btn span { display: none; }
+}
+
 
 /* ══════════════════════════════════════════════════════════════════
    JARVIS MULTIMEDIA EXPERIENCE — MEDIA CARD & LIGHTBOX

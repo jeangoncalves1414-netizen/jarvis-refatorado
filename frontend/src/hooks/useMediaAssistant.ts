@@ -285,13 +285,14 @@ type MediaAssistantOptions = {
   setAnswer: (answer: string) => void
   setQuery: (query: string) => void
   sessionId?: string
+  getLastResponseActivity?: () => ToolActivityEntry[]
   appendExchange?: (userText: string, assistantText: string, receipt?: { run_id?: string; activity?: ToolActivityEntry[]; meta?: TurnMeta }, previewId?: string) => Promise<void>
   previewExchange?: (id: string, preview: VoiceExchangePreview | null) => void
   // Interface pedida pelo agente durante a ligação (popups, janela, tela): SSE "popup" e plan.context do "complete".
   onAgentContext?: (context: unknown) => void
 }
 
-export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, setQuery, sessionId, appendExchange, previewExchange, onAgentContext }: MediaAssistantOptions) {
+export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, setQuery, sessionId, getLastResponseActivity, appendExchange, previewExchange, onAgentContext }: MediaAssistantOptions) {
   const appendExchangeRef = useRef(appendExchange)
   appendExchangeRef.current = appendExchange
   const previewExchangeRef = useRef(previewExchange)
@@ -353,11 +354,13 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     }
     const liveTurnId = beginLiveTurn(text)
     let reply = ''
+    let activity: ToolActivityEntry[] | undefined
     try {
       reply = await sendText(text)
+      activity = getLastResponseActivity?.()
       return reply
     } finally {
-      if (reply) updateLiveTurn(liveTurnId, { jarvis: reply, pending: false })
+      if (reply) updateLiveTurn(liveTurnId, { jarvis: reply, activity, pending: false })
       else removeLiveTurn(liveTurnId)
     }
   }

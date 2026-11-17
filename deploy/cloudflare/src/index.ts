@@ -16,7 +16,8 @@ const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache
 const MAX_TEXT = 12_000;
 const MAX_AUDIO = 25 * 1024 * 1024;
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
+type ToolActivity = { id: string; tool: string; status: string; label?: string; result?: string };
+type ChatMessage = { role: "user" | "assistant"; content: string; activity?: ToolActivity[] };
 type Habit = { id: string; name: string; days_of_week: string[]; completed_today: boolean; created_at: string; updated_at: string };
 
 function json(data: unknown, status = 200): Response {
@@ -105,18 +106,25 @@ async function readJson(request: Request): Promise<Record<string, unknown> | nul
 
 async function sessionHistory(db: D1Database, sessionId: string): Promise<ChatMessage[]> {
   const rows = await db.prepare(
-    "SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 20",
-  ).bind(sessionId).all<{ role: "user" | "assistant"; content: string }>();
-  return (rows.results || []).reverse().map(({ role, content }) => ({ role, content }));
+    "SELECT role, content, activity FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 20",
+  ).bind(sessionId).all<{ role: "user" | "assistant"; content: string; activity: string | null }>();
+  return (rows.results || []).reverse().map(({ role, content, activity }) => ({ role, content, ...(activity ? { activity: parseActivity(activity) } : {}) }));
 }
 
-async function saveMessage(db: D1Database, sessionId: string, role: ChatMessage["role"], content: string): Promise<void> {
+function parseActivity(value: string): ToolActivity[] {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is ToolActivity => Boolean(item) && typeof item === "object" && typeof (item as ToolActivity).id === "string" && typeof (item as ToolActivity).tool === "string") : [];
+  } catch { return []; }
+}
+
+async function saveMessage(db: D1Database, sessionId: string, role: ChatMessage["role"], content: string, activity?: ToolActivity[]): Promise<void> {
   const timestamp = now();
   await db.batch([
     db.prepare("INSERT OR IGNORE INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
       .bind(sessionId, role === "user" ? content.slice(0, 72) || "Nova conversa" : "Nova conversa", timestamp, timestamp),
-    db.prepare("INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)")
-      .bind(id(), sessionId, role, content, timestamp),
+    db.prepare("INSERT INTO messages (id, session_id, role, content, activity, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(id(), sessionId, role, content, activity?.length ? JSON.stringify(activity) : null, timestamp),
     db.prepare("UPDATE sessions SET updated_at = ?, title = CASE WHEN title = 'Nova conversa' AND ? = 'user' THEN ? ELSE title END WHERE id = ?")
       .bind(timestamp, role, content.slice(0, 72) || "Nova conversa", sessionId),
   ]);
@@ -141,7 +149,7 @@ async function askGroq(env: Env, messages: ChatMessage[]): Promise<string> {
     body: JSON.stringify({
       model: env.GROQ_MODEL || "openai/gpt-oss-120b",
       temperature: 0.7,
-      messages: [{ role: "system", content: systemPrompt() }, ...messages],
+      messages: [{ role: "system", content: systemPrompt() }, ...messages.map(({ role, content }) => ({ role, content }))],
     }),
   });
   if (!response.ok) throw new Error(`Groq respondeu HTTP ${response.status}.`);
@@ -198,8 +206,9 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
     if (habitName) {
       const result = await createHabit(env.JARVIS_DB, habitName);
       const reply = result.created ? `Pronto, criei o hábito “${result.habit.name}” para todos os dias.` : `O hábito “${result.habit.name}” já está na sua rotina.`;
-      await saveMessage(env.JARVIS_DB, sessionId, "assistant", reply);
-      return json({ ok: true, status: "complete", session_id: sessionId, reply, summary: reply, intent: "habit_create", actions: [{ type: "habit_created", habit: result.habit }], context: { mobile: true } });
+      const activity: ToolActivity[] = [{ id: id(), tool: "habit_tool", status: "succeeded", label: result.created ? "Hábito criado" : "Hábito já existente", result: result.habit.name }];
+      await saveMessage(env.JARVIS_DB, sessionId, "assistant", reply, activity);
+      return json({ ok: true, status: "complete", session_id: sessionId, reply, summary: reply, intent: "habit_create", actions: [{ type: "habit_created", habit: result.habit }], context: { mobile: true, tool_activity: activity } });
     }
     const reply = await respond(env, [...history, { role: "user", content: message }]);
     await saveMessage(env.JARVIS_DB, sessionId, "assistant", reply);
@@ -292,14 +301,15 @@ async function replaceHistory(request: Request, sessionId: string, env: Env): Pr
     const item = value as Record<string, unknown>;
     const role = item.role === "user" ? "user" : item.role === "assistant" ? "assistant" : null;
     const content = cleanText(item.content);
-    return role && content ? [{ role, content }] : [];
+    const activity = typeof item.activity === "string" ? parseActivity(item.activity) : Array.isArray(item.activity) ? parseActivity(JSON.stringify(item.activity)) : [];
+    return role && content ? [{ role, content, ...(activity.length ? { activity } : {}) }] : [];
   });
   if (!history.length) return json({ ok: true });
   const timestamp = now();
   const statements = [
     env.JARVIS_DB.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId),
-    ...history.map((item, index) => env.JARVIS_DB.prepare("INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)")
-      .bind(id(), sessionId, item.role, item.content, new Date(Date.parse(timestamp) + index).toISOString())),
+    ...history.map((item, index) => env.JARVIS_DB.prepare("INSERT INTO messages (id, session_id, role, content, activity, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(id(), sessionId, item.role, item.content, item.activity?.length ? JSON.stringify(item.activity) : null, new Date(Date.parse(timestamp) + index).toISOString())),
     env.JARVIS_DB.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").bind(timestamp, sessionId),
   ];
   await env.JARVIS_DB.batch(statements);
