@@ -1,3 +1,5 @@
+import { pairedAndroid } from './pairedAndroid'
+
 export type MicrophonePreference = { device_id: string; device_name: string }
 const CACHE_KEY = 'jarvis_microphone_preference'
 const DEFAULT: MicrophonePreference = { device_id: '', device_name: '' }
@@ -20,6 +22,11 @@ export async function loadMicrophone(): Promise<MicrophonePreference> {
 }
 
 export async function openMicrophone(base: MediaTrackConstraints = {}): Promise<MediaStream> {
+  // O WebView do Android expõe o microfone físico como a entrada padrão. Uma
+  // preferência salva no painel de PC pode apontar para um id inexistente no
+  // telefone e o Chromium responde apenas com "Could not start audio source".
+  if (pairedAndroid) return navigator.mediaDevices.getUserMedia({ audio: base })
+
   const preference = await loadMicrophone()
   if (!preference.device_name) return navigator.mediaDevices.getUserMedia({ audio: { ...base, deviceId: { ideal: 'default' } } })
   let deviceId = preference.device_id
