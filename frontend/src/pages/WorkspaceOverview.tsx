@@ -1,6 +1,7 @@
 import { ArrowUpRight, BookOpen, MessageSquare, Plug, RefreshCw, ShieldCheck, Workflow } from 'lucide-react'
 import { TodayPanel } from '../components/TodayPanel'
 import type { Capability, OperationalState } from '../hooks/useOperationalSnapshot'
+import { isMobileStandalone } from '../hooks/useDirectChat'
 
 type Props = { operational: OperationalState; onNavigate: (id: string) => void }
 export function WorkspaceHome({ operational, onNavigate }: Props) {
@@ -15,7 +16,9 @@ export function WorkspaceHome({ operational, onNavigate }: Props) {
     <section className="ws-content-page">
       <header className="ws-page-heading">
         <h1>Início</h1>
-        <button className="ws-button primary" onClick={() => onNavigate('Chat')}><MessageSquare size={16} /> Abrir conversa</button>
+        <div className="ws-overview-actions"><button className="ws-button primary" onClick={() => onNavigate('Chat')}><MessageSquare size={16} /> Abrir conversa</button>
+          {isMobileStandalone() && <button className="ws-button" onClick={() => (window as Window & { JarvisMobile?: { openRemoteControl?: () => void } }).JarvisMobile?.openRemoteControl?.()}><Plug size={16} /> Controle remoto</button>}
+        </div>
       </header>
       <TodayPanel />
       <div className="ws-overview-grid">

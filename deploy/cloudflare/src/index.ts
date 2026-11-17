@@ -12,6 +12,7 @@ export interface Env {
 }
 
 const COOKIE = "__Host-jarvis_cloud";
+const REMOTE_COOKIE = "__Host-jarvis_remote";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const MAX_TEXT = 12_000;
 const MAX_AUDIO = 25 * 1024 * 1024;
@@ -53,6 +54,96 @@ function authenticated(request: Request, env: Env): boolean {
   let mismatch = 0;
   for (let i = 0; i < received.length; i++) mismatch |= received.charCodeAt(i) ^ env.MOBILE_CONTROL_TOKEN.charCodeAt(i);
   return mismatch === 0;
+}
+
+async function tokenHash(token: string): Promise<string> {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+type RemoteDevice = { id: string; name: string; platform: string; last_seen_at: number };
+type RemoteController = { id: string; device_id: string; token_hash: string; name: string; created_at: number; last_seen_at: number };
+const REMOTE_COMMANDS = new Set(["open_youtube", "open_chrome", "open_whatsapp", "open_settings", "home", "back", "recents", "notifications"]);
+
+async function remoteController(request: Request, env: Env): Promise<RemoteController | null> {
+  const token = cookieValue(request, REMOTE_COOKIE);
+  if (!token || token.length < 32) return null;
+  const controller = await env.JARVIS_DB.prepare("SELECT id, device_id, token_hash, name, created_at, last_seen_at FROM remote_controllers WHERE token_hash = ?")
+    .bind(await tokenHash(token)).first<RemoteController>();
+  if (controller) await env.JARVIS_DB.prepare("UPDATE remote_controllers SET last_seen_at = ? WHERE id = ?").bind(Date.now(), controller.id).run();
+  return controller || null;
+}
+
+async function remoteClaim(request: Request, env: Env): Promise<Response> {
+  const body = await readJson(request);
+  const code = cleanText(body?.code, 6).replace(/\D/g, "");
+  if (code.length !== 6) return error("Informe o código de seis dígitos exibido no celular.");
+  const device = await env.JARVIS_DB.prepare("SELECT id FROM remote_devices WHERE paired_code = ? AND paired_code_expires_at > ?")
+    .bind(code, Date.now()).first<{ id: string }>();
+  if (!device) return error("Código inválido ou expirado.", 403);
+  const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
+  const timestamp = Date.now();
+  await env.JARVIS_DB.batch([
+    env.JARVIS_DB.prepare("UPDATE remote_devices SET paired_code = NULL, paired_code_expires_at = NULL WHERE id = ?").bind(device.id),
+    env.JARVIS_DB.prepare("INSERT INTO remote_controllers (id, device_id, token_hash, name, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(id(), device.id, await tokenHash(token), "PC", timestamp, timestamp),
+  ]);
+  return new Response(JSON.stringify({ ok: true }), { headers: { ...JSON_HEADERS, "set-cookie": `${REMOTE_COOKIE}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=2592000` } });
+}
+
+async function remoteDevice(request: Request, env: Env, action: string): Promise<Response> {
+  const body = await readJson(request);
+  const deviceId = cleanText(body?.device_id, 100);
+  if (!deviceId) return error("Identificação do celular ausente.");
+  const timestamp = Date.now();
+  if (action === "register") {
+    const name = cleanText(body?.name, 100) || "Celular Android";
+    await env.JARVIS_DB.prepare("INSERT INTO remote_devices (id, name, platform, last_seen_at, created_at) VALUES (?, ?, 'android', ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, last_seen_at = excluded.last_seen_at")
+      .bind(deviceId, name, timestamp, timestamp).run();
+    return json({ ok: true, device_id: deviceId });
+  }
+  const exists = await env.JARVIS_DB.prepare("SELECT id FROM remote_devices WHERE id = ?").bind(deviceId).first<{ id: string }>();
+  if (!exists) return error("Celular não registrado. Reative o controle remoto.", 404);
+  await env.JARVIS_DB.prepare("UPDATE remote_devices SET last_seen_at = ? WHERE id = ?").bind(timestamp, deviceId).run();
+  if (action === "pair-code") {
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    await env.JARVIS_DB.prepare("UPDATE remote_devices SET paired_code = ?, paired_code_expires_at = ? WHERE id = ?").bind(code, timestamp + 10 * 60_000, deviceId).run();
+    return json({ ok: true, code, expires_at: timestamp + 10 * 60_000 });
+  }
+  if (action === "poll") {
+    const commands = await env.JARVIS_DB.prepare("SELECT id, command, payload FROM remote_commands WHERE target_id = ? AND status = 'pending' ORDER BY created_at ASC LIMIT 10")
+      .bind(deviceId).all<{ id: string; command: string; payload: string | null }>();
+    const rows = commands.results || [];
+    if (rows.length) await env.JARVIS_DB.batch(rows.map((command) => env.JARVIS_DB.prepare("UPDATE remote_commands SET status = 'delivered', updated_at = ? WHERE id = ? AND status = 'pending'").bind(timestamp, command.id)));
+    return json({ ok: true, commands: rows.map((command) => ({ ...command, payload: command.payload ? JSON.parse(command.payload) : {} })) });
+  }
+  if (action === "result") {
+    const commandId = cleanText(body?.command_id, 100);
+    if (!commandId) return error("Comando ausente.");
+    const ok = body?.ok === true;
+    await env.JARVIS_DB.prepare("UPDATE remote_commands SET status = ?, result = ?, updated_at = ? WHERE id = ? AND target_id = ?")
+      .bind(ok ? "executed" : "failed", cleanText(body?.result, 300), timestamp, commandId, deviceId).run();
+    return json({ ok: true });
+  }
+  return error("Ação remota inválida.");
+}
+
+async function remoteControl(request: Request, env: Env, controller: RemoteController): Promise<Response> {
+  if (request.method === "GET") {
+    const devices = await env.JARVIS_DB.prepare("SELECT id, name, platform, last_seen_at FROM remote_devices ORDER BY last_seen_at DESC").all<RemoteDevice>();
+    return json({ ok: true, devices: (devices.results || []).map((device) => ({ ...device, online: Date.now() - device.last_seen_at < 20_000 })) });
+  }
+  const body = await readJson(request);
+  const targetId = cleanText(body?.target_id, 100);
+  const command = cleanText(body?.command, 50);
+  if (!targetId || !REMOTE_COMMANDS.has(command)) return error("Comando remoto não permitido.");
+  const target = await env.JARVIS_DB.prepare("SELECT id FROM remote_devices WHERE id = ?").bind(targetId).first<{ id: string }>();
+  if (!target) return error("Celular não encontrado.", 404);
+  const timestamp = Date.now();
+  const commandId = id();
+  await env.JARVIS_DB.prepare("INSERT INTO remote_commands (id, target_id, command, payload, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)")
+    .bind(commandId, targetId, command, "{}", timestamp, timestamp).run();
+  return json({ ok: true, command_id: commandId, accepted: true });
 }
 
 function id(): string {
@@ -208,6 +299,20 @@ function requestedMemory(message: string): string | null {
   return text.length >= 3 ? text : null;
 }
 
+function requestedPhoneAction(message: string): { command: string; label: string } | null {
+  const text = message.toLocaleLowerCase("pt-BR");
+  if (!/(?:abra|abrir|acesse|acessar|vá para|ir para|mostre|mostrar|volte|voltar)/.test(text)) return null;
+  if (/youtube/.test(text)) return { command: "open_youtube", label: "YouTube" };
+  if (/chrome|navegador/.test(text)) return { command: "open_chrome", label: "Chrome" };
+  if (/whatsapp/.test(text)) return { command: "open_whatsapp", label: "WhatsApp" };
+  if (/configura[çc][õo]es|ajustes/.test(text)) return { command: "open_settings", label: "Configurações" };
+  if (/in[ií]cio|tela inicial/.test(text)) return { command: "home", label: "Início" };
+  if (/recentes/.test(text)) return { command: "recents", label: "Recentes" };
+  if (/notifica[çc][õo]es/.test(text)) return { command: "notifications", label: "Notificações" };
+  if (/voltar/.test(text)) return { command: "back", label: "Voltar" };
+  return null;
+}
+
 async function saveMemory(db: D1Database, text: string, sessionId: string, kind = "manual"): Promise<MemoryFact> {
   const existing = await db.prepare("SELECT id, text, created_at, updated_at, session_id, origin, kind FROM memory_facts WHERE lower(text) = lower(?) LIMIT 1")
     .bind(text).first<MemoryFact>();
@@ -304,6 +409,13 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
       const activity: ToolActivity[] = [{ id: id(), tool: "habit_tool", status: "succeeded", label: result.created ? "Hábito criado" : "Hábito já existente", result: result.habit.name }];
       await saveMessage(env.JARVIS_DB, sessionId, "assistant", reply, activity);
       return json({ ok: true, status: "complete", session_id: sessionId, reply, summary: reply, intent: "habit_create", actions: [{ type: "habit_created", habit: result.habit }], context: { mobile: true, tool_activity: activity } });
+    }
+    const phoneAction = requestedPhoneAction(message);
+    if (phoneAction) {
+      const reply = `Vou executar “${phoneAction.label}” neste celular.`;
+      const activity: ToolActivity[] = [{ id: id(), tool: "android_control", status: "queued", label: "Controle do celular", result: phoneAction.label }];
+      await saveMessage(env.JARVIS_DB, sessionId, "assistant", reply, activity);
+      return json({ ok: true, status: "complete", session_id: sessionId, reply, summary: reply, intent: "android_control", actions: [{ type: "android_action", command: phoneAction.command }], context: { mobile: true, tool_activity: activity } });
     }
     const facts = await recentFacts(env.JARVIS_DB);
     const reply = await respond(env, [...history, { role: "user", content: message }], facts);
@@ -648,7 +760,16 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/api/health") return json({ ok: true, service: "jarvis-mobile-cloud", version: "1" });
+    if (url.pathname === "/control" || url.pathname === "/control/") return env.ASSETS.fetch(new Request(new URL("/control.html", url), request));
+    if (url.pathname === "/api/remote/claim" && request.method === "POST") return remoteClaim(request, env);
+    const controller = await remoteController(request, env);
+    if (controller && url.pathname === "/api/remote/status" && request.method === "GET") return remoteControl(request, env, controller);
+    if (controller && url.pathname === "/api/remote/command" && request.method === "POST") return remoteControl(request, env, controller);
     if (!authenticated(request, env)) return error("Sessão do aparelho não autorizada.", 401);
+    if (url.pathname === "/api/remote/register" && request.method === "POST") return remoteDevice(request, env, "register");
+    if (url.pathname === "/api/remote/pair-code" && request.method === "POST") return remoteDevice(request, env, "pair-code");
+    if (url.pathname === "/api/remote/poll" && request.method === "POST") return remoteDevice(request, env, "poll");
+    if (url.pathname === "/api/remote/result" && request.method === "POST") return remoteDevice(request, env, "result");
     if (url.pathname === "/api/chat" && request.method === "POST") return handleChat(request, env);
     if (url.pathname === "/api/voice/tts" && request.method === "POST") return handleTts(request, env);
     if (url.pathname === "/api/voice/tts/stream" && request.method === "POST") return handleTts(request, env);

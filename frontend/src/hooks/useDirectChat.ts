@@ -483,11 +483,18 @@ async function callMobileCloud(message: string, sessionId: string, signal: Abort
     body: JSON.stringify({ message, session_id: sessionId }),
     signal,
   })
-  const data = await response.json().catch(() => ({})) as { reply?: unknown; error?: unknown; context?: { tool_activity?: unknown } }
+  const data = await response.json().catch(() => ({})) as { reply?: unknown; error?: unknown; actions?: unknown; context?: { tool_activity?: unknown } }
   if (!response.ok || typeof data.reply !== 'string') throw new Error(typeof data.error === 'string' ? data.error : `Jarvis respondeu HTTP ${response.status}`)
   const activity = Array.isArray(data.context?.tool_activity)
     ? data.context.tool_activity.filter((item): item is ToolActivityEntry => Boolean(item) && typeof item === 'object' && typeof (item as ToolActivityEntry).id === 'string' && typeof (item as ToolActivityEntry).tool === 'string')
     : []
+  if (Array.isArray(data.actions)) for (const action of data.actions) {
+    if (!action || typeof action !== 'object' || (action as { type?: unknown }).type !== 'android_action') continue
+    const command = (action as { command?: unknown }).command
+    if (typeof command !== 'string') continue
+    const result = (window as Window & { JarvisMobile?: { executePhoneAction?: (value: string) => string } }).JarvisMobile?.executePhoneAction?.(command)
+    activity.push({ id: `android-${Date.now()}`, tool: 'android_control', status: result?.startsWith('Ação') || result?.endsWith('aberto') ? 'succeeded' : 'failed', label: 'Controle do celular', result: result || 'Abra o painel Jarvis no aplicativo Android.' })
+  }
   return { reply: data.reply, activity }
 }
 

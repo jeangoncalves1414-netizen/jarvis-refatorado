@@ -67,6 +67,12 @@ class PanelActivity : Activity() {
             @JavascriptInterface fun cancelReminder(id: String) {
                 cancelReminder(this@PanelActivity, id.take(100))
             }
+            @JavascriptInterface fun openRemoteControl() = runOnUiThread {
+                startActivity(Intent(this@PanelActivity, RemoteControlActivity::class.java))
+            }
+            @JavascriptInterface fun executePhoneAction(command: String): String {
+                return RemoteControlService.execute(this@PanelActivity, command).second
+            }
         }, "JarvisMobile")
         nativeSpeech = NativeSpeechBridge(this, page) { active ->
             voiceActive = active

@@ -1,4 +1,5 @@
 <resources>
     <string name="panel_origin"></string>
     <string name="app_name">Jarvis Evolução</string>
+    <string name="jarvis_accessibility_description">Permite ao Jarvis usar Início, Voltar, Recentes e Notificações quando o controle remoto estiver ativado por você.</string>
 </resources>
