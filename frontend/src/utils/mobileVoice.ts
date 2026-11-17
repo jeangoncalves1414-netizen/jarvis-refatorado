@@ -2,6 +2,7 @@ import { getMobileApiKeys, getMobileOxyyModels, getMobileProvider, resolveActive
 
 export type NativeVoiceHandlers = {
   onSpeechPartial?: (text: string) => void
+  onSpeechAudio?: (base64: string) => void
   onSpeechFinal?: (text: string) => void
   onSpeechError?: (code: string) => void
   onSpeechEnd?: (code: string) => void

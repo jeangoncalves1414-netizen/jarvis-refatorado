@@ -1,95 +1,112 @@
 package com.example.jarvismobile
 
 import android.content.Context
-import android.content.Intent
-import android.os.Bundle
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
+import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import kotlin.concurrent.thread
+import kotlin.math.sqrt
 
-/** Uses Android's speech service when this WebView cannot open its audio source. */
+/** Silent microphone capture. Transcription stays in the protected cloud endpoint. */
 class NativeSpeechBridge(private val context: Context, private val page: WebView) {
     private val main = Handler(Looper.getMainLooper())
-    private var recognizer: SpeechRecognizer? = null
-    private var listening = false
-    private var continuous = false
+    @Volatile private var listening = false
+    @Volatile private var capturing = false
+    @Volatile private var continuous = false
 
-    @JavascriptInterface fun startSpeech(continuousMode: Boolean) = main.post {
+    @JavascriptInterface fun startSpeech(continuousMode: Boolean) {
+        if (capturing) return
         continuous = continuousMode
         listening = true
-        beginListening()
+        capturing = true
+        thread(name = "jarvis-mic") { captureUtterance() }
     }
 
-    @JavascriptInterface fun stopSpeech() = main.post {
+    @JavascriptInterface fun stopSpeech() {
         listening = false
-        continuous = false
-        runCatching { recognizer?.cancel() }
+        capturing = false
     }
 
-    fun destroy() = main.post {
-        listening = false
-        runCatching { recognizer?.destroy() }
-        recognizer = null
-    }
+    fun destroy() = stopSpeech()
 
-    private fun beginListening() {
-        if (!listening) return
-        runCatching { recognizer?.destroy() }
-        recognizer = runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrElse {
-            emit("onSpeechError", "unavailable")
-            return
-        }.apply { setRecognitionListener(listener) }
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
-        }
-        runCatching { recognizer?.startListening(intent) }.onFailure { emit("onSpeechError", "unavailable") }
-    }
+    private fun captureUtterance() {
+        val rate = 16_000
+        val minBuffer = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        if (minBuffer <= 0) { failed("unavailable"); return }
+        val recorder = try {
+            AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, rate, AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT, minBuffer * 2)
+        } catch (_: Exception) { failed("unavailable"); return }
+        if (recorder.state != AudioRecord.STATE_INITIALIZED) { recorder.release(); failed("unavailable"); return }
 
-    private val listener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) = Unit
-        override fun onBeginningOfSpeech() = Unit
-        override fun onRmsChanged(rmsdB: Float) = Unit
-        override fun onBufferReceived(buffer: ByteArray?) = Unit
-        override fun onEndOfSpeech() = Unit
-        override fun onEvent(eventType: Int, params: Bundle?) = Unit
-
-        override fun onPartialResults(results: Bundle?) {
-            results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                ?.takeIf { it.isNotBlank() }?.let { emit("onSpeechPartial", it) }
-        }
-
-        override fun onResults(results: Bundle?) {
-            val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-            if (text.isNotBlank()) emit("onSpeechFinal", text)
-            else retry()
-        }
-
-        override fun onError(error: Int) {
-            when (error) {
-                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> emit("onSpeechError", "permission")
-                SpeechRecognizer.ERROR_CLIENT -> emit("onSpeechError", "client")
-                else -> retry()
+        val buffer = ByteArray(minBuffer)
+        val pcm = ByteArrayOutputStream()
+        var speaking = false
+        var silenceAt = 0L
+        val startedAt = System.currentTimeMillis()
+        try {
+            recorder.startRecording()
+            while (capturing && listening) {
+                val count = recorder.read(buffer, 0, buffer.size)
+                if (count <= 0) continue
+                val rms = rms(buffer, count)
+                val now = System.currentTimeMillis()
+                if (rms >= 550) { speaking = true; silenceAt = 0L }
+                if (speaking) pcm.write(buffer, 0, count)
+                if (speaking && rms < 550) {
+                    if (silenceAt == 0L) silenceAt = now
+                    if (now - silenceAt >= 1_000L) break
+                }
+                if (now - startedAt >= 12_000L) break
             }
+        } catch (_: Exception) { failed("unavailable"); return
+        } finally {
+            capturing = false
+            runCatching { recorder.stop() }
+            recorder.release()
         }
+        if (listening && pcm.size() >= rate / 4) emit("onSpeechAudio", Base64.encodeToString(wav(pcm.toByteArray(), rate), Base64.NO_WRAP))
+        else if (listening && continuous) main.postDelayed({ startSpeech(true) }, 250L)
     }
 
-    private fun retry() {
-        if (listening && continuous) main.postDelayed({ beginListening() }, 350L)
+    private fun rms(bytes: ByteArray, count: Int): Double {
+        var total = 0.0
+        var samples = 0
+        var index = 0
+        while (index + 1 < count) {
+            val sample = ((bytes[index + 1].toInt() shl 8) or (bytes[index].toInt() and 0xff)).toShort().toInt()
+            total += sample.toDouble() * sample
+            samples++
+            index += 2
+        }
+        return if (samples == 0) 0.0 else sqrt(total / samples)
+    }
+
+    private fun wav(pcm: ByteArray, rate: Int): ByteArray {
+        val header = ByteArray(44)
+        fun put(offset: Int, value: Int, bytes: Int) { repeat(bytes) { header[offset + it] = (value shr (it * 8)).toByte() } }
+        header[0] = 'R'.code.toByte(); header[1] = 'I'.code.toByte(); header[2] = 'F'.code.toByte(); header[3] = 'F'.code.toByte()
+        put(4, 36 + pcm.size, 4); header[8] = 'W'.code.toByte(); header[9] = 'A'.code.toByte(); header[10] = 'V'.code.toByte(); header[11] = 'E'.code.toByte()
+        header[12] = 'f'.code.toByte(); header[13] = 'm'.code.toByte(); header[14] = 't'.code.toByte(); header[15] = ' '.code.toByte()
+        put(16, 16, 4); put(20, 1, 2); put(22, 1, 2); put(24, rate, 4); put(28, rate * 2, 4); put(32, 2, 2); put(34, 16, 2)
+        header[36] = 'd'.code.toByte(); header[37] = 'a'.code.toByte(); header[38] = 't'.code.toByte(); header[39] = 'a'.code.toByte(); put(40, pcm.size, 4)
+        return header + pcm
+    }
+
+    private fun failed(code: String) {
+        capturing = false
+        emit("onSpeechError", code)
     }
 
     private fun emit(method: String, value: String) {
         val payload = JSONObject.quote(value)
-        page.post {
-            page.evaluateJavascript("(function(){window.__jarvisNativeVoice?.$method?.($payload)})()", null)
-        }
+        page.post { page.evaluateJavascript("(function(){window.__jarvisNativeVoice?.$method?.($payload)})()", null) }
     }
 }

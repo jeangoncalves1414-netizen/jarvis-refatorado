@@ -2247,6 +2247,31 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       onSpeechPartial: text => {
         if (nativeVoiceModeRef.current === 'call') setLiveUserTranscript(text)
       },
+      onSpeechAudio: encoded => {
+        void (async () => {
+          try {
+            const bytes = Uint8Array.from(atob(encoded), byte => byte.charCodeAt(0))
+            const response = await fetch('/api/voice/stt', {
+              method: 'POST',
+              headers: { 'Content-Type': 'audio/wav', 'X-Jarvis-Identify-Speaker': '0', 'X-Jarvis-Session-ID': sessionId || '' },
+              body: new Blob([bytes], { type: 'audio/wav' }),
+            })
+            const data = await response.json()
+            const text = String(data?.text || '').trim()
+            if (!response.ok || !data?.ok || !text) throw new Error(data?.error || 'Não foi possível entender o áudio.')
+            ;(window as Window & { __jarvisNativeVoice?: { onSpeechFinal?: (value: string) => void } })
+              .__jarvisNativeVoice?.onSpeechFinal?.(text)
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Não foi possível transcrever o áudio.'
+            if (nativeVoiceModeRef.current === 'call' && liveCallActiveRef.current) {
+              setLiveCallStatus(`${message} Tente falar novamente.`)
+              setLiveCallRecording(true)
+              setLiveOrbState('listening')
+              startNativeSpeech(true)
+            } else setAnswer(message)
+          }
+        })()
+      },
       onSpeechFinal: text => {
         const spoken = text.trim()
         if (!spoken) return
