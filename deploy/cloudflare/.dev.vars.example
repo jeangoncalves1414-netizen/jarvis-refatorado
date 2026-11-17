@@ -1,0 +1,9 @@
+# Nunca envie este arquivo preenchido ao Git.
+MOBILE_CONTROL_TOKEN=gere-um-token-aleatorio-com-ao-menos-40-caracteres
+FISH_API_KEY=
+FISH_REFERENCE_ID=78d40157e19a43ebb725f09fc6125585
+FISH_TTS_MODEL=s2.1-pro-free
+GROQ_API_KEY=
+GROQ_MODEL=openai/gpt-oss-120b
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash

@@ -1,0 +1,15 @@
+name = "jarvis-mobile-cloud"
+main = "src/index.ts"
+compatibility_date = "2026-11-17"
+workers_dev = true
+
+# Crie o D1 com `bunx wrangler d1 create jarvis-mobile`, copie o id retornado
+# abaixo e só então publique. O id não é segredo.
+[[d1_databases]]
+binding = "JARVIS_DB"
+database_name = "jarvis-mobile"
+database_id = "cefeda89-083f-4868-899f-bb0eda85dd77"
+
+[assets]
+directory = "public"
+binding = "ASSETS"

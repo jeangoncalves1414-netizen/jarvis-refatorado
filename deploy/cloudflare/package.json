@@ -1,0 +1,17 @@
+{
+  "name": "jarvis-mobile-cloud",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "check": "tsc --noEmit",
+    "deploy": "wrangler deploy",
+    "db:apply": "wrangler d1 execute JARVIS_DB --remote --file=./schema.sql"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261117.1",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.51.0"
+  }
+}

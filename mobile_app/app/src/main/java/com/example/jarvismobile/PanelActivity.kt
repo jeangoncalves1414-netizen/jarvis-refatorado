@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.webkit.*
 import android.widget.Toast
+import android.webkit.JavascriptInterface
 import java.io.File
 import org.json.JSONObject
 
@@ -49,6 +50,14 @@ class PanelActivity : Activity() {
             mediaPlaybackRequiresUserGesture = false
             userAgentString = "$userAgentString JarvisMobile/1.8.1"
         }
+        // Deliberately tiny bridge: the remote mobile panel may only open the
+        // native routine/alarm screen. It receives no files, credentials,
+        // identity data, camera access, or arbitrary Android intents.
+        page.addJavascriptInterface(object {
+            @JavascriptInterface fun openRoutine() = runOnUiThread {
+                startActivity(Intent(this@PanelActivity, RoutineActivity::class.java))
+            }
+        }, "JarvisMobile")
         page.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 if (!request.isForMainFrame || paired(request.url)) return false
@@ -117,6 +126,11 @@ class PanelActivity : Activity() {
             return
         }
         val cookieName = if (cloudMode) "__Host-jarvis_cloud" else "__Host-jarvis_panel"
+        if (cloudMode) {
+            // Default is intentionally unlocked for the owner's single-user
+            // phone. The shared PC UI exposes the optional switch later.
+            CookieManager.getInstance().setCookie(origin, "jarvis_mobile_lock=off; Path=/; Secure; SameSite=Strict")
+        }
         CookieManager.getInstance().setCookie(origin, "$cookieName=$token; Path=/; Secure; HttpOnly; SameSite=Strict") { saved ->
             if (isDestroyed || isFinishing) return@setCookie
             if (!saved) { options("Não foi possível iniciar a sessão do painel."); return@setCookie }

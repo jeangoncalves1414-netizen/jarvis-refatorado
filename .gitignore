@@ -19,6 +19,7 @@ startup_error.txt
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+deploy/cloudflare/node_modules/
 *.tsbuildinfo
 mobile/local.properties
 mobile/app/build/
