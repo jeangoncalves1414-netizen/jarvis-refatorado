@@ -2,14 +2,12 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <!-- Lets the shared PC bundle apply its Android-safe rules: no identity
-         screen, no face/voice verification, and optional local app lock. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="jarvis-mobile-android" content="cloud" />
     <script>
-      // First mobile launch is intentionally unlocked. Once the owner enables
-      // the optional password in Settings, this leaves the preference intact.
-      if (!document.cookie.split('; ').some(function (item) { return item.indexOf('jarvis_mobile_lock=') === 0 })) {
+      // The owner's phone is paired, so opening-password protection starts
+      // optional. The current PC panel exposes the setting to turn it on.
+      if (!document.cookie.split('; ').some(cookie => cookie.startsWith('jarvis_mobile_lock='))) {
         document.cookie = 'jarvis_mobile_lock=off; Path=/; Max-Age=31536000; Secure; SameSite=Strict'
       }
     </script>
@@ -23,13 +21,14 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@400;600;700;800&display=swap" rel="stylesheet" />
-    <title>Jarvis</title>
-    <script type="module" crossorigin src="/assets/index-B0yhrMiQ.js"></script>
-    <link rel="modulepreload" crossorigin href="/assets/vendor-motion-BGOtQpnJ.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-react-6R5wYt4x.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-mermaid-B8-lSO-8.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-icons-DBYhlawx.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-DX66oDGv.css">
+    <title>Workspace · Agente pessoal</title>
+    <script type="module" crossorigin src="/assets/index-DnrcWQ1e.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-icons-CDOxNCTb.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-motion-DS5Be5Oy.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-react-C99NDq-K.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-mermaid-DZ3ncRfq.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-hls-DkI61o3c.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-DRNLIW5c.css">
   </head>
   <body>
     <div id="root"></div>
