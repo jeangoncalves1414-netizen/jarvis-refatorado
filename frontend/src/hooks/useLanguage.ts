@@ -1,3 +1,4 @@
+import { createMicrophoneRecognition } from '../utils/micPrefs'
 import { studyGet } from '../utils/studyGet'
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import type { ChatMessage, VocabCard, PronunciationAttempt, LanguageDashboard } from '../types'
@@ -186,7 +187,7 @@ export function useLanguage(setNotice: SetNotice) {
       return
     }
 
-    const recognition = new SpeechRecognition()
+    const recognition = createMicrophoneRecognition(SpeechRecognition)
     recognitionRef.current = recognition
     recognition.lang = speechLang(dashboard?.target_language)
     recognition.interimResults = false
@@ -229,8 +230,9 @@ export function useLanguage(setNotice: SetNotice) {
       refreshLanguage().catch(() => undefined)
     }
 
-    recognition.onerror = () => {
-      setNotice('Erro no reconhecimento de voz. Tente novamente.')
+    recognition.onerror = (event: any) => {
+      recognitionRef.current = null
+      setNotice(event?.message || 'Erro no reconhecimento de voz. Tente novamente.')
       setPronListening(false)
     }
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Mic, MicOff, Play, Volume2, AudioLines } from 'lucide-react'
 import type { OxyySettings, SttSettings, TtsSettings } from '../types'
-import { getPreferredMicDevice, micAudioConstraints, setPreferredMicDevice } from '../utils/micPrefs'
+import { openMicrophone, rememberMicrophone } from '../utils/micPrefs'
 import { createAgentAudio } from '../utils/voiceSpeed'
 import { VoiceSpeedSettings } from './VoiceSpeedSettings'
 
@@ -14,8 +14,8 @@ type Props = {
   onSaveOxyy: (models: OxyySettings['models']) => void
 }
 
-type Mic = { sensitivity: number; silence_ms: number; gain: number; engine: 'auto' | 'backend' | 'browser'; device_name: string }
-const MIC_DEFAULT: Mic = { sensitivity: 75, silence_ms: 800, gain: 1, engine: 'auto', device_name: '' }
+type Mic = { sensitivity: number; silence_ms: number; gain: number; engine: 'auto' | 'backend' | 'browser'; device_name: string; device_id: string }
+const MIC_DEFAULT: Mic = { sensitivity: 75, silence_ms: 800, gain: 1, engine: 'auto', device_name: '', device_id: '' }
 const MIC_NUMERIC_DEFAULT = { sensitivity: 75, silence_ms: 800, gain: 1 }
 type PcMicState = { loaded: boolean; available: boolean; reason: string; devices: { index: number; name: string; default: boolean }[] }
 // Mesma conta do backend (mic_capture.energy_threshold_for): 75 = 1100, cada -25 dobra o limiar.
@@ -44,10 +44,13 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
   const [micMessage, setMicMessage] = useState('')
   const saveTimer = useRef<number | undefined>(undefined)
   const micRef = useRef<Mic>(MIC_DEFAULT)
+  const savedMicRef = useRef<Mic>(MIC_DEFAULT)
+  const saveQueue = useRef(Promise.resolve())
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
+  const [listing, setListing] = useState(false)
+  const [savingDevice, setSavingDevice] = useState(false)
 
   const [pcMic, setPcMic] = useState<PcMicState>({ loaded: false, available: false, reason: '', devices: [] })
-  const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
-  const [deviceId, setDeviceId] = useState(getPreferredMicDevice)
 
   const [monitoring, setMonitoring] = useState(false)
   const [level, setLevel] = useState(0)
@@ -74,8 +77,10 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
       .then(response => response.json())
       .then(data => {
         if (!data?.ok) return
-        const next: Mic = { sensitivity: data.sensitivity, silence_ms: data.silence_ms, gain: data.gain, engine: data.engine || 'auto', device_name: data.device_name || '' }
+        const next: Mic = { sensitivity: data.sensitivity, silence_ms: data.silence_ms, gain: data.gain, engine: data.engine || 'auto', device_name: data.device_name || '', device_id: data.device_id || '' }
         micRef.current = next
+        savedMicRef.current = next
+        rememberMicrophone(next)
         setMic(next)
       })
       .catch(() => setMicMessage('Não foi possível ler os ajustes do microfone. Verifique se o backend está ligado.'))
@@ -86,30 +91,50 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
       .catch(() => setPcMic({ loaded: true, available: false, reason: 'Não foi possível consultar o microfone do PC no backend.', devices: [] }))
   }, [])
 
-  const refreshDevices = useCallback(async () => {
+
+  const refreshDevices = useCallback(async (requestPermission = false) => {
+    setListing(true)
     try {
-      const list = await navigator.mediaDevices.enumerateDevices()
-      setDevices(list.filter(device => device.kind === 'audioinput'))
-    } catch { /* sem permissão ou sem suporte */ }
+      if (!navigator.mediaDevices?.enumerateDevices) throw new Error('Não foi possível listar os microfones neste navegador.')
+      if (requestPermission) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        stream.getTracks().forEach(track => track.stop())
+      }
+      const inputs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput' && !['default', 'communications'].includes(d.deviceId))
+      setDevices(inputs)
+    } catch (error) { setMicMessage(error instanceof Error ? error.message : 'Não foi possível listar os microfones.') }
+    finally { setListing(false) }
   }, [])
 
-  useEffect(() => { void refreshDevices() }, [refreshDevices])
+  useEffect(() => {
+    const refresh = () => { void refreshDevices() }
+    refresh()
+    navigator.mediaDevices?.addEventListener?.('devicechange', refresh)
+    return () => navigator.mediaDevices?.removeEventListener?.('devicechange', refresh)
+  }, [refreshDevices])
 
-  const saveMic = (patch: Partial<Mic>) => {
+  const saveMic = (patch: Partial<Mic>, immediate = false) => {
     const next = { ...micRef.current, ...patch }
     micRef.current = next
     setMic(next)
     window.clearTimeout(saveTimer.current)
-    saveTimer.current = window.setTimeout(async () => {
+    const save = () => { saveQueue.current = saveQueue.current.then(async () => {
+      const snapshot = { ...micRef.current }
       try {
-        const response = await fetch('/api/settings/mic', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(micRef.current) })
+        const response = await fetch('/api/settings/mic', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(snapshot) })
         const data = await response.json()
         if (!response.ok || !data.ok) throw new Error(data.error || '')
-        setMicMessage('Ajustes do microfone salvos. Valem na próxima ligação por voz.')
+        savedMicRef.current = snapshot
+        rememberMicrophone(snapshot)
+        setMicMessage('Microfone salvo para todo o app. A escolha vale na próxima captura; encerre e reabra uma gravação ou ligação já em andamento.')
       } catch (error) {
+        micRef.current = { ...micRef.current, device_id: savedMicRef.current.device_id, device_name: savedMicRef.current.device_name }
+        setMic(micRef.current)
         setMicMessage(error instanceof Error && error.message ? error.message : 'Não foi possível salvar os ajustes do microfone.')
-      }
-    }, 450)
+      } finally { if (immediate) setSavingDevice(false) }
+    }) }
+    if (immediate) { setSavingDevice(true); save() }
+    else saveTimer.current = window.setTimeout(save, 450)
   }
 
   const stopMonitor = useCallback(() => {
@@ -129,8 +154,7 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
 
   const openStream = async () => {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Este navegador não permite acessar o microfone.')
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: micAudioConstraints({ echoCancellation: true, noiseSuppression: true, autoGainControl: true }) })
-    void refreshDevices()
+    const stream = await openMicrophone({ echoCancellation: true, noiseSuppression: true, autoGainControl: true })
     return stream
   }
 
@@ -164,11 +188,6 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
     }
   }
 
-  const changeDevice = (value: string) => {
-    setDeviceId(value)
-    setPreferredMicDevice(value)
-    if (monitoring) { stopMonitor(); setMicMessage('Dispositivo alterado. Ligue o medidor de novo para testar.') }
-  }
 
   const postStt = async (audio: Blob, contentType: string) => {
     const started = performance.now()
@@ -312,7 +331,21 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
       <article className="settings-card">
         <p className="eyebrow">MICROFONE</p>
         <h2>Detecção de fala</h2>
-        <p>Valem para a ligação por voz e o ditado. Mudanças são salvas sozinhas.</p>
+        <p>Escolha o microfone usado em todo o app. Mudanças são salvas sozinhas.</p>
+
+        <label className="field-label">Microfone do aplicativo
+          <select value={mic.device_id || (mic.device_name ? 'unavailable' : '')} disabled={!micLoaded || savingDevice || micTest.busy} onChange={event => {
+            const device = devices.find(d => d.deviceId === event.target.value)
+            stopMonitor()
+            saveMic({ device_id: device?.deviceId || '', device_name: device?.label || '' }, true)
+          }}>
+            <option value="">Microfone padrão do sistema</option>
+            {mic.device_name && !devices.some(d => d.deviceId === mic.device_id) && <option value={mic.device_id || 'unavailable'} disabled>{mic.device_name} (indisponível)</option>}
+            {devices.map((device, index) => <option key={device.deviceId || index} value={device.deviceId} disabled={!device.label}>{device.label || `Microfone ${index + 1} — permita o acesso para selecionar`}</option>)}
+          </select>
+          <small className="settings-muted">Usado nas chamadas, no cadastro, no desbloqueio por voz, no ditado e nos exercícios de pronúncia.</small>
+        </label>
+        <button type="button" className="outline-button" disabled={listing || savingDevice} onClick={() => { void refreshDevices(true) }}>{listing ? 'Atualizando…' : 'Permitir acesso e atualizar microfones'}</button>
 
         <label className="field-label">Motor de detecção da ligação
           <select value={mic.engine} disabled={!micLoaded} onChange={event => saveMic({ engine: event.target.value as Mic['engine'] })}>
@@ -328,15 +361,6 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
               : `Ligação usando o microfone do PC. Limiar de energia ≈ ${pcThreshold(mic.sensitivity, mic.gain)} (ajusta ao ruído; padrão do projeto antigo = 1100).`}
           </span>
         </label>
-        {pcMic.available && (
-          <label className="field-label">Microfone do PC
-            <select value={mic.device_name} disabled={!micLoaded} onChange={event => saveMic({ device_name: event.target.value })}>
-              <option value="">Padrão do sistema</option>
-              {withCurrent(pcMic.devices.map(device => device.name), mic.device_name).map(name => <option key={name} value={name}>{name}</option>)}
-            </select>
-            <span className="settings-muted">Usado pelo motor do PC na ligação e no teste de microfone.</span>
-          </label>
-        )}
 
         <label className="field-label st-range">
           <span>Sensibilidade <b>{mic.sensitivity}</b></span>
@@ -355,15 +379,6 @@ export function VoiceSettings({ ttsSettings, sttSettings, oxyySettings, onSetTts
         </label>
         <button className="outline-button" type="button" onClick={() => saveMic(MIC_NUMERIC_DEFAULT)} disabled={!micLoaded}>Restaurar padrões</button>
 
-        <label className="field-label">Dispositivo de entrada
-          <select value={deviceId} onChange={event => changeDevice(event.target.value)}>
-            <option value="">Padrão do sistema</option>
-            {devices.filter(device => device.deviceId && device.deviceId !== 'default').map((device, index) => (
-              <option key={device.deviceId} value={device.deviceId}>{device.label || `Microfone ${index + 1}`}</option>
-            ))}
-          </select>
-          {devices.length > 0 && devices.every(device => !device.label) && <span className="settings-muted">Ligue o medidor uma vez para o navegador mostrar os nomes dos dispositivos.</span>}
-        </label>
 
         <div className="st-meter-head">
           <strong>Nível ao vivo</strong>

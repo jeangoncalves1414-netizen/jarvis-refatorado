@@ -17,6 +17,7 @@ MODEL_ID = "wespeaker-resnet34-lm-v1"
 MODEL_URL = "https://huggingface.co/Wespeaker/wespeaker-resnet34-LM/resolve/main/voxceleb_resnet34_LM.onnx?download=true"
 MODEL_PATH = Path("data") / "models" / "voxceleb_resnet34_LM.onnx"
 MIN_AUDIO_SECONDS = 2.0
+MIN_SHORT_TURN_SECONDS = 1.0
 MIN_MODEL_BYTES = 1_000_000
 MIN_SPEECH_SECONDS = 0.7
 MIN_SIGNAL_RMS = 0.006
@@ -32,6 +33,7 @@ class VoiceIdentityEngine:
         self._session: Any = None
 
     def status(self) -> dict[str, Any]:
+        from app.services.voice_segmentation import engine as segmentation
         missing: list[str] = []
         try:
             import onnxruntime  # noqa: F401
@@ -44,7 +46,8 @@ class VoiceIdentityEngine:
         return {
             "ok": True,
             "model_id": MODEL_ID,
-            "ready": not missing and self.model_path.is_file() and self.model_path.stat().st_size >= MIN_MODEL_BYTES,
+            "ready": not missing and self.model_path.is_file() and self.model_path.stat().st_size >= MIN_MODEL_BYTES and segmentation.model_path.is_file(),
+            "segmentation_downloaded": segmentation.model_path.is_file(),
             "model_downloaded": self.model_path.is_file(),
             "model_size_bytes": self.model_path.stat().st_size if self.model_path.is_file() else 0,
             "missing_dependencies": missing,
@@ -55,6 +58,12 @@ class VoiceIdentityEngine:
         current = self.status()
         if current["missing_dependencies"]:
             raise VoiceIdentityError("Dependências locais ausentes: " + ", ".join(current["missing_dependencies"]))
+        from app.services.voice_segmentation import engine as segmentation
+        try:
+            segmentation.install()
+        except Exception as exc:
+            raise VoiceIdentityError("Não foi possível preparar a segmentação local de voz. Tente novamente.") from exc
+        current = self.status()
         if current["ready"]:
             return current
         self.model_path.parent.mkdir(parents=True, exist_ok=True)
@@ -76,9 +85,27 @@ class VoiceIdentityEngine:
 
     def embed(self, raw: bytes, content_type: str = "audio/webm") -> list[float]:
         samples = self._decode_audio(raw, content_type)
-        if len(samples) < int(16_000 * MIN_AUDIO_SECONDS):
+        return self.embed_samples(samples)
+
+    def embed_samples(self, samples, *, activity=None, short_turn=False) -> list[float]:
+        """Reuse decoded audio; activity is only supplied by local segmentation."""
+        if short_turn and len(samples) < int(16_000 * MIN_SHORT_TURN_SECONDS):
+            raise VoiceIdentityError("A fala durou menos de um segundo. Tente uma frase um pouco mais longa.")
+        if not short_turn and len(samples) < int(16_000 * MIN_AUDIO_SECONDS):
             raise VoiceIdentityError("Fale por pelo menos 2 segundos para criar uma impressão vocal confiável.")
-        self._require_speech(samples)
+        import numpy as np
+        if not np.isfinite(samples).all() or float(np.sqrt(np.mean(np.square(samples)))) < MIN_SIGNAL_RMS:
+            raise VoiceIdentityError("Nenhuma fala detectada. Fale em volume normal e tente novamente.")
+        from app.services.voice_segmentation import engine as segmentation
+        try:
+            if activity is None:
+                activity = segmentation.analyze(samples)
+        except ValueError as exc:
+            raise VoiceIdentityError(str(exc)) from exc
+        if activity['overlap_seconds'] >= 0.2 or activity['multiple_speakers']:
+            raise VoiceIdentityError("Mais de uma voz detectada. Fale uma pessoa por vez para identificar quem falou.")
+        if activity['speech_seconds'] < MIN_SPEECH_SECONDS:
+            raise VoiceIdentityError("Nenhuma fala detectada por tempo suficiente. Fale por alguns segundos.")
         session = self._get_session()
         features = self._fbank(samples)
         if len(features) < 20:
@@ -90,30 +117,6 @@ class VoiceIdentityEngine:
         if not norm:
             raise VoiceIdentityError("Não foi possível extrair uma impressão vocal desta amostra.")
         return (embedding / norm).astype("float32").tolist()
-
-    @staticmethod
-    def _require_speech(samples: Any) -> None:
-        """Recusa silêncio/ruído antes de pedir um embedding ao modelo.
-
-        Modelos de locutor sempre retornam um vetor, inclusive para silêncio.
-        Sem esta porta de qualidade, esse vetor pode acabar similar a um perfil
-        salvo e gerar uma identificação falsa com confiança alta.
-        """
-        import numpy as np
-
-        centered = np.asarray(samples, dtype="float32") - float(np.mean(samples))
-        frame_size = 480  # 30 ms em 16 kHz
-        usable = (len(centered) // frame_size) * frame_size
-        if usable < frame_size:
-            raise VoiceIdentityError("Nenhuma fala detectada. Tente novamente falando por alguns segundos.")
-        frames = centered[:usable].reshape(-1, frame_size)
-        rms = np.sqrt(np.mean(np.square(frames), axis=1))
-        overall_rms = float(np.sqrt(np.mean(np.square(centered))))
-        noise_floor = float(np.percentile(rms, 20))
-        speech_threshold = max(MIN_SIGNAL_RMS, noise_floor * 2.5)
-        speech_seconds = float(np.count_nonzero(rms >= speech_threshold) * 0.03)
-        if overall_rms < MIN_SIGNAL_RMS or speech_seconds < MIN_SPEECH_SECONDS:
-            raise VoiceIdentityError("Nenhuma fala detectada. Fale por pelo menos 2 segundos em volume normal e tente de novo.")
 
     def _get_session(self) -> Any:
         if not self.status()["ready"]:
@@ -185,9 +188,12 @@ class VoiceIdentityEngine:
         options.frame_opts.dither = 0.0
         options.frame_opts.frame_length_ms = 25
         options.frame_opts.frame_shift_ms = 10
+        options.frame_opts.window_type = 'hamming'
+        options.frame_opts.snip_edges = True
         options.mel_opts.num_bins = 80
         fbank = knf.OnlineFbank(options)
-        fbank.accept_waveform(16_000, samples)
+        # Match WeSpeaker's reference infer_onnx.py: PCM scale and Hamming window.
+        fbank.accept_waveform(16_000, np.asarray(samples, dtype='float32') * 32768.0)
         fbank.input_finished()
         frames = [fbank.get_frame(index) for index in range(fbank.num_frames_ready)]
         features = np.asarray(frames, dtype="float32")

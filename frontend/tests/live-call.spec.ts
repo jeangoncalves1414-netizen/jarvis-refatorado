@@ -1,14 +1,15 @@
 import { test, expect, type Page } from '@playwright/test'
 
-async function setup(page: Page, engine = 'browser') {
+async function setup(page: Page, engine = 'browser', microphone = '') {
   const requests: { path: string; body: any }[] = []
   const events: any[] = []
   const control = { sttDelay: 0, sttGate: null as Promise<void> | null, text: 'conte uma curiosidade', streamStatus: 200, streamEvent: null as any, streamEvents: null as any[] | null }
   await page.addInitScript(() => {
-    const state = { level: 0, starts: 0, stops: 0, tracksStopped: 0, contextsClosed: 0, suspended: 0, recognizers: 0, plays: 0, pauses: 0, holdAudio: false }
+    const state = { level: 0, starts: 0, stops: 0, tracksStopped: 0, contextsClosed: 0, suspended: 0, recognizers: 0, plays: 0, pauses: 0, holdAudio: false, constraints: [] as any[], audios: [] as HTMLMediaElement[] }
     ;(window as any).voiceTest = state
-    Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => state.tracksStopped++ }] }) } })
+    Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: async (constraints: any) => { state.constraints.push(constraints); return { getTracks: () => [{ stop: () => state.tracksStopped++ }] } } } })
     class Recorder {
+      constructor(public stream: MediaStream) {}
       static isTypeSupported() { return true }
       state = 'inactive'; mimeType = 'audio/webm'; ondataavailable: any; onstop: any
       start() { this.state = 'recording'; state.starts++ }
@@ -18,12 +19,20 @@ async function setup(page: Page, engine = 'browser') {
     ;(window as any).AudioContext = class {
       state = 'running'
       createAnalyser() { return { fftSize: 1024, getByteTimeDomainData(data: Uint8Array) { data.fill(128 + state.level) } } }
-      createMediaStreamSource() { return { connect() {} } }
+      createMediaStreamSource() { return { connect() {}, disconnect() {} } }
+      createScriptProcessor() {
+        let timer: ReturnType<typeof setInterval>
+        return { onaudioprocess: null as any, connect() { timer = setInterval(() => this.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array(16000) } }), 100) }, disconnect() { clearInterval(timer) } }
+      }
+      async resume() {}
       async close() { this.state = 'closed'; state.contextsClosed++ }
       async suspend() { this.state = 'suspended'; state.suspended++ }
     }
     ;(window as any).SpeechRecognition = class { start() { state.recognizers++ }; abort() {}; stop() {} }
+    window.speechSynthesis.speak = utterance => { setTimeout(() => utterance.onend?.(new Event('end') as SpeechSynthesisEvent), 0) }
+    window.speechSynthesis.cancel = () => undefined
     HTMLMediaElement.prototype.play = async function () {
+      state.audios.push(this)
       state.plays++; Object.defineProperty(this, 'paused', { configurable: true, value: false })
       this.dispatchEvent(new Event('playing'))
       if (!state.holdAudio) setTimeout(() => { Object.defineProperty(this, 'paused', { configurable: true, value: true }); this.dispatchEvent(new Event('ended')) }, 50)
@@ -37,9 +46,15 @@ async function setup(page: Page, engine = 'browser') {
     try { body = raw ? JSON.parse(raw) : null } catch { /* audio */ }
     requests.push({ path, body })
     let data: any = { ok: true }
-    if (path === '/api/settings/mic') data = { engine, sensitivity: 75, gain: 1, silence_ms: 800 }
+    if (path === '/api/sessions') data = { ok: true, id: 'e2e-session', sessions: [{ id: 'e2e-session', title: 'Chamada', type: 'chat' }] }
+    if (path.endsWith('/history')) data = { ok: true, history: [] }
+    if (path === '/api/settings/mic') data = { ok: true, engine, sensitivity: 75, gain: 1, silence_ms: 800, device_id: microphone, device_name: microphone ? 'USB microphone' : '' }
     if (path === '/api/voice/capture/status') data = { available: true }
     if (path === '/api/voice/capture/start') data = { ok: true, seq: 0, threshold: 100 }
+    if (path === '/api/identity' && body?.action === 'enrollment_authorize') data = { ok: true, ticket: 'test-ticket', phrase: 'Eu autorizo o Jarvis a reconhecer minha voz durante nossas conversas.' }
+    if (path === '/api/identity/reading') data = { ok: true, text: 'Eu autorizo o' }
+    if (path === '/api/identity' && body?.action === 'live_enroll') data = { ok: true, profile: { name: 'Ana' } }
+    if (path === '/api/voice/identity/model' || (path === '/api/identity' && body?.action === 'face_model_status')) data = { ok: true, ready: true }
     if (path === '/api/voice/capture/events') {
       await new Promise(resolve => setTimeout(resolve, 100))
       data = { active: true, seq: 1, events: events.splice(0) }
@@ -72,10 +87,322 @@ async function setup(page: Page, engine = 'browser') {
 }
 
 async function level(page: Page, value: number) { await page.evaluate(value => { (window as any).voiceTest.level = value }, value) }
+
+async function holdChatStream(page: Page) {
+  await page.evaluate(() => {
+    const original = window.fetch.bind(window)
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) !== '/api/chat/stream') return original(input, init)
+      return Promise.resolve(new Response(new ReadableStream<Uint8Array>({ start(controller) {
+        const held = { push: (event: unknown) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`)), finish: () => controller.close(), body: JSON.parse(String(init?.body)) }
+        ;((window as any).heldChatStreams ||= []).push(held)
+        ;(window as any).pushChatEvent = held.push
+        ;(window as any).finishChatStream = held.finish
+      } }), { headers: { 'Content-Type': 'text/event-stream' } }))
+    }) as typeof fetch
+  })
+  return (data: unknown) => page.evaluate(data => (window as any).pushChatEvent(data), data)
+}
+
+test('voice chat updates the same exchange on each chunk before completion or audio ends', async ({ page }) => {
+  const app = await setup(page, 'auto')
+  const push = await holdChatStream(page)
+  const rows = async () => JSON.parse(await page.getByTestId('chat-messages').innerText())
+  app.events.push({ type: 'transcript', text: 'Conte uma história', turn_id: 'incremental', semantic: true, turn_complete: true })
+  await expect.poll(() => page.evaluate(() => !!(window as any).pushChatEvent)).toBe(true)
+  await expect.poll(async () => (await rows()).map((row: any) => row.content)).toEqual(['Conte uma história'])
+  for (const [chunk, expected] of [['Era uma', 'Era uma'], [' vez uma estrela.', 'Era uma vez uma estrela.']]) {
+    await push({ status: 'streaming', chunk })
+    await expect.poll(async () => (await rows()).map((row: any) => row.content)).toEqual(['Conte uma história', expected])
+    await expect(page.locator('.live-call-card')).toContainText(expected)
+  }
+  expect(app.requests.filter(r => r.path.endsWith('/history') && r.body?.history)).toHaveLength(0)
+  await page.evaluate(() => { (window as any).voiceTest.holdAudio = true })
+  await push({ status: 'complete', plan: { summary: 'Era uma vez uma estrela brilhante.', context: { run_id: 'incremental-run' } } })
+  await page.evaluate(() => (window as any).finishChatStream())
+  await expect.poll(() => page.evaluate(() => (window as any).voiceTest.plays)).toBeGreaterThan(0)
+  await expect.poll(async () => (await rows())[1]?.content).toBe('Era uma vez uma estrela brilhante.')
+  expect(await page.evaluate(() => (window as any).savedExchange)).toBeUndefined()
+  await page.evaluate(() => (window as any).voiceTest.audios.forEach((audio: HTMLMediaElement) => audio.dispatchEvent(new Event('ended'))))
+  await expect.poll(() => page.evaluate(() => (window as any).savedExchange?.receipt.run_id)).toBe('incremental-run')
+  await expect.poll(async () => (await rows()).length).toBe(2)
+  expect(app.requests.filter(r => r.path.endsWith('/history') && r.body?.history)).toHaveLength(1)
+})
+
+test('cancelled voice preview is removed and late chunks cannot restore it', async ({ page }) => {
+  const app = await setup(page, 'auto')
+  const push = await holdChatStream(page)
+  app.events.push({ type: 'transcript', text: 'Conte uma história', turn_id: 'cancel-preview', semantic: true, turn_complete: true })
+  await expect.poll(() => page.evaluate(() => !!(window as any).pushChatEvent)).toBe(true)
+  await push({ status: 'streaming', chunk: 'Uma resposta parcial' })
+  await expect(page.getByTestId('chat-messages')).toContainText('Uma resposta parcial')
+  await page.getByRole('button', { name: 'Encerrar', exact: true }).click()
+  await expect(page.getByTestId('chat-messages')).toHaveText('[]')
+  await push({ status: 'complete', plan: { summary: 'Resposta atrasada' } })
+  await page.evaluate(() => (window as any).finishChatStream())
+  await expect(page.getByTestId('chat-messages')).toHaveText('[]')
+  expect(app.requests.filter(r => r.path.endsWith('/history') && r.body?.history)).toHaveLength(0)
+})
+
+test('paused voice request keeps its bubble across repeated continuations and late old streams', async ({ page }) => {
+  const app = await setup(page, 'auto')
+  await holdChatStream(page)
+  const rows = async () => JSON.parse(await page.getByTestId('chat-messages').innerText())
+  const push = (index: number, data: unknown) => page.evaluate(({ index, data }) => (window as any).heldChatStreams[index].push(data), { index, data })
+  const finish = (index: number) => page.evaluate(index => (window as any).heldChatStreams[index].finish(), index)
+  app.events.push({ type: 'transcript', text: 'Explique o Roblox', turn_id: 'original', semantic: true, turn_complete: true })
+  await expect.poll(() => page.evaluate(() => (window as any).heldChatStreams?.length)).toBe(1)
+  const timestamp = (await rows())[0].timestamp
+  await page.locator('.live-call-subtitles p').first().evaluate(element => { (window as any).originalVoiceBubble = element })
+  await push(0, { status: 'streaming', chunk: 'Uma primeira resposta' })
+  for (const [index, text] of ['mas somente sobre criar jogos', 'e com exemplos simples'].entries()) {
+    app.events.push({ type: 'state', state: 'speaking' })
+    await expect(page.getByTestId('orb')).toHaveText('listening')
+    await expect.poll(async () => (await rows()).length).toBe(1)
+    expect((await rows())[0].timestamp).toBe(timestamp)
+    expect(await page.evaluate(() => (window as any).originalVoiceBubble.isConnected)).toBe(true)
+    app.events.push({ type: 'state', state: 'listening' }, { type: 'transcript', text, turn_id: `continue-${index}`, semantic: true, turn_complete: true })
+    await expect.poll(() => page.evaluate(() => (window as any).heldChatStreams.length)).toBe(index + 2)
+    await push(index + 1, { status: 'streaming', chunk: `Resposta nova ${index}` })
+    await push(index, { status: 'complete', plan: { summary: 'Resposta antiga atrasada' } })
+    await finish(index)
+    await expect.poll(async () => (await rows())[1]?.content).toBe(`Resposta nova ${index}`)
+    expect((await rows())[0].timestamp).toBe(timestamp)
+    expect(await page.evaluate(() => (window as any).originalVoiceBubble.isConnected)).toBe(true)
+  }
+  const combined = 'Explique o Roblox mas somente sobre criar jogos e com exemplos simples'
+  await expect.poll(async () => (await rows())[0].content).toBe(combined)
+  expect(await page.evaluate(() => (window as any).heldChatStreams[2].body.message)).toContain('Pedido anterior: Explique o Roblox mas somente sobre criar jogos')
+  await push(2, { status: 'complete', plan: { summary: 'Resposta final combinada.', context: { run_id: 'continued-run' } } })
+  await finish(2)
+  await expect.poll(() => page.evaluate(() => (window as any).savedExchange?.user)).toBe(combined)
+  await expect.poll(async () => (await rows()).map((row: any) => row.content)).toEqual([combined, 'Resposta final combinada.'])
+  expect(app.requests.filter(r => r.path.endsWith('/history') && r.body?.history)).toHaveLength(1)
+  expect(await page.evaluate(() => (window as any).originalVoiceBubble.isConnected)).toBe(true)
+  app.events.push({ type: 'transcript', text: 'Agora conte uma curiosidade', turn_id: 'new-turn', semantic: true, turn_complete: true })
+  await expect.poll(() => page.evaluate(() => (window as any).heldChatStreams.length)).toBe(4)
+  await expect.poll(async () => (await rows())[2]?.content).toBe('Agora conte uma curiosidade')
+  await page.getByRole('button', { name: 'Encerrar', exact: true }).click()
+  await finish(3)
+})
+
+for (const ending of ['close', 'cancel']) {
+  test(`pending voice continuation is discarded on ${ending}`, async ({ page }) => {
+    const app = await setup(page, 'auto')
+    const push = await holdChatStream(page)
+    app.events.push({ type: 'transcript', text: 'Explique o Roblox', turn_id: 'pending', semantic: true, turn_complete: true })
+    await expect.poll(() => page.evaluate(() => !!(window as any).pushChatEvent)).toBe(true)
+    await push({ status: 'streaming', chunk: 'Resposta parcial' })
+    app.events.push({ type: 'state', state: 'speaking' })
+    await expect(page.getByTestId('orb')).toHaveText('listening')
+    await expect(page.getByTestId('chat-messages')).toContainText('Explique o Roblox')
+    await page.getByRole('button', { name: ending === 'close' ? 'Encerrar' : 'Cancelar pedido', exact: true }).click()
+    await expect(page.getByTestId('chat-messages')).toHaveText('[]')
+    await push({ status: 'complete', plan: { summary: 'Não deve reaparecer' } })
+    await page.evaluate(() => (window as any).finishChatStream())
+    await expect(page.getByTestId('chat-messages')).toHaveText('[]')
+  })
+}
+
+test('browser microphone continuation keeps the same request bubble while recording', async ({ page }) => {
+  const app = await setup(page)
+  app.control.text = 'Explique o Roblox'
+  await page.evaluate(() => { (window as any).voiceTest.holdAudio = true })
+  await level(page, 20)
+  await expect.poll(() => page.evaluate(() => (window as any).voiceTest.starts)).toBe(1)
+  await level(page, 0)
+  await expect.poll(() => page.evaluate(() => (window as any).voiceTest.plays)).toBeGreaterThan(0)
+  const rows = async () => JSON.parse(await page.getByTestId('chat-messages').innerText())
+  const timestamp = (await rows())[0].timestamp
+  app.control.text = 'mas apenas a criação de jogos'
+  await level(page, 30)
+  await expect.poll(() => page.evaluate(() => (window as any).voiceTest.starts)).toBe(2)
+  expect((await rows())[0].timestamp).toBe(timestamp)
+  expect((await rows())[0].content).toBe('Explique o Roblox')
+  await page.evaluate(() => { (window as any).voiceTest.holdAudio = false })
+  await level(page, 0)
+  await expect.poll(() => page.evaluate(() => (window as any).savedExchange?.user)).toBe('Explique o Roblox mas apenas a criação de jogos')
+  await expect.poll(async () => (await rows()).length).toBe(2)
+  expect(app.chats()).toHaveLength(2)
+})
+
+test('switching chats hides the voice preview and rejects the late final exchange', async ({ page }) => {
+  const app = await setup(page, 'auto')
+  const push = await holdChatStream(page)
+  app.events.push({ type: 'transcript', text: 'Conte uma história', turn_id: 'switch-preview', semantic: true, turn_complete: true })
+  await expect.poll(() => page.evaluate(() => !!(window as any).pushChatEvent)).toBe(true)
+  await push({ status: 'streaming', chunk: 'Primeiro trecho' })
+  await expect(page.getByTestId('chat-messages')).toContainText('Primeiro trecho')
+  await page.getByRole('button', { name: 'Nova conversa de teste' }).click()
+  await push({ status: 'streaming', chunk: ' da conversa anterior' })
+  await expect(page.getByTestId('chat-messages')).toHaveText('[]')
+  await push({ status: 'complete', plan: { summary: 'Resposta anterior' } })
+  await page.evaluate(() => (window as any).finishChatStream())
+  await expect.poll(() => page.evaluate(() => (window as any).savedExchange?.reply)).toBe('Resposta anterior')
+  await expect(page.getByTestId('chat-messages')).toHaveText('[]')
+  expect(app.requests.filter(r => r.path.endsWith('/history') && r.body?.history)).toHaveLength(0)
+})
+
+test('voice call opens the globally selected microphone', async ({ page }) => {
+  await setup(page, 'browser', 'usb')
+  expect(await page.evaluate(() => (window as any).voiceTest.constraints[0].audio.deviceId)).toEqual({ exact: 'usb' })
+  await page.getByRole('button', { name: 'Encerrar', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).voiceTest.tracksStopped)).toBeGreaterThan(0)
+})
+
+test('paired Android call transcribes and plays a reply with identification disabled', async ({ page }) => {
+  await page.route('**/tests/live-call.html', async route => {
+    const response = await route.fetch()
+    await route.fulfill({ response, body: (await response.text()).replace('<head>', '<head><meta name="jarvis-paired-android">') })
+  })
+  await page.addInitScript(() => localStorage.setItem('jarvis_speaker_identification', '1'))
+  const app = await setup(page)
+  await expect(page.getByRole('button', { name: 'Ligar câmera de identificação' })).toHaveCount(0)
+  const transcription = page.waitForRequest(request => request.url().endsWith('/api/voice/stt'))
+  await level(page, 20)
+  await expect.poll(() => page.evaluate(() => (window as any).voiceTest.starts)).toBe(1)
+  await level(page, 0)
+  expect((await transcription).headers()['x-jarvis-identify-speaker']).toBe('0')
+  await expect.poll(() => page.evaluate(() => (window as any).voiceTest.plays)).toBeGreaterThan(0)
+  expect(app.requests.some(request => request.path === '/api/identity')).toBe(false)
+  await page.getByRole('button', { name: 'Encerrar', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).voiceTest.tracksStopped)).toBeGreaterThan(0)
+})
+
+test('public voice reply carries its privacy flag to chat persistence', async ({ page }) => {
+  const app = await setup(page, 'auto')
+  app.control.streamEvent = { status: 'complete', plan: { summary: 'Vamos conversar.', intent: 'general', context: { access_mode: 'public', identity_restricted: true } } }
+  app.events.push({ seq: 1, text: 'Olá Jarvis', type: 'transcript' })
+  await expect.poll(() => page.evaluate(() => (window as any).savedExchange?.receipt?.meta?.access_mode)).toBe('public')
+  expect(await page.evaluate(() => (window as any).savedExchange?.reply)).toBe('Vamos conversar.')
+  expect(app.requests.filter(r => r.path.endsWith('/history') && r.body?.history)).toHaveLength(0)
+})
+
+test('buffered speakers send their own evidence together without borrowing the last identity', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('jarvis_speaker_identification', '1'))
+  const app = await setup(page, 'auto')
+  let merged: any
+  await page.route('**/api/identity', route => {
+    const body = route.request().postDataJSON()
+    if (body.action !== 'merge_turns') return route.fallback()
+    merged = body
+    return route.fulfill({ json: { ok: true, evidence_token: 'group-proof' } })
+  })
+  app.events.push(
+    { type: 'processing', turn_id: 'jean' }, { type: 'processing', turn_id: 'ana' },
+    { type: 'transcript', turn_id: 'jean', text: 'Olá Jarvis', semantic: true, turn_complete: false,
+      speaker: { matched: true, profile: { name: 'Jean' }, evidence_token: 'jean-proof' } },
+    { type: 'transcript', turn_id: 'ana', text: 'quem falou com você?', semantic: true, turn_complete: true,
+      speaker: { matched: true, profile: { name: 'Ana' }, evidence_token: 'ana-proof' } },
+  )
+  await expect.poll(() => app.chats().length).toBe(1)
+  expect(merged.tokens).toEqual(['jean-proof', 'ana-proof'])
+  expect(app.chats()[0].body.identity_token).toBe('group-proof')
+  expect(app.chats()[0].body.message).toBe('Olá Jarvis quem falou com você?')
+})
+
+test('spoken camera request waits for the observation and narrates it without ordinary chat', async ({ page }) => {
+  const app = await setup(page, 'auto')
+  await page.evaluate(() => {
+    window.addEventListener('jarvis-request-camera', event => {
+      event.preventDefault()
+      setTimeout(() => (event as CustomEvent).detail.resolve('Câmera 1: vejo Jean. Câmera 2: não detectei pessoas.'), 100)
+    })
+  })
+  app.events.push({ type: 'transcript', turn_id: 'camera', text: 'Quem você vê na câmera?', semantic: true, turn_complete: true })
+  await expect.poll(() => app.requests.some(r => r.path === '/api/voice/tts' && r.body.text.includes('Câmera 1: vejo Jean'))).toBe(true)
+  await expect(page.getByText(/Câmera 1: vejo Jean\. Câmera 2: não detectei pessoas\./)).toBeVisible()
+  await expect(page.getByTestId('orb')).toHaveText('listening')
+  expect(app.chats()).toHaveLength(0)
+})
+
+test('closing the call while a camera is being analyzed prevents late narration', async ({ page }) => {
+  const app = await setup(page, 'auto')
+  await page.evaluate(() => {
+    window.addEventListener('jarvis-request-camera', event => {
+      event.preventDefault()
+      ;(window as any).cameraReply = (event as CustomEvent).detail.resolve
+    })
+  })
+  app.events.push({ type: 'transcript', turn_id: 'camera-close', text: 'Quem você vê na câmera?', semantic: true, turn_complete: true })
+  await expect.poll(() => page.evaluate(() => Boolean((window as any).cameraReply))).toBe(true)
+  await page.getByRole('button', { name: 'Encerrar', exact: true }).click()
+  await page.evaluate(() => (window as any).cameraReply('Uma resposta que chegou depois do encerramento.'))
+  await page.waitForTimeout(200)
+  expect(app.requests.some(r => r.path === '/api/voice/tts')).toBe(false)
+  expect(app.chats()).toHaveLength(0)
+})
+
+test('pedido falado de recadastro administrativo abre senha sem enviar ao chat', async ({ page }) => {
+  const app = await setup(page, 'auto')
+  app.events.push({ type: 'transcript', turn_id: 'admin-intro', text: 'Olá Jarvis sou Jean, pode me registrar como admin?', semantic: true, turn_complete: true })
+  const panel = page.getByRole('dialog', { name: 'Refazer cadastro de administrador' })
+  await expect(panel.getByLabel('Senha administrativa')).toBeVisible()
+  await expect(panel.getByLabel('Senha administrativa')).toHaveAttribute('type', 'password')
+  expect(app.chats()).toHaveLength(0)
+  await panel.getByRole('button', { name: 'Cancelar cadastro' }).click()
+  await expect(panel).toBeHidden()
+  expect(app.requests.some(r => r.body?.action === 'live_enroll')).toBe(false)
+})
+
+test('apresentação durante a ligação cadastra a leitura e libera o próximo turno', async ({ page }) => {
+  const app = await setup(page, 'auto')
+  app.events.push({ type: 'transcript', turn_id: 'intro', text: 'Olá Jarvis, essa aqui é minha irmã Ana.', semantic: true, turn_complete: true })
+  const panel = page.getByRole('dialog', { name: 'Apresentar uma pessoa' })
+  await expect(panel.getByText('Conhecer Ana')).toBeVisible()
+  expect(app.requests.some(r => r.body?.action === 'live_enroll')).toBe(false)
+  await panel.getByRole('button', { name: 'Sim, pode cadastrar', exact: true }).click()
+  await panel.getByRole('button', { name: 'Autorizar voz', exact: true }).click()
+  const words = panel.locator('.enrollment-reading span')
+  await expect(words.nth(2)).toHaveCSS('color', 'rgb(54, 230, 165)')
+  await panel.getByRole('button', { name: 'Concluir leitura' }).click()
+  await expect.poll(() => app.requests.some(r => r.body?.action === 'live_enroll')).toBe(true)
+  const payload = app.requests.find(r => r.body?.action === 'enrollment_voice')?.body
+  expect(payload.audio).toMatch(/^data:audio\/webm;base64,/)
+  expect(app.requests.some(r => r.path === '/api/voice/capture/stop')).toBe(true)
+  expect(app.chats()).toHaveLength(0)
+  await expect(panel).toBeHidden()
+  await expect.poll(() => app.requests.some(r => r.path === '/api/voice/capture/start' && r.body.identify_speakers)).toBe(true)
+  app.events.push({ type: 'transcript', turn_id: 'next', text: 'Conte uma história', semantic: true, turn_complete: true })
+  await expect.poll(() => app.chats().length).toBe(1)
+})
 async function ptt(page: Page) {
   await page.getByTitle('Alternar entre modo contínuo e segurar para falar').click()
   await expect(page.getByTestId('diagnostics')).toContainText('fallback-vad')
 }
+
+test('captura três posições automaticamente e orienta a leitura na chamada', async ({ page }) => {
+  const app = await setup(page, 'auto')
+  await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 320; canvas.height = 240
+    const ctx = canvas.getContext('2d')!
+    const timer = setInterval(() => ctx.fillRect(0, 0, 320, 240), 80)
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { value: async () => canvas.captureStream(10) })
+    Object.defineProperty(navigator.mediaDevices, 'enumerateDevices', { value: async () => [{ deviceId: 'usb1', kind: 'videoinput', label: 'USB' }] })
+    window.addEventListener('pagehide', () => clearInterval(timer), { once: true })
+    const guides: string[] = []
+    ;(window as any).spokenGuides = guides
+    window.speechSynthesis.speak = speech => { guides.push(speech.text); setTimeout(() => speech.onend?.(new Event('end') as SpeechSynthesisEvent), 0) }
+  })
+  const angles = [0, 0, .18, .16, -.19]
+  await page.route('**/api/identity', route => {
+    const body = route.request().postDataJSON()
+    if (body.action !== 'enrollment_pose') return route.fallback()
+    return route.fulfill({ json: { ok: true, count: 1, pose: body.purpose === 'camera_selection' ? 0 : angles.shift() ?? -.19 } })
+  })
+  await page.getByRole('button', { name: 'Ligar câmera de identificação' }).click()
+  app.events.push({ type: 'transcript', turn_id: 'intro-camera', text: 'Essa aqui é minha irmã Ana.', semantic: true, turn_complete: true })
+  const panel = page.getByRole('dialog', { name: 'Apresentar uma pessoa' })
+  await panel.getByRole('button', { name: 'Sim, pode cadastrar', exact: true }).click()
+  await panel.getByRole('button', { name: 'Autorizar os dois', exact: true }).click()
+  await panel.getByRole('button', { name: 'Concluir leitura' }).click()
+  await expect.poll(() => app.requests.some(r => r.body?.action === 'live_enroll'), { timeout: 15000 }).toBe(true)
+  expect(app.requests.filter(r => r.path === '/api/voice/tts').map(r => r.body.text)).toEqual(expect.arrayContaining([
+    'Olhe de frente para a câmera.', 'Vire levemente a cabeça para um lado.', 'Agora vire a cabeça para o lado oposto.'
+  ]))
+  expect(app.requests.find(r => r.body?.action === 'live_enroll')?.body.images).toHaveLength(3)
+})
 
 test('announces actual tools before completion and keeps receipts outside the reply', async ({ page }) => {
   const app = await setup(page, 'auto')
@@ -140,7 +467,7 @@ test('VAD envia uma fala normal uma vez e mantém a origem voice', async ({ page
   await level(page, 0)
   await expect.poll(() => app.chats().length).toBe(1)
   expect(app.chats()[0].body.origin).toBe('voice')
-  await expect(page.getByText('Aqui está a resposta.', { exact: false })).toBeVisible()
+  await expect(page.locator('.live-call-card').getByText('Aqui está a resposta.', { exact: false })).toBeVisible()
   await expect(page.getByTestId('orb')).toHaveText('listening')
 })
 
@@ -281,7 +608,7 @@ test('PC acumula frase incompleta e espera a transcrição da continuação', as
   const app = await setup(page, 'auto')
   app.events.push({ type: 'transcript', text: 'Olá quero que você abra', turn_id: 'part-1' })
   await expect(page.getByText('Olá quero que você abra', { exact: false }).first()).toBeVisible()
-  await page.waitForTimeout(2000)
+  await page.waitForTimeout(1000)
   expect(app.chats()).toHaveLength(0)
   app.events.push({ type: 'state', state: 'speaking' })
   await page.waitForTimeout(2800)
@@ -300,27 +627,21 @@ test('encerrar descarta a frase pendente sem enviar pedido', async ({ page }) =>
   expect(app.chats()).toHaveLength(0)
 })
 
-test('VAD mantém a gravação durante pausa de dois segundos no meio do pedido', async ({ page }) => {
+test('VAD envia uma frase completa sem os antigos três segundos de espera', async ({ page }) => {
   const app = await setup(page)
   app.control.text = 'Abra o roblox.com no navegador e depois de 10 segundos abra o Spotify'
   await level(page, 20)
   await expect.poll(() => page.evaluate(() => (window as any).voiceTest.starts)).toBe(1)
   await level(page, 0)
-  await page.waitForTimeout(2100)
-  expect(await page.evaluate(() => (window as any).voiceTest.stops)).toBe(0)
-  expect(app.chats()).toHaveLength(0)
-  await level(page, 20)
-  await page.waitForTimeout(250)
-  await level(page, 0)
-  await expect.poll(() => app.chats().length, { timeout: 7000 }).toBe(1)
+  await expect.poll(() => app.chats().length, { timeout: 2500 }).toBe(1)
   expect(app.chats()[0].body.message).toBe(app.control.text)
   expect(await page.evaluate(() => (window as any).voiceTest.starts)).toBe(1)
 })
 
-test('PC aguarda continuação mesmo depois de uma primeira frase completa', async ({ page }) => {
+test('PC aguarda continuação enquanto a fala ainda não terminou', async ({ page }) => {
   const app = await setup(page, 'auto')
-  expect(app.requests.find(r => r.path === '/api/voice/capture/start')?.body.silence_ms).toBe(3000)
-  app.events.push({ type: 'transcript', text: 'Abra o roblox.com no navegador', turn_id: 'first' })
+  expect(app.requests.find(r => r.path === '/api/voice/capture/start')?.body.silence_ms).toBe(800)
+  app.events.push({ type: 'transcript', text: 'Abra o roblox.com no navegador', turn_id: 'first', semantic: true, turn_complete: false })
   await expect(page.getByText('Abra o roblox.com no navegador', { exact: false }).first()).toBeVisible()
   await page.waitForTimeout(2100)
   expect(app.chats()).toHaveLength(0)
@@ -330,7 +651,7 @@ test('PC aguarda continuação mesmo depois de uma primeira frase completa', asy
   app.events.push({ type: 'processing', turn_id: 'second' }, { type: 'state', state: 'listening' })
   await page.waitForTimeout(3200)
   expect(app.chats()).toHaveLength(0)
-  app.events.push({ type: 'transcript', text: 'e depois de 10 segundos abra o Spotify', turn_id: 'second' })
+  app.events.push({ type: 'transcript', text: 'e depois de 10 segundos abra o Spotify', turn_id: 'second', semantic: true, turn_complete: true })
   await expect.poll(() => app.chats().length).toBe(1)
   expect(app.chats()[0].body.message).toBe('Abra o roblox.com no navegador e depois de 10 segundos abra o Spotify')
 })
@@ -398,6 +719,7 @@ test('interrupção cancela a execução exata e preserva o pedido para o comple
   await expect.poll(() => app.requests.filter(r => r.path === '/api/runs/run_voice_test/cancel').length).toBe(1)
   await page.waitForTimeout(3500)
   expect(app.chats()).toHaveLength(1)
+  await expect(page.getByTestId('chat-messages')).toContainText('Explique o Roblox')
   await page.evaluate(() => { (window as any).voiceTest.holdAudio = false })
   app.control.streamEvents = null
   app.events.push({ type: 'state', state: 'listening' }, { type: 'transcript', text: 'mas somente a parte de criar jogos', turn_id: 'second', semantic: true, turn_complete: true })
@@ -405,4 +727,5 @@ test('interrupção cancela a execução exata e preserva o pedido para o comple
   expect(app.chats()[1].body.message).toContain('Pedido anterior: Explique o Roblox')
   expect(app.chats()[1].body.message).toContain('mas somente a parte de criar jogos')
   expect(app.chats()[1].body.message).not.toContain('Uma explicação muito longa')
+  await expect.poll(() => page.evaluate(() => (window as any).savedExchange?.user)).toBe('Explique o Roblox mas somente a parte de criar jogos')
 })

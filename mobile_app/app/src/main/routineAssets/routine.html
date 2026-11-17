@@ -1,0 +1,352 @@
+<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action 'none'">
+<title>Jarvis · Rotina</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0e1b21;color:#edf5f1;font:16px Roboto,system-ui,sans-serif}
+header,main,nav{max-width:620px;margin:auto}header{display:flex;justify-content:space-between;padding:22px 20px 10px;align-items:center}header strong{letter-spacing:.18em;color:#a4ead2}small,label{color:#b4c9c7}
+main{padding:14px 20px 98px}h1{font-size:36px;margin:4px 0 18px;letter-spacing:-.04em}h2{font-size:19px}p{line-height:1.5}
+section,.row{background:#192c32;border:1px solid #30464a;border-radius:18px;padding:16px;margin:12px 0}
+.row{display:flex;align-items:center;gap:10px}.row span{flex:1;overflow-wrap:anywhere}.row small{display:block;margin-top:4px}
+button,input,select{font:inherit;border-radius:10px;padding:11px 13px}button{background:#b1f1d6;border:0;color:#102b23;min-height:44px;cursor:pointer}button.alt,nav button{background:#22383e;color:#dbebe6}input,select{background:#102127;color:white;border:1px solid #527074;width:100%;margin:5px 0 12px}label{display:block}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;padding:8px;background:#102127;border-top:1px solid #30464a;gap:4px}nav button{flex:1;font-size:13px;padding:8px 2px}nav button[aria-current=true]{color:#a4ead2;background:#2a4745}
+#notice{position:sticky;top:4px;z-index:2;background:#ccf1db;color:#102b23;border-radius:10px;padding:12px}#notice:empty{display:none}.card{animation:enter .28s ease-out}@keyframes enter{from{opacity:.25;transform:translateY(9px)}}@media(prefers-reduced-motion:reduce){.card{animation:none}}.actions{display:flex;gap:8px;flex-wrap:wrap}.muted{color:#b4c9c7}.bubble{border-left:3px solid #a4ead2;padding:10px}
+.days label{display:grid;grid-template-columns:24px 1fr 110px;align-items:center;gap:10px;margin-bottom:6px}.days input{margin:0}.days input[type=checkbox]{height:20px}.days input:disabled{opacity:.4}.lead{border-color:#69b99a}.turn{margin:14px 0}.turn small{display:block;margin-bottom:4px}.turn p{margin:4px 0;overflow-wrap:anywhere}.totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}.totals strong{display:block;color:#b1f1d6;font-size:1.4rem;margin-top:6px}</style>
+<style>
+body.chat-page{height:100vh;display:flex;flex-direction:column;overflow:hidden;background:#191d1a;color:#e7ede9}
+.chat-page>header{display:none}.chat-page main,.chat-page nav{width:100%}
+.chat-page main,.chat-page #view,.chat-workspace{display:flex;flex-direction:column;flex:1;min-height:0;padding:0;position:relative}
+.chat-page nav{position:static;flex:none;background:#1b211d;border-color:#343c36}
+.chat-page nav button{color:#bdc9c1;background:transparent}.chat-page nav [aria-current=true]{background:#324237;color:#d3eada}
+.chat-page #notice:not(:empty){position:absolute;top:54px;left:12px;right:12px}
+.chat-head,.chat-tools,.message-tools,.speaker{display:flex;align-items:center;gap:6px}
+.chat-head{padding:5px 10px;border-bottom:1px solid #333b35}.chat-heading{flex:1;min-width:0}
+.chat-heading small,.chat-heading strong{display:block}.chat-heading small{font-size:10px;color:#9bac9f;letter-spacing:.12em}
+.chat-heading strong{font-size:15px;font-weight:500;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.chat-page .icon{width:44px;height:44px;display:inline-grid;place-items:center;padding:0;background:transparent;color:#b8cbbf}
+.chat-page button:focus-visible,.chat-page summary:focus-visible{outline:2px solid #b4d9c6;outline-offset:-2px}
+.icon svg,.speaker svg,.chat-welcome svg,.prompt svg,.chat-tools svg{width:20px;height:20px;vertical-align:middle}
+.chat-log{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:12px 16px}
+.chat-welcome{max-width:460px;margin:0 auto;text-align:center;padding:clamp(12px,5vh,48px) 0 10px}
+.chat-mark{width:52px;height:52px;display:grid;place-items:center;margin:0 auto 19px;border-radius:16px;border:1px solid #435b4c;color:#c3dfcf;background:linear-gradient(145deg,#35433a,#202622);transform:rotate(-8deg)}
+.chat-mark svg{width:27px;height:27px;transform:rotate(8deg)}.chat-welcome h1{font-size:28px;font-weight:450;letter-spacing:-1.2px}
+.prompt-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.prompt{padding:12px;text-align:left;color:#e0e8e2;background:#202622;border:1px solid #38433b}
+.prompt svg{color:#abc8b5}.prompt strong,.prompt small{display:block}.prompt strong{margin-top:9px;font-size:14px}.prompt small{font-size:12px;line-height:1.4;color:#a7b3ab;margin-top:3px}
+.chat-msg{margin:4px 0 14px;overflow-wrap:anywhere}.chat-msg.user{margin-left:12%}.user .msg-body{background:#262d28;border:1px solid #39423b;border-radius:16px;padding:12px 15px}
+.speaker{font-size:12px;font-weight:500;color:#b8cfbf}.speaker svg{width:16px;height:16px}.chat-msg p{white-space:pre-wrap;margin:5px 0 0;font-size:15px}
+.message-tools{justify-content:flex-end;color:#9daaa1;font-size:11px}.chat-page .message-tools .icon{width:40px}
+.chat-page .link-action,.chat-menu button,.chat-tools .commands{background:transparent;color:#c1d5c8}
+.chat-page .link-action{border:1px solid #455449;font-size:13px;margin:7px 4px 0 0}.chat-footer{position:relative;padding:4px 12px 10px}
+#chat{background:#252a27;border:1px solid #47514a;border-radius:15px;padding:8px 10px 6px}#chat:focus-within{border-color:#839e8d}
+#chat textarea{background:transparent;color:#e7ede9;display:block;width:100%;height:48px;max-height:88px;padding:4px;border:none;outline:none;resize:none;font:16px/1.35 Roboto,system-ui,sans-serif}
+.chat-tools{justify-content:space-between}.chat-tools .commands{font-size:13px;padding:5px 8px}.chat-tools .send{padding:0;width:44px;height:44px;color:#203227;background:#b4d9c6}.send:disabled{opacity:.4}
+.chat-menu{position:absolute;z-index:1;left:10px;right:10px;max-height:60%;overflow:auto;background:#252d27;color:#e7ede9;border:1px solid #536357;border-radius:13px;padding:6px;box-shadow:0 8px 20px #0006}.chat-menu[hidden]{display:none}
+#sessions{top:52px}#commands{bottom:100%;max-height:30vh}.chat-menu button{width:100%;display:block;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.chat-menu button[aria-current=true]{background:#38463c}
+</style>
+<header><strong>JARVIS</strong><small id="date"></small></header><main><div id="notice" role="status"></div><div id="view"></div></main>
+<nav aria-label="Navegação"><button data-page="habits">Hábitos</button><button data-page="finance">Finanças</button><button data-page="chat">Chat</button><button data-page="settings">Ajustes</button></nav>
+<script>
+'use strict';
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>Number(n).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const day=()=>{let d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-')};
+const uid=()=> 'mobile-'+crypto.getRandomValues(new Uint32Array(4)).join('-');
+const savedChat=JSON.parse(Routine.chatHistory());
+function newConversation(turns=[]){return {id:uid(),turns,draft:''}}
+const conversations=Array.isArray(savedChat)?[newConversation(savedChat)]:savedChat.sessions;
+let conversation=conversations.find(c=>c.id===savedChat.active)||conversations[0];
+let data,page='habits',editing=null,morningPins=JSON.parse(Routine.morningPins()),timer;
+function storeChat(){Routine.storeChat(JSON.stringify({active:conversation.id,sessions:conversations}))}
+function chatTitle(c){return c.turns[0]?.message||c.draft||'Nova conversa'}
+function reply(message,text,panel='',receipt=null){
+ conversation.turns.push({message,reply:text,panel,receipt,time:Date.now()});
+ conversation.turns=conversation.turns.slice(-60);conversation.draft='';storeChat();show('chat');
+}
+function note(text){$('#notice').textContent=text;clearTimeout(timer);timer=setTimeout(()=>$('#notice').textContent='',6000)}
+function syncLabel(){if($('#syncStatus'))$('#syncStatus').textContent=Routine.syncStatus()}
+function refresh(){
+ const fresh=JSON.parse(Routine.data());
+ if(!data||fresh.rev!==data.rev){
+  if(data&&page==='chat'){data=fresh;updateReceipts();return}
+  const drafting=editing!==null||(page==='settings'&&document.querySelector('.days')?.dataset.dirty);
+  if(drafting&&data){
+   if(['habits','finance','queue','conflict'].every(k=>JSON.stringify(data[k])===JSON.stringify(fresh[k]))){data.rev=fresh.rev;data.synced=fresh.synced}
+   return;
+  }
+  data=fresh;editing=null;render();
+ }
+}
+function show(p){page=p;editing=null;data=JSON.parse(Routine.data());render();window.scrollTo(0,0)}
+function record(kind,id,before,after,date=''){
+ let evt=data.queue.find(e=>e.kind===kind&&e.id===id&&e.date===date);
+ if(evt)evt.after=after;else data.queue.push({kind,id,date,before,after});
+ data.queue=data.queue.filter(e=>JSON.stringify(e.before)!==JSON.stringify(e.after));
+}
+function persist(){if(!Routine.save(JSON.stringify(data))){data=null;refresh();note('Os dados mudaram. Confira e tente novamente.');return false}
+ data=JSON.parse(Routine.data());return true}
+function todayHabits(){const weekday=['sun','mon','tue','wed','thu','fri','sat'][new Date().getDay()];return data.habits.filter(h=>h.days.includes(weekday)&&(!h.start||h.start<=day()))}
+const weekNames=['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
+function morningList(){
+ const weekday=['sun','mon','tue','wed','thu','fri','sat'][new Date().getDay()];
+ const time=h=>h.times?.[weekday]||h.time||'';
+ return todayHabits().map(h=>({h,time:time(h)})).filter(({h,time})=>
+  morningPins.includes(h.id)||h.block==='morning'||((!h.block||h.block==='anytime')&&time&&time<'12:00'))
+  .sort((a,b)=>(a.time||'99').localeCompare(b.time||'99')||Number(!!b.h.priority)-Number(!!a.h.priority));
+}
+function spokenMorning(){
+ const pending=morningList().filter(i=>i.h.done!==day());
+ if(!pending.length)return morningList().length?'Você já concluiu os hábitos da manhã.':'Sua manhã está livre de hábitos programados.';
+ return (pending.length===1?'Você tem um hábito':('Você tem '+pending.length+' hábitos'))+' para esta manhã. Comece por '+pending[0].h.name+'.';
+}
+function morningPanel(){
+ const morning=morningList(),pending=morning.filter(i=>i.h.done!==day()),first=pending[0];
+ return '<h1>Sua manhã</h1><p>'+(!morning.length?'Nenhum hábito programado para esta manhã. Em Hábitos, toque em Editar e marque Incluir na minha manhã.':pending.length?pending.length+' de '+morning.length+' por fazer nesta manhã.':'Hábitos da manhã concluídos.')+'</p>'+
+ (first?'<section class="lead"><small>Primeiro hábito'+(first.time?' · '+esc(first.time):'')+'</small><h2>'+esc(first.h.name)+'</h2><button id="morningDone">Concluir</button></section>':'')+
+ pending.slice(1).map(i=>'<div class="row"><span>'+esc(i.h.name)+'</span><small>'+esc(i.time)+'</small></div>').join('')+
+ '<button class="alt" id="allHabits">Ver dia completo</button>';
+}
+function nextLabel(){
+ const at=Number(Routine.nextRing());if(!at||at<=Date.now())return 'Desligado';
+ const d=new Date(at),now=new Date(),tomorrow=new Date();tomorrow.setDate(now.getDate()+1);
+ const when=d.toDateString()===now.toDateString()?'Hoje':d.toDateString()===tomorrow.toDateString()?'Amanhã':d.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'short'});
+ return when+' às '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+}
+function alarmPanel(){
+ const times=Routine.weekTimes().split('|');
+ return '<section><h2>Despertador semanal</h2><p>Próximo toque · '+esc(nextLabel())+'</p><div class="days">'+weekNames.map((name,i)=>'<label><input type="checkbox" data-day="'+i+'" '+(times[i]?'checked':'')+'>'+name+'<input type="time" aria-label="Horário de '+name+'" data-time="'+i+'" value="'+esc(times[i]||(i<5?'07:00':'08:00'))+'" '+(times[i]?'':'disabled')+'></label>').join('')+'</div><div class="actions"><button id="schedule">Salvar horários</button><button class="alt" id="off">Desligar</button><button class="alt" id="preview">Ouvir teste</button></div></section>';
+}
+function spending(){
+ const today=day(), month=today.slice(0,7);
+ let daily=0,monthly=0;
+ function count(date,type,cents){
+  if(type!=='expense'||!date.startsWith(month))return;
+  monthly+=cents;if(date===today)daily+=cents;
+ }
+ for(const row of data.finance)count(row.date,row.type,Math.round(row.amount*100));
+ for(const row of data.olderFinance||[])count(row.date,row.type,row.cents);
+ return {daily:daily/100,monthly:monthly/100,partial:!Array.isArray(data.olderFinance)};
+}
+function spendingPanel(){
+ const {daily,monthly,partial}=spending();
+ return '<section aria-label="Resumo de despesas"><div class="totals"><div><small>Gasto hoje</small><strong>'+money(daily)+'</strong></div><div><small>Gasto no mês</small><strong>'+money(monthly)+'</strong></div></div>'+
+  (partial?'<p>Subtotal dos lançamentos no aparelho. Sincronize para incluir todo o histórico.</p>':'')+'</section>';
+}
+function receiptItem(r){
+ if(!r)return null;
+ return data.finance.find(f=>f.id===r.id&&f.date===r.date&&f.name===r.name&&f.type===r.type&&f.amount===r.amount);
+}
+function undoReceipt(turn){
+ const r=turn.receipt,item=receiptItem(r);
+ if(!item){note('O lançamento mudou. Confira em Finanças.');return}
+ const before={name:r.name,type:r.type,amount:r.amount};
+ // Keep the deletion even if a create is still queued: a sync may already have reached the PC.
+ data.queue=data.queue.filter(e=>!(e.kind==='finance'&&e.id===r.id));
+ data.queue.push({kind:'finance',id:r.id,date:r.date,before,after:null});
+ data.finance=data.finance.filter(f=>f.id!==r.id);
+ if(!persist())return;
+ turn.undone=true;storeChat();updateReceipts();note('Lançamento desfeito.');
+}
+function form(habit,item){
+ const fields=habit?'<label><input type="checkbox" style="width:auto" name="pin" '+(morningPins.includes(item?.id)?'checked':'')+'> Incluir na minha manhã neste celular</label>':'<label>Tipo<select name="type"><option value="expense">Despesa</option><option value="income" '+(item?.type==='income'?'selected':'')+'>Receita</option></select></label><label>Valor em reais<input required inputmode="decimal" name="amount" value="'+esc(item?String(item.amount).replace('.',','):'')+'"></label>';
+ return '<form id="editor"><section><h2>'+(item?'Editar':'Registrar')+' '+(habit?'hábito':'lançamento')+'</h2><label>'+(habit?'Nome':'Descrição')+'<input required maxlength="120" name="name" value="'+esc(item?.name)+'"></label>'+fields+'<div class="actions"><button>Salvar</button><button type="button" class="alt" id="cancel">Cancelar</button></div></section></form>'
+}
+const paths={
+ spark:'M12 3l2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4z M20 2v4 M18 4h4',
+ plus:'M12 5v14 M5 12h14', history:'M3 6h18 M3 12h14 M3 18h10',
+ copy:'M9 8h11v13H9z M16 5V3H4v13h2', send:'M12 19V5 M5 12l7-7 7 7',
+ sound:'M3 9h4l5-5v16l-5-5H3z M16 8q4 4 0 8 M19 5q7 7 0 14',
+ sun:'M3 16h18 M6 20h12 M7 13a5 5 0 0 1 10 0 M12 2v3 M3 7l2 2 M21 7l-2 2',
+ wallet:'M3 5h17v15H3z M20 10h-6v5h6', check:'M4 5h16v15H4z M7 12l3 3 6-7',
+ edit:'M4 16l-1 5 5-1L20 8l-4-4z', slash:'M15 4L9 20'
+};
+function icon(key){return '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="'+paths[key]+'"/></svg>'}
+const prompts=[
+ ['sun','Minha manhã','Ver o primeiro hábito pendente','Resumo da manhã'],
+ ['wallet','Gastos de hoje','Consultar o total do dia','Quanto gastei hoje?'],
+ ['check','Criar hábito','Adicionar à rotina','Criar hábito '],
+ ['edit','Registrar gasto','Anotar uma despesa','Gastei ']
+];
+const examples=[...prompts.map(p=>p[3]),'Quanto gastei no mês?','Editar hábito Ler para Ler 10 páginas','Concluir hábito Ler','Recebi 50 de reembolso','Corrige o último gasto para quinze'];
+function tool(label,attr,key){return '<button type="button" class="icon" aria-label="'+label+'" '+attr+'>'+icon(key)+'</button>'}
+function messageHtml(t,index,assistant){
+ const key=assistant?'reply':'message',name=assistant?'Assistente':'Você';
+ const clock=t.time?new Date(t.time).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
+ const panelName={finance:'finanças',habits:'hábitos',morning:'manhã'}[t.panel];
+ return '<article class="chat-msg '+(assistant?'assistant':'user')+'" data-turn="'+index+'" data-key="'+key+'"><div class="msg-body"><div class="speaker">'+(assistant?icon('spark'):'')+name+'</div><p>'+esc(t[key])+'</p></div>'+
+  (assistant&&t.receipt?'<span data-receipt="'+index+'"></span>':'')+
+  (assistant&&panelName?'<button class="link-action" data-open="'+esc(t.panel)+'">Ver '+panelName+'</button>':'')+
+  '<div class="message-tools">'+clock+tool('Copiar mensagem','data-action="copy"','copy')+
+  (assistant?tool('Ouvir resposta','data-action="speak"','sound'):tool('Reutilizar mensagem','data-action="reuse"','edit'))+'</div></article>';
+}
+function updateReceipts(){
+ document.querySelectorAll('[data-receipt]').forEach(el=>{
+  const t=conversation.turns[Number(el.dataset.receipt)];
+  el.innerHTML=t.undone?'<small>Lançamento desfeito. </small>':receiptItem(t.receipt)?'<button class="link-action" data-action="undo">Desfazer lançamento</button>':'';
+ });
+}
+function chatWorkspace(){
+ const turns=conversation.turns;
+ const welcome='<div class="chat-welcome"><div class="chat-mark">'+icon('spark')+'</div><h1>O que vamos fazer hoje?</h1><div class="prompt-grid">'+prompts.map(([key,title,desc],i)=>'<button class="prompt" data-prompt="'+i+'">'+icon(key)+'<strong>'+title+'</strong><small>'+desc+'</small></button>').join('')+'</div></div>';
+ return '<div class="chat-head">'+tool('Histórico de conversas','id="historyButton" aria-controls="sessions" aria-expanded="false"','history')+
+  '<div class="chat-heading"><small>CONVERSA</small><strong>'+esc(chatTitle(conversation))+'</strong></div>'+
+  tool('Nova conversa','id="newChat"','plus')+'</div><div id="sessions" class="chat-menu" aria-label="Conversas neste celular" hidden></div>'+
+  '<div class="chat-log" aria-label="Mensagens" tabindex="0">'+(turns.length?turns.map((t,i)=>messageHtml(t,i,false)+messageHtml(t,i,true)).join(''):welcome)+'</div>'+
+  '<div class="chat-footer"><div id="commands" class="chat-menu" aria-label="Comandos de rotina" hidden>'+examples.map((cmd,i)=>'<button data-prompt="'+i+'">'+esc(cmd.trimEnd()+(cmd.endsWith(' ')?'…':''))+'</button>').join('')+'</div>'+
+  '<form id="chat"><textarea rows="2" name="msg" maxlength="200" enterkeyhint="send" aria-label="Mensagem para o Jarvis" placeholder="Mensagem para o Jarvis…"></textarea>'+
+  '<div class="chat-tools"><button type="button" id="commandButton" class="commands" aria-controls="commands" aria-expanded="false">'+icon('slash')+' Comandos</button><button class="send" aria-label="Enviar mensagem">'+icon('send')+'</button></div></form></div>';
+}
+function bindChat(){
+ const log=$('.chat-log'),input=$('#chat textarea'),send=$('#chat .send');
+ const sessions=$('#sessions'),commands=$('#commands');
+ function menu(el,open){
+  el.hidden=!open;$(el===sessions?'#historyButton':'#commandButton').setAttribute('aria-expanded',String(open));
+ }
+ function draft(value){
+  if(input.value!==value)input.value=value;
+  conversation.draft=value;send.disabled=!value.trim();storeChat();
+ }
+ function switchChat(c){conversation=c;storeChat();show('chat')}
+ input.value=conversation.draft;send.disabled=!input.value.trim();
+ log.scrollTop=log.scrollHeight;
+ updateReceipts();
+ $('#historyButton').onclick=()=>{
+  sessions.innerHTML=conversations.map((c,i)=>'<button data-session="'+i+'" aria-current="'+(c===conversation)+'">'+esc(chatTitle(c))+'</button>').join('');
+  menu(commands,false);menu(sessions,sessions.hidden);
+ };
+ $('#newChat').onclick=()=>{
+  const empty=conversations.find(c=>!c.turns.length&&!c.draft);
+  if(empty){switchChat(empty);return}
+  const c=newConversation();conversations.unshift(c);switchChat(c);
+ };
+ $('#commandButton').onclick=()=>{menu(sessions,false);menu(commands,commands.hidden)};
+ $('.chat-workspace').onclick=e=>{
+  if(!e.currentTarget.isConnected)return;
+  const b=e.target.closest('button');
+  if(b?.hasAttribute('data-session')){switchChat(conversations[Number(b.dataset.session)]);return}
+  if(b?.hasAttribute('data-prompt')){draft(examples[Number(b.dataset.prompt)]);input.focus();input.setSelectionRange(input.value.length,input.value.length)}
+  if(b?.dataset.action){
+   const row=b.closest('article'),t=conversation.turns[Number(row.dataset.turn)],value=t[row.dataset.key];
+   if(b.dataset.action==='copy'){Routine.copyMessage(value);note('Mensagem copiada.')}
+   if(b.dataset.action==='speak')Routine.readMessage(value);
+   if(b.dataset.action==='reuse'){draft(value);input.focus()}
+   if(b.dataset.action==='undo')undoReceipt(t);
+  }
+  if(b?.id!=='historyButton')menu(sessions,false);
+  if(b?.id!=='commandButton'&&e.target!==input)menu(commands,false);
+ };
+ input.oninput=()=>{draft(input.value);menu(commands,input.value==='/');menu(sessions,false)};
+ input.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();if(!send.disabled)send.click()}};
+ $('#chat').onsubmit=e=>{
+  e.preventDefault();const msg=input.value.trim();if(!msg)return;
+  if(msg==='/'){menu(commands,true);return}
+  try{command(msg)}catch(err){reply(msg,err.message)}
+ };
+}
+function render(){
+ if(!data)return;
+ $('#date').textContent=new Date().toLocaleDateString('pt-BR',{weekday:'short',day:'numeric',month:'short'});
+ document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-current',b.dataset.page===page));
+ document.body.classList.toggle('chat-page',page==='chat');
+ const habit=page==='habits';let html='';
+ if(habit||page==='finance'){
+ const rows=habit?todayHabits():data.finance;const done=habit?rows.filter(h=>h.done===day()).length:0;
+ html='<h1>'+(habit?'Hábitos de hoje':'Finanças')+'</h1><p class="muted">'+(habit?done+' de '+rows.length+' concluídos':'Últimos lançamentos · reais')+'</p>';
+ if(!habit)html+=spendingPanel();
+ if(editing!==null)html+=form(habit,rows.find(i=>i.id===editing));
+ else html+='<button id="add">'+(habit?'Novo hábito':'Novo lançamento')+'</button>';
+ html+=rows.map((i,n)=>'<div class="row">'+(habit?'<button class="alt" data-check="'+n+'" aria-label="'+(i.done===day()?'Reabrir':'Concluir')+' '+esc(i.name)+'">'+(i.done===day()?'✓':'○')+'</button>':'')+'<span>'+esc(i.name||'Sem descrição')+(habit?'':'<small>'+esc(i.date)+' · '+(i.type==='income'?'Receita':'Despesa')+' · '+money(i.amount)+'</small>')+'</span><button class="alt" data-edit="'+n+'">Editar</button></div>').join('');
+ if(!rows.length)html+='<p>'+(habit?'Nenhum hábito previsto para hoje.':'Nenhum lançamento registrado.')+'</p>';
+ }else if(page==='settings'){
+ html='<h1>Ajustes</h1>'+alarmPanel()+'<section><h2>Sincronização</h2><p>'+esc(data.synced?'Última sincronização: '+data.synced:'Aguardando primeira sincronização.')+'<br>'+data.queue.length+' alterações pendentes.</p><p id="syncStatus"></p><button class="alt" id="syncNow">Sincronizar agora</button></section>';
+ }else if(page==='morning'){
+ html=morningPanel();
+ }else{
+ html=chatWorkspace();
+ }
+ $('#view').innerHTML='<div class="'+(page==='chat'?'chat-workspace':'card')+'">'+html+'</div>';
+ const bind=(s,f)=>{const e=$(s);if(e)e.onclick=f};
+ document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>show(b.dataset.open));
+ bind('#add',()=>{editing='';render();$('#editor input').focus()});bind('#cancel',()=>show(page));
+ bind('#allHabits',()=>show('habits'));
+ bind('#morningDone',()=>{const first=morningList().find(i=>i.h.done!==day());if(first){check(first.h,true);if(persist())render()}});
+ document.querySelectorAll('[data-time]').forEach(t=>t.oninput=()=>{$('.days').dataset.dirty='yes'});
+ document.querySelectorAll('[data-day]').forEach(b=>b.onchange=()=>{$('.days').dataset.dirty='yes';document.querySelector('[data-time="'+b.dataset.day+'"]').disabled=!b.checked});
+ bind('#schedule',()=>{
+  const times=Array.from(document.querySelectorAll('[data-time]')).map(e=>e.disabled?'':e.value);
+  if(!times.some(Boolean))return note('Selecione pelo menos um dia com horário.');
+  const result=Routine.setAlarm(times.join('|'));note(result);if(result==='Horários salvos.')render()
+ });
+ syncLabel();
+ if(page==='settings'&&data.conflict){
+  const e=data.queue[data.conflict.index];
+  if(e){
+   const box=document.createElement('section');
+   const display=v=>v==null?'Ausente':typeof v==='object'?v.name+' · '+money(v.amount):String(v);
+   box.innerHTML='<h2>Alterações no mesmo registro</h2><p>Celular: '+esc(display(e.after))+'<br>PC: '+esc(display(data.conflict.current))+'</p><div class="actions"><button id="keepPC">Usar PC</button><button class="alt" id="keepPhone">Usar celular</button></div>';
+   $('#view').append(box);
+   const resolve=phone=>{if(phone)e.before=data.conflict.current;else data.queue.splice(data.conflict.index,1);delete data.conflict;if(persist()){render();Routine.syncNow()}};
+   bind('#keepPC',()=>resolve(false));bind('#keepPhone',()=>resolve(true));
+   if(e.kind==='finance'&&e.after===null){$('#keepPhone').remove();box.querySelector('h2').textContent='O lançamento mudou no PC. Revise antes de excluir.'}
+  }
+ }
+ bind('#syncNow',()=>{Routine.syncNow();note('Consultando o PC pareado.')});
+ bind('#off',()=>{note(Routine.setAlarm(''));render()});bind('#preview',()=>Routine.preview());
+ const rows=habit?todayHabits():data.finance;
+ document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{editing=rows[b.dataset.edit].id;render();window.scrollTo(0,0)});
+ document.querySelectorAll('[data-check]').forEach(b=>b.onclick=()=>{const h=rows[b.dataset.check];check(h,h.done!==day());if(persist())render()});
+ if($('#editor'))$('#editor').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);try{const id=saveItem(habit,editing,f.get('name'),f.get('type'),f.get('amount'));if(persist()){if(habit){
+ morningPins=morningPins.filter(key=>key!==id);if(f.has('pin'))morningPins.push(id);Routine.storePins(JSON.stringify(morningPins))
+ }show(page);note('Salvo.')}}catch(err){note(err.message)}};
+ if(page==='chat')bindChat();
+}
+function check(h,yes){record('check',h.id,h.done===day(),yes,day());h.done=yes?day():''}
+function amount(s){s=String(s??'').trim();if(!/^\d+(?:[,.]\d{1,2})?$/.test(s))throw Error('Use um valor como 12,50.');const n=Number(s.replace(',','.'));if(n<=0||n>1e9)throw Error('Valor fora do intervalo.');return n}
+function saveItem(habit,id,name,type,value){
+ name=String(name||'').trim();if(!name||name.length>120)throw Error('Informe um nome de até 120 caracteres.');
+ const rows=habit?data.habits:data.finance;let item=rows.find(i=>i.id===id);
+ const old=item?(habit?item.name:{name:item.name,type:item.type,amount:item.amount}):null;
+ const after=habit?name:{name,type,amount:amount(value)};
+ if(!item){item={id:uid(),date:day(),days:['mon','tue','wed','thu','fri','sat','sun'],done:''};rows.unshift(item)}
+ record(habit?'habit':'finance',item.id,old,after,habit?'':item.date);
+ if(habit)item.name=name;else Object.assign(item,after);return item.id;
+}
+function unique(rows,name){const matches=rows.filter(h=>h.name.toLocaleLowerCase()===name.trim().toLocaleLowerCase());if(matches.length!==1)throw Error('Escolha o registro pelo botão Editar no painel.');return matches[0]}
+const numeral={zero:0,um:1,uma:1,dois:2,duas:2,três:3,quatro:4,cinco:5,seis:6,sete:7,oito:8,nove:9,dez:10,onze:11,doze:12,treze:13,catorze:14,quatorze:14,quinze:15,dezesseis:16,dezessete:17,dezoito:18,dezenove:19,vinte:20,trinta:30,quarenta:40,cinquenta:50,sessenta:60,setenta:70,oitenta:80,noventa:90};
+function spokenAmount(text){
+ const t=text.trim().toLowerCase();if(/^\d/.test(t))return amount(t);
+ function small(v){if(Object.hasOwn(numeral,v))return numeral[v];const pair=v.split(' e ');if(pair.length===2&&numeral[pair[0]]>=20&&numeral[pair[1]]>0&&numeral[pair[1]]<10)return numeral[pair[0]]+numeral[pair[1]];return NaN}
+ const whole=small(t);if(Number.isFinite(whole))return amount(whole);
+ const parts=t.match(/^(.+?) (?:reais? e |e )(.+?)(?: centavos?)?$/);
+ if(parts&&Number.isFinite(small(parts[1]))&&Number.isFinite(small(parts[2])))return amount((small(parts[1])+small(parts[2])/100).toFixed(2));
+ throw Error('Informe o valor como 12,50.');
+}
+function command(s){
+ let m,p,response,receipt=null;
+ if((m=s.match(/^(?:quanto (?:eu )?gastei|gastos?) (hoje|(?:neste|no) m[êe]s)\??$/i))){
+  const totals=spending(),today=m[1].toLowerCase()==='hoje';
+  reply(s,'Despesas '+(today?'de hoje':'do mês')+': '+money(today?totals.daily:totals.monthly)+'.'+(totals.partial?' Subtotal no aparelho. Sincronize para incluir todo o histórico.':''),'finance');return
+ }
+ if(/^resumo da manh[ãa]$/i.test(s)){const pending=morningList().filter(i=>i.h.done!==day());reply(s,pending.length?'Hábitos pendentes nesta manhã: '+pending.length+'. Primeiro: '+pending[0].h.name+'.':'Tudo em dia para esta manhã.','morning');return}
+ if((m=s.match(/^(?:criar|registrar) h[áa]bito (.+)$/i))){saveItem(true,'',m[1]);p='habits'}
+ else if((m=s.match(/^editar h[áa]bito (.+?) para (.+)$/i))){saveItem(true,unique(data.habits,m[1]).id,m[2]);p='habits'}
+ else if((m=s.match(/^concluir h[áa]bito (.+)$/i))){check(unique(todayHabits(),m[1]),true);p='habits'}
+ else if((m=s.match(/^(gastei|recebi) (?:R\$\s*)?(.+?) (?:em|de|com|no|na) (.+)$/i))){
+  const type=m[1].toLowerCase()==='gastei'?'expense':'income',value=spokenAmount(m[2]);
+  const id=saveItem(false,'',m[3],type,value);
+  receipt={id,date:day(),type,name:m[3].trim(),amount:value};
+  response=(type==='income'?'Receita registrada: ':'Despesa registrada: ')+receipt.name+' · '+money(value)+'.';
+  p='finance'
+ }
+ else if((m=s.match(/^(?:corrige|corrigir|editar) (?:o )?[úu]ltimo gasto para (.+)$/i))){
+ const i=data.finance.find(f=>f.type==='expense');if(!i)throw Error('Nenhuma despesa disponível para corrigir.');
+ const value=spokenAmount(m[1]);saveItem(false,i.id,i.name,i.type,value);response=i.name+' atualizado para '+money(value)+'.';p='finance'}
+ else if((m=s.match(/^editar (gasto|receita) (.+?) para ([\d,.]+)$/i))){const i=unique(data.finance.filter(f=>f.type===(m[1].toLowerCase()==='gasto'?'expense':'income')),m[2]);saveItem(false,i.id,i.name,i.type,m[3]);p='finance'}
+ else if(/^(hábitos|habitos|finanças|financas)$/i.test(s)){conversation.draft='';storeChat();show(s[0].toLowerCase()==='h'?'habits':'finance');return}
+ else throw Error('Posso organizar hábitos e finanças ou mostrar o resumo da manhã. Toque em Comandos para escolher um exemplo.');
+ if(persist())reply(s,response||(p==='habits'?'Hábito atualizado.':'Lançamento atualizado.'),p,receipt)
+}
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.page));
+let renderedDay=day();setInterval(()=>{if(renderedDay!==day()){renderedDay=day();render()}},15000);
+refresh();
+</script></html>
+

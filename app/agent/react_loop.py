@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from app.agent.action_executor import ActionExecutor
+from app.agent.context_budget import conversation_messages
 from app.agent.tool_guardrails import ToolCallGuardrailController
 from app.agent.tools.base import ToolResult
 from app.agent.verification import plan_verification
@@ -31,8 +32,6 @@ REACT_TOOLS = frozenset({"web_search", "timer", "wait", "calendar", "planning_wo
 MAX_BATCH = 5
 _HISTORY_STEPS = 6
 _OBS_CHARS = 600
-_CONVERSATION_MESSAGES = 6
-_CONVERSATION_CHARS = 1200
 _DESCRIPTION_CHARS = 250
 WAITING_TEXT = "A etapa {n} precisa da sua aprovação na Central: {preview} Assim que você aprovar, eu continuo sozinho."
 
@@ -211,7 +210,7 @@ class ReActLoopEngine:
             verify=self.verify if verify is None else bool(verify),
             progress=progress if progress is not None else self.progress,
             save_reply=save_reply, step_callback=step_callback,
-            conversation=list(history or [])[-_CONVERSATION_MESSAGES:],
+            conversation=conversation_messages(history or [], budget=10000),
             origin=current_origin.get(), start_time=start_time,
         )
         state_holder["state"] = state
@@ -639,7 +638,7 @@ class ReActLoopEngine:
         history = "\n".join(state.history[-_HISTORY_STEPS:]) or "Nenhuma ação anterior."
         ledger = "; ".join(f"{s.tool_name}({json.dumps(s.tool_args, ensure_ascii=False, default=str)[:180]}): {s.action_status}, efeito={s.effect_status or 'não verificado'}" for s in t.action_steps) or "Nenhuma"
         conversation = "\n".join(
-            f"{'Usuária' if item.get('role') == 'user' else 'Assistente'}: {_short(item.get('content'), _CONVERSATION_CHARS)}"
+            f"{'Usuária' if item.get('role') == 'user' else 'Assistente'}: {item.get('content', '')}"
             for item in state.conversation if isinstance(item, dict) and item.get("content")
         ) or "Sem mensagens anteriores."
 
@@ -694,8 +693,10 @@ class ReActLoopEngine:
                 state.allowed = frozenset(t["name"] for t in kept)
                 state.executor.allowed_tool_names = state.allowed
                 prompt = self._build_prompt(state)
-                while size() > REQUEST_BUDGET and state.conversation:
-                    state.conversation.pop(0)
+                from app.agent.context_budget import is_context_summary
+                while size() > REQUEST_BUDGET and any(not is_context_summary(row) for row in state.conversation):
+                    index = next(i for i, row in enumerate(state.conversation) if not is_context_summary(row))
+                    state.conversation.pop(index)
                     prompt = self._build_prompt(state)
                 while size() > REQUEST_BUDGET and state.history:
                     state.history.pop(0)

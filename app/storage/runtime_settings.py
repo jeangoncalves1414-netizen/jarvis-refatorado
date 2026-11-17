@@ -611,8 +611,8 @@ MIC_ENGINES = ("auto", "backend", "browser")  # auto = SpeechRecognition no PC q
 _MIC_LIMITS = {"sensitivity": (1, 100), "silence_ms": (300, 3000), "gain": (0.5, 4.0)}
 
 
-def get_mic_settings() -> dict[str, Any]:
-    saved = _read().get("mic")
+def get_mic_settings(*, mobile: bool = False) -> dict[str, Any]:
+    saved = _read().get("mobile_mic" if mobile else "mic")
     saved = saved if isinstance(saved, dict) else {}
     result: dict[str, Any] = {}
     for key, default in MIC_DEFAULTS.items():
@@ -625,15 +625,18 @@ def get_mic_settings() -> dict[str, Any]:
         result[key] = round(value, 2) if key == "gain" else int(round(value))
     engine = str(saved.get("engine", "auto")).lower()
     result["engine"] = engine if engine in MIC_ENGINES else "auto"
-    result["device_name"] = str(saved.get("device_name") or "")[:200]
+    for key in ("device_name", "device_id"):
+        value = saved.get(key, "")
+        result[key] = value.strip()[:512] if isinstance(value, str) else ""
     return result
 
 
-def set_mic_settings(values: dict[str, Any]) -> dict[str, Any]:
+def set_mic_settings(values: dict[str, Any], *, mobile: bool = False) -> dict[str, Any]:
     if not isinstance(values, dict):
         raise ValueError("Configuração de microfone inválida.")
     data = _read()
-    current = dict(data.get("mic")) if isinstance(data.get("mic"), dict) else {}
+    storage_key = "mobile_mic" if mobile else "mic"
+    current = dict(data[storage_key]) if isinstance(data.get(storage_key), dict) else {}
     for key in MIC_DEFAULTS:
         if key in values:
             try:
@@ -646,11 +649,16 @@ def set_mic_settings(values: dict[str, Any]) -> dict[str, Any]:
         if engine not in MIC_ENGINES:
             raise ValueError("Motor de detecção inválido.")
         current["engine"] = engine
-    if "device_name" in values:
-        current["device_name"] = str(values["device_name"] or "")[:200]
-    data["mic"] = current
+    for key in ("device_name", "device_id"):
+        if key in values:
+            if not isinstance(values[key], str) or len(values[key]) > 512:
+                raise ValueError("Microfone inválido.")
+            current[key] = values[key].strip()
+    if not current.get("device_name"):
+        current["device_id"] = ""
+    data[storage_key] = current
     _write(data)
-    return get_mic_settings()
+    return get_mic_settings(mobile=mobile)
 
 
 # Loop agêntico (lote 6): quando o agente planeja, age, confere e continua sozinho.

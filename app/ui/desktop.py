@@ -26,7 +26,7 @@ class DesktopAPI:
         try:
             import speech_recognition as sr
             self._recognizer = sr.Recognizer()
-            self._microphone = sr.Microphone()
+            self._microphone = None
             self._has_sr = True
         except (ImportError, OSError, AttributeError):
             self._has_sr = False
@@ -54,6 +54,9 @@ class DesktopAPI:
                 pass
                 
         try:
+            import speech_recognition as sr
+            from app.services.voice.mic_capture import resolve_device_index
+            self._microphone = sr.Microphone(device_index=resolve_device_index())
             self._stop_listening_fn = self._recognizer.listen_in_background(self._microphone, callback)
         except Exception as e:
             self._is_recording = False

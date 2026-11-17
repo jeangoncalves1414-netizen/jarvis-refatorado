@@ -27,6 +27,7 @@ mobile_app/.kotlin/
 mobile_app/build/
 mobile_app/app/build/
 mobile_app/local.properties
+mobile_app/app/src/localPanel/
 *.apk
 backups/
 temp_prefs.xml

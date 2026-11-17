@@ -87,7 +87,8 @@ class STTEngine:
     def calibrate(self, duration: float = 0.8) -> None:
         """Ajusta o reconhecedor ao ruído ambiente respeitando o limite mínimo."""
         try:
-            with sr.Microphone() as source:
+            from app.services.voice.mic_capture import resolve_device_index
+            with sr.Microphone(device_index=resolve_device_index()) as source:
                 print(f"[STT Engine] Calibrando ruído ambiente ({duration}s)...")
                 self.recognizer.adjust_for_ambient_noise(source, duration=duration)
                 if self.recognizer.energy_threshold < self.energy_threshold:
@@ -253,7 +254,8 @@ class STTEngine:
         Escuta diretamente do microfone e retorna o texto transcrevido e filtrado.
         """
         try:
-            with sr.Microphone() as source:
+            from app.services.voice.mic_capture import resolve_device_index
+            with sr.Microphone(device_index=resolve_device_index()) as source:
                 self.recognizer.adjust_for_ambient_noise(source, duration=0.8)
                 print("[STT Engine] Ouvindo microfone...")
                 audio = self.recognizer.listen(

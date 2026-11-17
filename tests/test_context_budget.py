@@ -27,6 +27,27 @@ def test_irreducible_request_is_never_silently_truncated():
     assert fitted == rows and estimate_tokens(fitted, kept) > 6000
 
 
+def test_checkpoint_survives_budgets_and_provider_conversion():
+    from app.agent.context_budget import SUMMARY_HEADER, fit_request
+    from app.services.llm import LLMService
+    checkpoint = {'role': 'assistant', 'content': SUMMARY_HEADER + 'Decisão: usar porta 8123.'}
+    rows = [checkpoint] + [{'role': 'user' if i % 2 == 0 else 'assistant', 'content': 'x' * 500} for i in range(40)]
+    rows.append({'role': 'user', 'content': 'Continue.'})
+    bounded = conversation_messages(rows, 3000)
+    fitted, _ = fit_request(bounded, budget=400)
+    assert fitted[0] == checkpoint and fitted[-1] == rows[-1]
+    contents = LLMService.build_contents(rows, 'Siga.')
+    assert '8123' in str(contents) and contents[-1]['parts'][0]['text'] == 'Siga.'
+
+
+def test_short_messages_are_not_dropped_by_count_and_thoughts_are_removed():
+    from app.services.llm import LLMService
+    rows = [{'role': 'user' if i % 2 == 0 else 'assistant', 'content': str(i)} for i in range(30)]
+    rows.append({'role': 'assistant', 'content': '<think>INTERNAL_ONLY</think>Resposta visível.'})
+    contents = LLMService.build_contents(rows, 'Mais uma.')
+    assert len(contents) == 32 and 'INTERNAL_ONLY' not in str(contents)
+
+
 def test_memory_is_bounded_and_deduplicated():
     result = memory_notes(["Ler livros", " ler  LIVROS "] + [str(i) * 400 for i in range(30)])
     assert result.count("Ler livros") == 1

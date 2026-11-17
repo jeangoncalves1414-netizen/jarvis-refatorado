@@ -54,6 +54,16 @@ class MeetingSession:
         if self._recording:
             return {"ok": False, "error": "Gravação já em andamento."}
 
+        from app.storage.runtime_settings import get_mic_settings
+        from app.services.voice.mic_capture import match_input_device
+        name = get_mic_settings()["device_name"]
+        try:
+            host_api = sd.query_devices(kind="input")["hostapi"] if name else None
+            devices = [{"index": i, "name": d["name"]} for i, d in enumerate(sd.query_devices()) if d["max_input_channels"] > 0 and d["hostapi"] == host_api] if name else []
+            device_index = match_input_device(name, devices)
+        except (ValueError, OSError) as exc:
+            return {"ok": False, "error": str(exc)}
+
         self._frames.clear()
         self._recording = True
         self._start_ts = time.time()
@@ -61,6 +71,7 @@ class MeetingSession:
         def _record() -> None:
             try:
                 with sd.InputStream(
+                    device=device_index,
                     samplerate=self.SAMPLE_RATE,
                     channels=self.CHANNELS,
                     dtype="int16",

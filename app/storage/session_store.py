@@ -207,7 +207,7 @@ def save_session_history(session_id: str, history: List[dict]) -> None:
 
 
 def save_turn(session_id: str, run_id: str, text: str, reply: str, *, timestamp: float, failed: bool = False,
-              context_usage: list[dict] | None = None) -> None:
+              context_usage: list[dict] | None = None, access_scope: str | None = None) -> None:
     """Persiste um turno completo uma única vez, inclusive falhas e cancelamentos."""
     import time
     with _history_lock:
@@ -231,7 +231,20 @@ def save_turn(session_id: str, run_id: str, text: str, reply: str, *, timestamp:
         if context_usage:
             assistant = next(row for row in reversed(history) if row.get('run_id') == run_id and row.get('role') == 'assistant')
             assistant.setdefault('meta', {})['context_usage'] = context_usage[:32]
+        if access_scope:
+            for row in history:
+                if row.get('run_id') == run_id:
+                    row.setdefault('meta', {}).update(access_mode='public', context_scope=access_scope)
         _save_history(session_id, history)
+
+
+def get_context_history(session_id: str, scope: str | None = None) -> List[dict]:
+    """Public callers only see server-labelled public turns in their own scope."""
+    history = get_session_history(session_id)
+    if scope is None:
+        return history
+    return [row for row in history if (row.get('meta') or {}).get('access_mode') == 'public'
+            and (row.get('meta') or {}).get('context_scope') in {scope, 'shared'}]
 
 
 def _save_history(session_id: str, history: List[dict]) -> None:

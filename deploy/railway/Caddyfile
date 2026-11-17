@@ -1,0 +1,14 @@
+:{$PORT:8080} {
+    encode zstd gzip
+
+    # Railway exposes one public port. Caddy forwards the WebSocket upgrade to
+    # Jarvis's internal streaming listener and every other request to HTTP.
+    reverse_proxy /ws/chat 127.0.0.1:8001 {
+        header_up Host {http.request.host}
+        header_up X-Forwarded-Proto {http.request.scheme}
+    }
+    reverse_proxy 127.0.0.1:8000 {
+        header_up Host {http.request.host}
+        header_up X-Forwarded-Proto {http.request.scheme}
+    }
+}

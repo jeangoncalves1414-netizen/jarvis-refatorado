@@ -118,6 +118,7 @@ def main() -> None:
     parser.add_argument("--server", action="store_true", help="Inicia apenas o servidor local, sem abrir janela desktop")
     parser.add_argument("--tray", action="store_true", help="Mostra ícone no System Tray; duplo-clique abre a janela desktop")
     args = parser.parse_args()
+    cloud_mode = os.getenv("JARVIS_CLOUD", "").strip().lower() in {"1", "true", "yes", "on"}
 
     orchestrator, panel = build_app()
     settings = orchestrator.settings
@@ -136,6 +137,12 @@ def main() -> None:
         print(f"[Jarvis] Configuração de acesso recusada: {exc}")
         return
     _free_port(port)
+    from app.ui.panel.paired import DIRECTORY, PairedPanel
+    if not cloud_mode and (DIRECTORY / "panel-token").is_file():
+        try:
+            panel.paired = PairedPanel(settings, DIRECTORY)
+        except (OSError, ValueError, KeyError) as error:
+            print(f"[Jarvis] Painel Android indisponível: {error}")
     panel.start()
     print(f"Painel disponível em {url} (rede: http://{host}:{port})")
     # Rotinas: agendador ligado só no app real (o PanelServer.start dos testes não liga).
@@ -328,7 +335,8 @@ def main() -> None:
         return
 
     # ── Modo somente Tray (sem pywebview) ──────────────────────────────────
-    panel.start_wake_word()
+    if not cloud_mode:
+        panel.start_wake_word()
     tray = None
     if TRAY_AVAILABLE and args.tray:
         import webbrowser

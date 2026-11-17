@@ -8,6 +8,7 @@ sem consulta por IDLE_TIMEOUT segundos o microfone é fechado.
 from __future__ import annotations
 
 import math
+import re
 import sys
 import threading
 import time
@@ -71,13 +72,27 @@ def list_devices() -> dict[str, Any]:
         audio.terminate()
 
 
-def resolve_device_index(name: str) -> int | None:
+def match_input_device(name: str, devices: list[dict[str, Any]]) -> int | None:
     if not name:
         return None
-    for item in list_devices()["devices"]:
-        if item["name"] == name:
-            return item["index"]
-    return None
+    def normalize(label: str) -> str:
+        # Chromium adds a USB vendor/product suffix absent from PortAudio names.
+        return re.sub(r"\s*\([0-9a-f]{4}:[0-9a-f]{4}\)$", "", label.casefold()).strip()
+    wanted = normalize(name)
+    matches = [d for d in devices if normalize(d["name"]) == wanted]
+    if not matches:
+        # Windows MME truncates device names to 31 characters. Never guess if ambiguous.
+        matches = [d for d in devices if len(normalize(d["name"])) == 31 and wanted.startswith(normalize(d["name"]))]
+    if len(matches) != 1:
+        raise ValueError("Microfone selecionado indisponível ou ambíguo. Escolha o dispositivo novamente nas configurações.")
+    return int(matches[0]["index"])
+
+
+def resolve_device_index(name: str | None = None) -> int | None:
+    if name is None:
+        from app.storage.runtime_settings import get_mic_settings
+        name = get_mic_settings()["device_name"]
+    return match_input_device(name, list_devices()["devices"]) if name else None
 
 
 def energy_threshold_for(sensitivity: float, gain: float = 1.0) -> int:
@@ -160,7 +175,10 @@ class MicCapture:
             if self._thread is not None and self._thread.is_alive():
                 return {"ok": False, "error": "A captura anterior ainda está encerrando."}
             self._semantic_requested = semantic_turns
-            device_index = resolve_device_index(device_name) if device_name else None
+            try:
+                device_index = resolve_device_index(device_name)
+            except (ValueError, OSError) as exc:
+                return {"ok": False, "error": str(exc)}
             self._base_thr = float(energy_threshold_for(sensitivity, gain))
             self._thr = self._base_thr
             self._device_name = device_name
@@ -337,7 +355,7 @@ class MicCapture:
                 except Exception:
                     self._emit("detector_warning", message="Não consegui avaliar esta pausa; vou aguardar mais tempo.")
                 prediction = None
-            if self._neural and quiet_cnt * spb >= 0.6 and not evaluated_pause and prediction is None:
+            if self._neural and quiet_cnt * spb >= 0.45 and not evaluated_pause and prediction is None:
                 # Preserve prosody at the end of speech; don't feed ever-growing silence.
                 prediction_epoch = speech_epoch
                 snapshot = b"".join(frames[-math.ceil(8.0 / spb):])
@@ -380,7 +398,7 @@ class MicCapture:
         stt_ms = int((time.monotonic() - started) * 1000)
         text = str(result.get("text") or "").strip()
         if result.get("ok") and text:
-            self._emit("transcript", turn_id=turn_id, text=text, stt_ms=stt_ms, turn_complete=turn_complete, semantic=bool(self._neural))
+            self._emit("transcript", turn_id=turn_id, text=text, stt_ms=stt_ms, turn_complete=turn_complete, semantic=bool(self._neural), speaker=result.get("speaker"))
         else:
             self._emit("empty", turn_id=turn_id, error=result.get("error") or "", stt_ms=stt_ms)
 

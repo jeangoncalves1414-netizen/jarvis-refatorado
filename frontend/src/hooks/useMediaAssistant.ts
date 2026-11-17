@@ -1,11 +1,15 @@
+import { pairedAndroid } from '../utils/pairedAndroid'
+import { isCameraObservationRequest, requestVoiceCamera } from '../utils/cameraRequest'
+import { captureIdentityFrame } from '../components/CallIdentityCamera'
+import { handleLiveIntroduction } from '../components/LiveEnrollment'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { playAudioToEnd } from '../utils/voicePlayback'
 import { createAgentAudio } from '../utils/voiceSpeed'
-import { micAudioConstraints } from '../utils/micPrefs'
+import { openMicrophone, loadMicrophone, createMicrophoneRecognition } from '../utils/micPrefs'
 import { LOOPBACK_HOSTS, postCapture } from '../utils/backendCapture'
 import { liveDictationBus } from '../utils/dictationBus'
 import { isMobileStandalone } from './useDirectChat'
-import type { RequestOrigin } from './useChat'
+import type { RequestOrigin, VoiceExchangePreview } from './useChat'
 import type { ToolActivityEntry, TurnMeta } from '../types'
 import {
   hasNativeVoice,
@@ -65,6 +69,7 @@ function readSpeakEnabled() {
 }
 
 function readSpeakerIdentificationEnabled() {
+  if (pairedAndroid) return false
   try { return localStorage.getItem(SPEAKER_IDENTIFICATION_STORAGE_KEY) === '1' } catch { return false }
 }
 
@@ -230,7 +235,13 @@ export function buildContextStitchingPrompt(interruptedText: string, userSpeech:
 }
 
 async function createStreamingAudio(response: Response): Promise<{ audio: HTMLAudioElement; url: string } | null> {
-  if (!response.body || typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported('audio/mpeg')) return null
+  if (!response.body || typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported('audio/mpeg')) {
+    if (!pairedAndroid) return null
+    const blob = await response.blob()
+    if (!blob.size) return null
+    const url = URL.createObjectURL(blob)
+    return { audio: createAgentAudio(url), url }
+  }
   const mediaSource = new MediaSource()
   const url = URL.createObjectURL(mediaSource)
   const audio = createAgentAudio(url)
@@ -274,14 +285,17 @@ type MediaAssistantOptions = {
   setAnswer: (answer: string) => void
   setQuery: (query: string) => void
   sessionId?: string
-  appendExchange?: (userText: string, assistantText: string, receipt?: { run_id?: string; activity?: ToolActivityEntry[]; meta?: TurnMeta }) => Promise<void>
+  appendExchange?: (userText: string, assistantText: string, receipt?: { run_id?: string; activity?: ToolActivityEntry[]; meta?: TurnMeta }, previewId?: string) => Promise<void>
+  previewExchange?: (id: string, preview: VoiceExchangePreview | null) => void
   // Interface pedida pelo agente durante a ligação (popups, janela, tela): SSE "popup" e plan.context do "complete".
   onAgentContext?: (context: unknown) => void
 }
 
-export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, setQuery, sessionId, appendExchange, onAgentContext }: MediaAssistantOptions) {
+export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, setQuery, sessionId, appendExchange, previewExchange, onAgentContext }: MediaAssistantOptions) {
   const appendExchangeRef = useRef(appendExchange)
   appendExchangeRef.current = appendExchange
+  const previewExchangeRef = useRef(previewExchange)
+  previewExchangeRef.current = previewExchange
   const agentContextRef = useRef(onAgentContext)
   agentContextRef.current = onAgentContext
   const sessionIdRef = useRef(sessionId)
@@ -303,8 +317,40 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     }))
   }
   const removeLiveTurn = (id: string) => setLiveTurns(previous => previous.filter(turn => turn.id !== id))
+  const streamTurnRef = useRef<{ id: string; user: string; session?: string; continuing: boolean } | null>(null)
+  const previewContinuation = (text = '', alreadyCombined = false) => {
+    const turn = streamTurnRef.current
+    if (!turn?.continuing) return
+    const user = alreadyCombined ? text : [turn.user, text].filter(Boolean).join(' ')
+    setLiveUserTranscript(user)
+    updateLiveTurn(turn.id, { user, jarvis: '', activity: [], pending: true })
+    previewExchangeRef.current?.(turn.id, { user, reply: '' })
+  }
+  const preserveStreamTurn = () => {
+    const turn = streamTurnRef.current
+    if (!turn || turn.session !== sessionIdRef.current) return
+    turn.continuing = true
+    previewContinuation()
+  }
+  const discardStreamTurn = () => {
+    const turn = streamTurnRef.current
+    streamTurnRef.current = null
+    if (turn) {
+      previewExchangeRef.current?.(turn.id, null)
+      removeLiveTurn(turn.id)
+    }
+  }
   // Fala enviada pelo chat normal (modos VAD do navegador e nativo): o balão da usuária aparece já, o do assistente quando a resposta chega.
   const sendTextAsTurn = async (text: string) => {
+    if (handleLiveIntroduction(text)) return ''
+    const observation = await requestVoiceCamera(text)
+    if (observation !== null) {
+      if (observation && liveCallActiveRef.current) {
+        const turn = beginLiveTurn(text)
+        updateLiveTurn(turn, { jarvis: observation, pending: false })
+      }
+      return observation
+    }
     const liveTurnId = beginLiveTurn(text)
     let reply = ''
     try {
@@ -319,10 +365,15 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   const sendText = useCallback((message: string) => sendChatText(message, 'general', false, 'voice'), [sendChatText])
   const [speakEnabled, setSpeakEnabledState] = useState(readSpeakEnabled)
   const [speakerIdentificationEnabled, setSpeakerIdentificationEnabledState] = useState(readSpeakerIdentificationEnabled)
+  const speakerIdentificationEnabledRef = useRef(speakerIdentificationEnabled)
   const [silentMode, setSilentModeState] = useState(false)
   const silentModeRef = useRef(false)
   const [recording, setRecording] = useState(false)
   const [liveCallOpen, setLiveCallOpen] = useState(false)
+  const enrollmentActiveRef = useRef(false)
+  const resumeAfterEnrollment = useRef(false)
+  const callOpenRef = useRef(liveCallOpen)
+  callOpenRef.current = liveCallOpen
   const [liveCallRecording, setLiveCallRecording] = useState(false)
   const [liveCallStatus, setLiveCallStatus] = useState('Pronto para ouvir.')
   const [liveAudioDiagnostics, setLiveAudioDiagnostics] = useState<LiveAudioDiagnostics | null>(null)
@@ -370,6 +421,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   const fallbackNoiseFloorRef = useRef(0.004)
   const fallbackLastDiagnosticsUpdateRef = useRef(0)
   const voiceTurnIdRef = useRef<string | null>(null)
+  const identityEvidenceRef = useRef<string | undefined>(undefined)
+  const identityPartsRef = useRef<string[]>([])
   const liveSpeakerRef = useRef<{ name?: string; confidence?: number; unknown?: boolean }>({})
   const nativeVoiceModeRef = useRef<'idle' | 'call' | 'composer'>('idle')
   const nativeCallActiveRef = useRef(false)
@@ -379,8 +432,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   const captureNoteRef = useRef('')
   const backendDispatchAbortRef = useRef<AbortController | null>(null)
 
-  // A pausa de formulação de 1–2 s também ocorre depois de frases gramaticalmente completas.
-  const SILENCE_BUFFER_MS = 3000
+  const SILENCE_BUFFER_MS = 800
   const silenceBufferTimerRef = useRef<number | null>(null)
   const silenceAccumulatedTextRef = useRef('')
   const pendingSpeechRef = useRef<{ text: string; send: (text: string) => void; timer: number | null } | null>(null)
@@ -388,6 +440,12 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   function clearPendingSpeech() {
     if (pendingSpeechRef.current?.timer != null) window.clearTimeout(pendingSpeechRef.current.timer)
     pendingSpeechRef.current = null
+  }
+
+  function acceptSpeakerEvidence(token?: string) {
+    if (!pendingSpeechRef.current) identityPartsRef.current = []
+    identityPartsRef.current.push(speakerIdentificationEnabledRef.current ? token || '' : '')
+    identityEvidenceRef.current = identityPartsRef.current.length === 1 ? identityPartsRef.current[0] || undefined : undefined
   }
 
   function pausePendingSpeech() {
@@ -407,6 +465,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     const pending = { text: combined, send, timer: null as number | null }
     pendingSpeechRef.current = pending
     setLiveUserTranscript(combined)
+    if (backendCaptureRef.current) previewContinuation(combined)
     setLiveCallStatus('Ouvindo… aguardando você concluir.')
     pending.timer = window.setTimeout(() => {
       if (pendingSpeechRef.current !== pending) return
@@ -416,7 +475,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       }
       pendingSpeechRef.current = null
       if (liveCallActiveRef.current) pending.send(pending.text)
-    }, delay ?? (incomplete ? 4500 : SILENCE_BUFFER_MS))
+    }, delay ?? (incomplete ? 1800 : 150))
     return true
   }
 
@@ -450,7 +509,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       setAnswer('Gravação encerrada.')
       return
     }
-    if (hasNativeVoice() && isMobileStandalone()) {
+    if (hasNativeVoice() && isMobileStandalone() && !(await loadMicrophone()).device_name) {
       nativeVoiceModeRef.current = 'composer'
       setRecording(true)
       setAnswer('Estou ouvindo… fale e pause para transcrever.')
@@ -466,7 +525,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       return
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: micAudioConstraints() })
+      const stream = await openMicrophone()
       const chunks: BlobPart[] = []
       const options = pickRecorderOptions()
       const recorder = new MediaRecorder(stream, options)
@@ -504,6 +563,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
 
   const stopLiveCall = (preserveView = false) => {
     clearPendingSpeech()
+    discardStreamTurn()
     lastVoiceRequestRef.current = null
     lastInterruptionRef.current = null
     playingPhraseRef.current = null
@@ -556,6 +616,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     liveCallSttFailureCountRef.current = 0
     voiceTurnIdRef.current = null
     liveSpeakerRef.current = {}
+    identityEvidenceRef.current = undefined
+    identityPartsRef.current = []
     setLiveAudioDiagnostics(null)
     speechRequestRef.current += 1
     speechAbortRef.current?.abort()
@@ -636,15 +698,54 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     }
   }
 
-  const sendTextStreamAndPlay = async (userText: string, displayText?: string, externalAbort?: AbortController) => {
+  const sendTextStreamAndPlay = async (userText: string, displayText?: string, externalAbort?: AbortController, alreadyCombined = false) => {
+    let identityToken = identityEvidenceRef.current
+    const identityParts = identityPartsRef.current
+    identityPartsRef.current = []
+    identityEvidenceRef.current = undefined
     if (!userText || !liveCallActiveRef.current) return
+    if (handleLiveIntroduction(displayText ?? userText, identityToken)) { discardStreamTurn(); return }
+    if (isCameraObservationRequest(displayText ?? userText)) {
+      setLiveOrbState('thinking'); setLiveCallStatus('Observando as câmeras…')
+      setLiveUserTranscript(displayText ?? userText)
+    }
+    const observation = await requestVoiceCamera(displayText ?? userText)
+    if (!liveCallActiveRef.current || externalAbort?.signal.aborted) return
+    if (observation !== null) {
+      discardStreamTurn()
+      setLiveUserTranscript(displayText ?? userText)
+      setLiveJarvisTranscript(observation)
+      if (observation) {
+        const turn = beginLiveTurn(displayText ?? userText)
+        updateLiveTurn(turn, { jarvis: observation, pending: false })
+        isSpeakingRef.current = true; setLiveOrbState('speaking')
+        setLiveCallStatus('Respondendo sobre as câmeras…')
+        try { await speakText(observation) } finally {
+          isSpeakingRef.current = false
+          if (liveCallActiveRef.current && !externalAbort?.signal.aborted) {
+            setLiveOrbState('listening'); setLiveCallRecording(true)
+            setLiveCallStatus('Ouvindo continuamente… fale normalmente.')
+          }
+        }
+      }
+      return
+    }
 
     spokenSentencesRef.current = []
 
-    // Mostra apenas o texto limpo (sem o prompt de contexto interno)
-    if (displayText !== undefined) setLiveUserTranscript(displayText)
+    // A continuação troca a requisição, mas preserva a identidade do balão.
+    const previousTurn = streamTurnRef.current
+    const continuation = previousTurn?.continuing && previousTurn.session === sessionIdRef.current ? previousTurn : null
+    const spokenText = (displayText ?? userText).trim()
+    const turnUser = continuation && !alreadyCombined ? `${continuation.user} ${spokenText}` : spokenText
+    if (previousTurn && !continuation) discardStreamTurn()
+    const liveTurnId = continuation?.id || beginLiveTurn(turnUser)
+    const streamTurn = { id: liveTurnId, user: turnUser, session: sessionIdRef.current, continuing: false }
+    streamTurnRef.current = streamTurn
+    lastVoiceRequestRef.current = { text: turnUser, time: Date.now() }
+    setLiveUserTranscript(turnUser)
     setLiveJarvisTranscript('')
-    const liveTurnId = beginLiveTurn((displayText ?? userText).trim())
+    updateLiveTurn(liveTurnId, { user: turnUser, jarvis: '', activity: [], pending: true })
     let handledByChat = false
     setLiveOrbState('thinking')
     setLiveCallStatus('Processando seu pedido…')
@@ -740,8 +841,6 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         setLiveCallStatus(item.text)
       } else {
         setLiveCallStatus('⚡ Transmitindo resposta em tempo real…')
-        setLiveJarvisTranscript((prev) => (prev ? prev + ' ' + item.text : item.text))
-        updateLiveTurn(liveTurnId, { append: item.text })
       }
 
       let audioEl: HTMLAudioElement | null = null
@@ -754,6 +853,10 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         }
 
         const staleAnnouncement = item.actionId && turnActivity.find(entry => entry.id === item.actionId)?.status !== 'running'
+        if (pairedAndroid && !audioEl && !abortController.signal.aborted) {
+          captureNoteRef.current = 'Áudio Fish indisponível. A resposta está na transcrição.'
+          recordDiagnostic('fish_audio_unavailable', 'WARN')
+        }
         if (audioEl && !staleAnnouncement && liveCallActiveRef.current && !abortController.signal.aborted) {
           audioRef.current = audioEl
           playingPhraseRef.current = { text: item.text, audio: audioEl }
@@ -814,12 +917,46 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
 
     let sentenceBuffer = ''
     let fullReply = ''
+    const publishPreview = () => {
+      if (abortController.signal.aborted || handledByChat || streamTurnRef.current !== streamTurn) return
+      setLiveJarvisTranscript(fullReply)
+      updateLiveTurn(liveTurnId, { jarvis: fullReply, activity: turnActivity })
+      previewExchangeRef.current?.(liveTurnId, { user: turnUser, reply: fullReply, activity: turnActivity })
+    }
+    const clearPreview = () => {
+      if (streamTurnRef.current === streamTurn && !streamTurn.continuing) previewExchangeRef.current?.(liveTurnId, null)
+    }
+    abortController.signal.addEventListener('abort', clearPreview, { once: true })
+    publishPreview()
 
     try {
+      if (identityParts.length > 1 && speakerIdentificationEnabledRef.current) {
+        try {
+          const response = await fetch('/api/identity', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'merge_turns', tokens: identityParts }), signal: abortController.signal,
+          })
+          const merged = await response.json()
+          identityToken = response.ok && merged.ok ? merged.evidence_token : undefined
+        } catch { identityToken = undefined }
+      }
+      const identityFrame = captureIdentityFrame()
+      if (identityFrame) {
+        try {
+          const cameraResponse = await fetch('/api/identity', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'attach_camera', identity_token: identityToken, image: identityFrame }),
+            signal: AbortSignal.any([abortController.signal, AbortSignal.timeout(250)]),
+          })
+          const cameraData = await cameraResponse.json()
+          if (cameraResponse.ok && cameraData.ok) identityToken = cameraData.evidence_token
+          else recordDiagnostic('identity_camera_failed', 'WARN', { reason: cameraData.error || 'Modelo facial indisponível' })
+        } catch { recordDiagnostic('identity_camera_failed', 'WARN', { reason: 'Câmera não identificada neste turno' }) }
+      }
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userText, mode: 'general', origin: 'voice', session_id: sessionIdRef.current || undefined }),
+        body: JSON.stringify({ message: userText, mode: 'general', origin: 'voice', session_id: sessionIdRef.current || undefined, identity_token: identityToken }),
         signal: abortController.signal,
       })
 
@@ -827,6 +964,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         throw new Error('O pedido por voz falhou. Consulte a execução antes de tentar novamente.')
       }
       if (!response.ok || !response.body) {
+        clearPreview()
+        handledByChat = true
         const reply = await sendText(userText)
         if (reply) {
           // O chat já gravou a troca no histórico; aqui só falta mostrá-la na ligação.
@@ -886,7 +1025,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
               agentContextRef.current?.({ ui_popups: [data.popup] })
             } else if (data.status === 'complete') {
               voiceRunId = data.plan?.context?.run_id || voiceRunId
-              turnMeta = data.plan?.context?.memory_lookup ? { memory_lookup: data.plan.context.memory_lookup } : undefined
+              turnMeta = data.plan?.context?.access_mode === 'public' ? { access_mode: 'public' } : data.plan?.context?.memory_lookup ? { memory_lookup: data.plan.context.memory_lookup } : undefined
               turnActivity = data.plan?.context?.tool_activity || turnActivity
               updateLiveTurn(liveTurnId, { activity: turnActivity })
               if (data.plan?.context) agentContextRef.current?.(data.plan.context)
@@ -901,7 +1040,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
               }
             } else if (data.status === 'error') {
               voiceRunId = data.plan?.context?.run_id || voiceRunId
-              turnMeta = data.plan?.context?.memory_lookup ? { memory_lookup: data.plan.context.memory_lookup } : undefined
+              turnMeta = data.plan?.context?.access_mode === 'public' ? { access_mode: 'public' } : data.plan?.context?.memory_lookup ? { memory_lookup: data.plan.context.memory_lookup } : undefined
               turnActivity = data.plan?.context?.tool_activity || turnActivity
               // Keep diagnostics visible; only a conversational failure notice goes to speech.
               const rawError = typeof data.error === 'string' && data.error.trim() ? data.error : (typeof data.plan?.summary === 'string' ? data.plan.summary : '')
@@ -914,6 +1053,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
                 sentenceBuffer = ''
               }
             }
+            publishPreview()
           } catch {
             /* ignore parse error */
           }
@@ -936,15 +1076,24 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     } finally {
       isGeneratingResponse = false
       abortController.signal.removeEventListener('abort', cancelVoiceRun)
-      // Cada fala vira um turno novo (fala + resposta), preservando os anteriores no chat e na ligação.
+      abortController.signal.removeEventListener('abort', clearPreview)
+      // Só a requisição atual conclui o turno; requisições substituídas não removem o balão compartilhado.
       const turnReply = fullReply.trim()
-      if (turnReply && !abortController.signal.aborted) {
-        const turnUser = (displayText ?? userText).trim()
+      const ownsTurn = streamTurnRef.current === streamTurn && !streamTurn.continuing
+      if (ownsTurn && turnReply && !abortController.signal.aborted) {
         updateLiveTurn(liveTurnId, { jarvis: turnReply, pending: false })
-        if (!handledByChat) void appendExchangeRef.current?.(turnUser, turnReply, { run_id: voiceRunId || undefined, activity: turnActivity, meta: turnMeta })
-      } else {
+        if (!handledByChat) {
+          try {
+            await appendExchangeRef.current?.(turnUser, turnReply, { run_id: voiceRunId || undefined, activity: turnActivity, meta: turnMeta }, previewExchangeRef.current ? liveTurnId : undefined)
+          } catch {
+            setLiveCallStatus('Não consegui salvar esta resposta no chat.')
+          }
+        }
+      } else if (ownsTurn) {
         removeLiveTurn(liveTurnId)
       }
+      clearPreview()
+      if (ownsTurn && streamTurnRef.current === streamTurn && !streamTurn.continuing) streamTurnRef.current = null
       if (!abortController.signal.aborted) isSpeakingRef.current = false
       // Só restaura 'listening' aqui se playNextInQueue ainda não o fez
       if (liveCallActiveRef.current && !abortController.signal.aborted && !listeningRestoredRef.current) {
@@ -958,6 +1107,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
 
   const triggerBargeIn = useCallback(() => {
     if (!liveCallActiveRef.current) return
+    preserveStreamTurn()
     captureEpochRef.current += 1
     transcriptionAbortRef.current?.abort()
     lastDispatchedSpeechRef.current?.abort.abort()
@@ -1041,6 +1191,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
 
   async function handleVoiceCancellation() {
     clearPendingSpeech()
+    discardStreamTurn()
+    lastInterruptionRef.current = null
     captureEpochRef.current += 1
     const cancellationEpoch = captureEpochRef.current
     const cancelledRequest = lastVoiceRequestRef.current
@@ -1175,7 +1327,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     }, delay)
   }
 
-  const dispatchFinalSpeech = (cleanText: string, wasBargedIn = false, settled = false) => {
+  const dispatchFinalSpeech = (cleanText: string, wasBargedIn = false, settled = false, alreadyCombined = false) => {
     if (!cleanText || !liveCallActiveRef.current) return
     if (divertToDictation(cleanText)) return
 
@@ -1183,7 +1335,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       void handleVoiceCancellation()
       return
     }
-    if (!settled && bufferSpeech(cleanText, text => { void dispatchFinalSpeech(text, wasBargedIn, true) })) return
+    previewContinuation(cleanText, alreadyCombined)
+    if (!settled && bufferSpeech(cleanText, text => { void dispatchFinalSpeech(text, wasBargedIn, true, alreadyCombined) })) return
 
     const silenceCheck = detectSilenceCommand(cleanText)
     if (silenceCheck.isCommand) {
@@ -1258,7 +1411,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         }
         if (!dispatchAbort.signal.aborted) {
           lastVoiceRequestRef.current = { text: cleanText, time: Date.now() }
-          await sendTextStreamAndPlay(prompt, cleanText, dispatchAbort)
+          await sendTextStreamAndPlay(prompt, cleanText, dispatchAbort, alreadyCombined)
         }
       } catch (error) {
         if (!dispatchAbort.signal.aborted) {
@@ -1282,7 +1435,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     const Recognition = browserWindow.SpeechRecognition || browserWindow.webkitSpeechRecognition
     if (!Recognition) return false
     if (recognitionAliveRef.current && liveRecognitionRef.current) return true // já rodando
-    const recognition = new Recognition()
+    const recognition = createMicrophoneRecognition(Recognition)
     setLiveAudioDiagnostics({ mode: 'browser-speech' })
     recognition.lang = 'pt-BR'
     recognition.continuous = true
@@ -1301,6 +1454,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       }
     }
     recognition.onresult = (event: any) => {
+      identityEvidenceRef.current = undefined
+      identityPartsRef.current = []
       let interimText = ''
       let finalText = ''
       for (let index = event.resultIndex || 0; index < event.results.length; index += 1) {
@@ -1337,7 +1492,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
           pttAccumulatedTextRef.current = (pttAccumulatedTextRef.current + ' ' + finalText.trim()).trim()
         }
         const fullTranscript = (pttAccumulatedTextRef.current + (interimText ? ' ' + interimText : '')).trim()
-        if (fullTranscript) setLiveUserTranscript(fullTranscript)
+        if (fullTranscript) { setLiveUserTranscript(fullTranscript); previewContinuation(fullTranscript) }
         setLiveOrbState('listening')
         setLiveCallStatus('🎙️ Ouvindo sua fala… solte o botão para enviar.')
         return
@@ -1350,6 +1505,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         const elapsed = Date.now() - prevDispatch.timestamp
         if (elapsed <= SILENCE_BUFFER_MS && heardSpeech.length >= 1) {
           prevDispatch.isCancelled = true
+          preserveStreamTurn()
           try { prevDispatch.abort.abort() } catch { /* ignore */ }
           if (correctionWindowTimerRef.current !== null) {
             window.clearTimeout(correctionWindowTimerRef.current)
@@ -1362,12 +1518,14 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
           }
           const continuationText = (interimText || finalText).trim()
           setLiveUserTranscript(`${prevDispatch.text} ${continuationText}`.trim())
+          previewContinuation(`${prevDispatch.text} ${continuationText}`.trim(), true)
           setLiveJarvisTranscript('')
           setLiveOrbState('listening')
           setLiveCallStatus('Completando frase…')
         }
       } else if (prevDispatch && prevDispatch.isCancelled && interimText.trim()) {
         setLiveUserTranscript(`${prevDispatch.text} ${interimText.trim()}`.trim())
+        previewContinuation(`${prevDispatch.text} ${interimText.trim()}`.trim(), true)
       }
 
       // ⚡ BARGE-IN: detecta fala do usuário enquanto Jarvis está falando
@@ -1384,8 +1542,9 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       }
 
       const currentFormulation = (silenceAccumulatedTextRef.current + ' ' + heardSpeech).trim()
-      if (currentFormulation) {
+      if (currentFormulation && !prevDispatch?.isCancelled) {
         setLiveUserTranscript(currentFormulation)
+        previewContinuation(currentFormulation)
       }
 
       if (!finalText.trim() || !liveCallActiveRef.current) return
@@ -1400,13 +1559,14 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       if (prevDispatch && prevDispatch.isCancelled) {
         const mergedText = `${prevDispatch.text} ${newText}`.replace(/\s+/g, ' ').trim()
         lastDispatchedSpeechRef.current = null
-        dispatchFinalSpeech(mergedText)
+        dispatchFinalSpeech(mergedText, false, false, true)
         return
       }
 
       // Caso 2: Chegou uma frase final rápida dentro da janela de pausa:
       if (prevDispatch && !prevDispatch.isCancelled && (Date.now() - prevDispatch.timestamp <= SILENCE_BUFFER_MS) && !wasBargedIn) {
         prevDispatch.isCancelled = true
+        preserveStreamTurn()
         try { prevDispatch.abort.abort() } catch { /* ignore */ }
         if (correctionWindowTimerRef.current !== null) {
           window.clearTimeout(correctionWindowTimerRef.current)
@@ -1419,7 +1579,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         }
         const mergedText = `${prevDispatch.text} ${newText}`.replace(/\s+/g, ' ').trim()
         lastDispatchedSpeechRef.current = null
-        dispatchFinalSpeech(mergedText)
+        dispatchFinalSpeech(mergedText, false, false, true)
         return
       }
 
@@ -1448,7 +1608,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         liveCallActiveRef.current = false
         setLiveCallRecording(false)
         setLiveOrbState('idle')
-        setLiveCallStatus('Permissão de microfone negada. Verifique as configurações.')
+        setLiveCallStatus(event?.message || 'Permissão de microfone negada. Verifique as configurações.')
         return
       }
       if (event?.error === 'aborted') return
@@ -1495,7 +1655,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       return
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: micAudioConstraints({ echoCancellation: true, noiseSuppression: true, autoGainControl: true }) })
+      const stream = await openMicrophone({ echoCancellation: true, noiseSuppression: true, autoGainControl: true })
       if (!liveCallActiveRef.current || captureEpoch !== captureSessionRef.current) { stream.getTracks().forEach(track => track.stop()); return }
       liveCallStreamRef.current = stream
       const audioContext = new AudioContext()
@@ -1531,6 +1691,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
         const turnId = newVoiceTurnId()
         voiceTurnIdRef.current = turnId
         liveSpeakerRef.current = {}
+        identityEvidenceRef.current = undefined
         const turnStartedAt = performance.now()
         recordDiagnostic('voice_turn_started', 'INFO', { turn_id: turnId, session_id: sessionId || 'unknown', capture_mode: 'fallback-vad' })
         liveCallRecorderRef.current = recorder
@@ -1563,7 +1724,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
             }
             const stt = await fetch('/api/voice/stt', {
               method: 'POST',
-              headers: { 'Content-Type': audio.type, 'X-Jarvis-Turn-ID': turnId, 'X-Jarvis-Session-ID': sessionId || '' },
+              headers: { 'Content-Type': audio.type, 'X-Jarvis-Identify-Speaker': speakerIdentificationEnabledRef.current ? '1' : '0', 'X-Jarvis-Turn-ID': turnId, 'X-Jarvis-Session-ID': sessionId || '' },
               body: audio,
               signal: abort.signal,
             })
@@ -1571,9 +1732,11 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
             if (abort.signal.aborted || turnEpoch !== captureEpochRef.current) return
             if (!stt.ok || !transcription.ok || !transcription.text) throw new Error(transcription.error || 'Não foi possível entender o áudio.')
             const speaker = transcription.speaker
-            if (speaker?.enabled) {
-              liveSpeakerRef.current = speaker.matched
+            acceptSpeakerEvidence(speaker?.evidence_token)
+            if (speakerIdentificationEnabledRef.current && speaker?.enabled) {
+              liveSpeakerRef.current = speaker.matched && !speaker.requires_confirmation
                 ? { name: speaker.profile?.name, confidence: speaker.confidence }
+                : speaker.segments?.length ? { name: speaker.segments.map((part: { speaker_name?: string }) => part.speaker_name || 'Voz desconhecida').join(' → ') }
                 : { confidence: speaker.confidence, unknown: true }
               setLiveAudioDiagnostics(previous => previous ? { ...previous, speakerName: liveSpeakerRef.current.name, speakerConfidence: speaker.confidence, speakerUnknown: liveSpeakerRef.current.unknown } : previous)
               recordDiagnostic(speaker.matched ? 'voice_speaker_recognized' : 'voice_speaker_unknown', 'INFO', { turn_id: turnId, confidence: speaker.confidence || 0 })
@@ -1661,7 +1824,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       if (captureEpoch !== captureSessionRef.current) return
       liveCallActiveRef.current = false
       recordDiagnostic('fallback_microphone_unavailable', 'ERROR', { error: error instanceof Error ? error.name : 'unknown' })
-      setLiveCallStatus('Não consegui acessar o microfone. Verifique a permissão.')
+      setLiveCallStatus(error instanceof Error ? error.message : 'Não consegui acessar o microfone. Verifique a permissão.')
     }
   }
 
@@ -1796,7 +1959,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
           const result = handle.turns.shift()!.result!
           if (result.type === 'turn_end') {
             handle.awaitingEnd = false
-            if (pendingSpeechRef.current) bufferSpeech('', pendingSpeechRef.current.send, true, 250)
+            if (pendingSpeechRef.current) bufferSpeech('', pendingSpeechRef.current.send, true, 0)
           } else if (result.type === 'transcript') acceptBackendTranscript(result, handle)
           else {
             if (pendingSpeechRef.current) bufferSpeech('', pendingSpeechRef.current.send, true)
@@ -1813,6 +1976,13 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   }
 
   const acceptBackendTranscript = (event: Record<string, any>, handle: BackendCapture) => {
+    const speaker = event.speaker
+    acceptSpeakerEvidence(speaker?.evidence_token)
+    liveSpeakerRef.current = speakerIdentificationEnabledRef.current && speaker?.matched && !speaker.requires_confirmation
+      ? { name: speaker.profile?.name, confidence: speaker.confidence }
+      : speakerIdentificationEnabledRef.current && speaker?.segments?.length ? { name: speaker.segments.map((part: { speaker_name?: string }) => part.speaker_name || 'Voz desconhecida').join(' → ') }
+      : { unknown: true }
+    setLiveAudioDiagnostics(previous => previous ? { ...previous, speakerName: liveSpeakerRef.current.name, speakerConfidence: liveSpeakerRef.current.confidence, speakerUnknown: liveSpeakerRef.current.unknown } : previous)
     setLiveAudioDiagnostics(previous => previous ? { ...previous, sttMs: event.stt_ms, turnId: event.turn_id } : previous)
     recordDiagnostic('backend_turn_transcribed', 'INFO', { turn_id: event.turn_id, stt_ms: event.stt_ms })
     if (pushToTalkModeRef.current) return // PTT descarta segmentos tardios do PC.
@@ -1821,7 +1991,8 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     if (divertToDictation(text)) return
     if (event.semantic || event.turn_complete === false) {
       handle.awaitingEnd = event.turn_complete === false
-      bufferSpeech(text, complete => dispatchBackendSpeech(complete, true), true, 250)
+      // The backend already waited for a confident end; only coalesce queued events.
+      bufferSpeech(text, complete => dispatchBackendSpeech(complete, true), true, 0)
       if (handle.awaitingEnd) pausePendingSpeech()
     } else dispatchBackendSpeech(text)
   }
@@ -1865,7 +2036,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     }
     setLiveCallStatus('Abrindo e calibrando o microfone do PC…')
     let started: Record<string, any> = {}
-    try { started = await postCapture('start', { silence_ms: SILENCE_BUFFER_MS, semantic_turns: true }) } catch { return { ok: false, reason: 'Não foi possível iniciar a captura do PC.' } }
+    try { started = await postCapture('start', { silence_ms: SILENCE_BUFFER_MS, semantic_turns: true, identify_speakers: speakerIdentificationEnabledRef.current }) } catch { return { ok: false, reason: 'Não foi possível iniciar a captura do PC.' } }
     if (!started.ok) return { ok: false, reason: started.error || 'Não foi possível abrir o microfone do PC.' }
     if (!liveCallActiveRef.current || epoch !== captureSessionRef.current || pushToTalkModeRef.current) { void postCapture('stop').catch(() => undefined); return { ok: true } }
     if (started.turn_detector_warning) captureNoteRef.current = 'Detector neural indisponível; usando escuta simples.'
@@ -1899,6 +2070,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   }, [])
 
   const toggleLiveCallCapture = async () => {
+    if (enrollmentActiveRef.current) return
     if (liveCallActiveRef.current) {
       stopLiveCall(true)
       setLiveOrbState('idle')
@@ -1911,7 +2083,7 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
       await startFallbackContinuousCapture()
       return
     }
-    if (isMobileStandalone() && hasNativeVoice()) {
+    if (isMobileStandalone() && hasNativeVoice() && !(await loadMicrophone()).device_name) {
       nativeCallActiveRef.current = true
       nativeVoiceModeRef.current = 'call'
       setLiveAudioDiagnostics({ mode: 'native-speech' })
@@ -1930,6 +2102,26 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     await startFallbackContinuousCapture()
   }
 
+  useEffect(() => {
+    const enrollment = (event: Event) => {
+      const active = Boolean((event as CustomEvent<boolean>).detail)
+      if (active === enrollmentActiveRef.current) return
+      enrollmentActiveRef.current = active
+      if (active) {
+        resumeAfterEnrollment.current = liveCallActiveRef.current
+        if (liveCallActiveRef.current) stopLiveCall(true)
+        setLiveOrbState('idle')
+        setLiveCallStatus('O cadastro está usando o microfone. Responda às instruções na tela.')
+      } else {
+        const resume = resumeAfterEnrollment.current
+        resumeAfterEnrollment.current = false
+        if (resume && callOpenRef.current) void toggleLiveCallCapture()
+      }
+    }
+    window.addEventListener('jarvis-enrollment-active', enrollment)
+    return () => window.removeEventListener('jarvis-enrollment-active', enrollment)
+  }, [])
+
   // Auto-iniciar captura ao abrir a ligação
   useEffect(() => {
     if (liveCallOpen && !liveCallActiveRef.current) {
@@ -1947,9 +2139,35 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
   }, [])
 
   const setSpeakerIdentificationEnabled = useCallback((enabled: boolean) => {
+    if (pairedAndroid) return
     setSpeakerIdentificationEnabledState(enabled)
+    speakerIdentificationEnabledRef.current = enabled
+    identityEvidenceRef.current = undefined
+    identityPartsRef.current = []
+    liveSpeakerRef.current = { unknown: true }
+    setLiveAudioDiagnostics(previous => previous ? { ...previous, speakerName: undefined, speakerConfidence: undefined, speakerUnknown: true } : previous)
+    void postCapture('identity', { enabled }).catch(() => recordDiagnostic('speaker_preference_failed', 'WARN'))
     try { localStorage.setItem(SPEAKER_IDENTIFICATION_STORAGE_KEY, enabled ? '1' : '0') } catch { /* ignore storage errors */ }
   }, [])
+
+  useEffect(() => {
+    const changed = (event: Event) => setSpeakerIdentificationEnabled((event as CustomEvent<boolean>).detail)
+    window.addEventListener('jarvis-speaker-preference', changed)
+    return () => window.removeEventListener('jarvis-speaker-preference', changed)
+  }, [setSpeakerIdentificationEnabled])
+
+  useEffect(() => {
+    const abort = new AbortController()
+    if (pairedAndroid) return
+    // Existing enrollment is consent to recognition; preserve an explicit off preference.
+    void fetch('/api/identity', { signal: abort.signal }).then(async response => {
+      if (!response.ok) return
+      const data = await response.json()
+      if (!abort.signal.aborted && localStorage.getItem(SPEAKER_IDENTIFICATION_STORAGE_KEY) === null
+        && data.profiles?.some((profile: { voice_samples?: number }) => (profile.voice_samples || 0) > 0)) setSpeakerIdentificationEnabled(true)
+    }).catch(() => undefined)
+    return () => abort.abort()
+  }, [setSpeakerIdentificationEnabled])
 
   async function speakText(text: string) {
     if (!text || !speakEnabled) return
@@ -2170,13 +2388,12 @@ export function useMediaAssistant({ query, sendText: sendChatText, setAnswer, se
     if (liveCallProcessingRef.current || isSpeakingRef.current || (audioRef.current && !audioRef.current.paused)) {
       captureEpochRef.current += 1
       transcriptionAbortRef.current?.abort()
-      lastDispatchedSpeechRef.current?.abort.abort()
       triggerBargeIn()
     }
     setLiveOrbState('listening')
     setLiveCallRecording(true)
     setLiveCallStatus('🎙️ Ouvindo você… solte para enviar.')
-    setLiveUserTranscript('')
+    setLiveUserTranscript(streamTurnRef.current?.user || '')
     startPttRecordingRef.current?.()
   }, [triggerBargeIn])
 

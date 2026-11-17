@@ -27,6 +27,11 @@ def track_run(method):
         origin = requested if requested in REQUEST_ORIGINS else current_origin.get()
         run = action_store.create_run(session_id=bound.arguments.get("session_id"), mode=bound.arguments.get("mode", "general"), origin=origin)
         token = current_run.set((action_store, run.id))
+        from app.services.identity_context import current as identity_current, consume
+        identity_context_token = identity_current.set(consume(bound.arguments.get('identity_token')))
+        origin_token = current_origin.set(origin)
+        from app.services.identity_access import access
+        private_allowed = access(identity_current.get(), origin=origin)[0]
         failed = True
         import time
         requested_at = time.time() * 1000
@@ -54,12 +59,14 @@ def track_run(method):
             except RunCancelled:
                 failed = False
                 result = AgentPlan(intent="cancelled", summary="Pedido cancelado. Etapas já executadas não foram desfeitas.", actions=[])
+            if not private_allowed:
+                result.context = {**result.context, 'identity_restricted': True, 'access_mode': 'public'}
             result.context = {**result.context, "run_id": run.id}
             return result
         finally:
             try:
                 session_id = bound.arguments.get("session_id")
-                if session_id and "text" in bound.arguments:
+                if private_allowed and session_id and "text" in bound.arguments and not (result and result.context.get("identity_restricted")):
                     from app.storage.session_store import save_turn
                     save_turn(session_id, run.id, bound.arguments["text"],
                               result.summary if result is not None else "Não foi possível concluir o pedido. Tente novamente.",
@@ -70,7 +77,9 @@ def track_run(method):
                     action_store.finish_run(run.id, failed=failed)
                 finally:
                     current_run.reset(token)
-                    if result is not None and not failed and result.intent != 'cancelled' and not result.context.get('pending_action_id'):
+                    identity_current.reset(identity_context_token)
+                    current_origin.reset(origin_token)
+                    if result is not None and not result.context.get('identity_restricted') and not failed and result.intent != 'cancelled' and not result.context.get('pending_action_id'):
                         try:
                             from app.services.context_compaction import schedule
                             schedule(bound.arguments.get('session_id'), getattr(args[0], 'llm_service', None), voice=origin == 'voice')

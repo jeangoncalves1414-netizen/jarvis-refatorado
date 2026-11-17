@@ -568,6 +568,8 @@ class AgentOrchestrator:
                 )
             # Contexto situacional do turno (fase contexto 1): texto pronto, sem chamada ao modelo.
             system += build_turn_sections(text, current_origin.get()).text
+            from app.services.identity_context import prompt as identity_prompt
+            system += identity_prompt()
 
             if mode in {"planning", "thinking"}:
                 system += """
@@ -1102,21 +1104,41 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
         racing_mode: bool = False,
         react_max_steps: int | None = None,
         origin: str | None = None,
+        identity_token: str | None = None,
         on_progress: Any = None,
         on_popup: Any = None,
+        mobile_voice: bool = False,
     ) -> AgentPlan:
         from app.services.app_lock import app_lock
         if app_lock.locked():
             return AgentPlan(intent='error', summary='Desbloqueie o Jarvis para continuar.', actions=[], context={'success': False})
+        from app.services.identity_context import current as identity_current, direct_answer
+        from app.services.identity_access import access
+        allowed, verified_profile = access(identity_current.get(), origin=origin or current_origin.get())
+        if not allowed:
+            from app.services.public_conversation import respond
+            context = {'identity_restricted': True, 'access_mode': 'public'}
+            try:
+                reply = respond(self.llm_service, text, session_id, verified_profile, registry=getattr(self, 'registry', None), mobile_voice=mobile_voice)
+            except RunCancelled:
+                raise
+            except Exception:
+                context['success'] = False
+                reply = 'Não consegui acessar o modelo de conversa. Confira o provedor nas configurações e tente novamente.'
+            if on_chunk:
+                on_chunk(reply)
+            return AgentPlan(intent='error' if context.get('success') is False else 'general', summary=reply, actions=[], context=context)
+        profile_id = verified_profile['id'] if verified_profile else None
         from app.core import ui_events
         import time
         requested_at = time.time() * 1000
 
         if history is None:
             history = get_session_history(session_id) if session_id else []
+        transcript = history
         if session_id:
-            from app.services.context_compaction import working_history
-            history = working_history(session_id, history)
+            from app.services.context_compaction import prepare_history
+            history = prepare_history(session_id, history, self.llm_service)
         resolved_mode, mode_meta = resolve_active_mode(text, explicit_mode=mode, history=history)
         from app.core.model_routing import current_model_mode, route_key
         model_token = current_model_mode.set(route_key(resolved_mode, origin or current_origin.get()))
@@ -1141,11 +1163,19 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
         activity_token = activity_listener.set(on_progress)
         turn_extra: dict = {}
         try:
-            plan = self._dispatch_request(
-                text, session_id, resolved_mode, history, enem_context, enem_question_id,
-                on_chunk, on_reasoning, on_search, profile_id, racing_mode, react_max_steps,
-                on_progress,
-            )
+            from app.services.identity_context import direct_answer, name_reply
+            observation = direct_answer(text) if origin == 'voice' else None
+            observation = observation or chat_history_reply(text, transcript) or name_reply(text, session_id)
+            if observation:
+                if on_chunk:
+                    on_chunk(observation)
+                plan = AgentPlan(intent="general", summary=observation, actions=[])
+            else:
+                plan = self._dispatch_request(
+                    text, session_id, resolved_mode, history, enem_context, enem_question_id,
+                    on_chunk, on_reasoning, on_search, profile_id, racing_mode, react_max_steps,
+                    on_progress,
+                )
         finally:
             activity_listener.reset(activity_token)
             current_model_mode.reset(model_token)
@@ -1174,7 +1204,7 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
             assistant_message = {"role": "assistant", "content": plan.summary, "run_id": current_run.get()[1], "timestamp": time.time() * 1000, "activity": turn_extra.get("tool_activity", [])}
             if turn_extra.get("memory_lookup"):
                 assistant_message["meta"] = {"memory_lookup": turn_extra["memory_lookup"]}
-            updated = [*history, {"role": "user", "content": text, "timestamp": requested_at}, assistant_message]
+            updated = [*transcript, {"role": "user", "content": text, "timestamp": requested_at}, assistant_message]
             # Retain the transcript on disk; model context is bounded separately.
             save_session_history(session_id, updated)
         return plan
@@ -1391,6 +1421,8 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
         enem_question_id: str | None = None,
         profile_id: str | None = None,
         origin: str | None = None,
+        identity_token: str | None = None,
+        mobile_voice: bool = False,
     ):
         import queue
         import threading
@@ -1413,7 +1445,7 @@ Você atua como assistente pessoal e secretário executivo de alta eficiência p
                 plan = self.handle_request(
                     text, mode=mode, session_id=session_id, history=history,
                     enem_context=enem_context, enem_question_id=enem_question_id,
-                    on_chunk=on_chunk, on_reasoning=on_reasoning, profile_id=profile_id, origin=origin,
+                    on_chunk=on_chunk, on_reasoning=on_reasoning, profile_id=profile_id, origin=origin, identity_token=identity_token, mobile_voice=mobile_voice,
                     on_progress=on_progress, on_popup=on_popup,
                 )
                 self.last_plan = plan

@@ -66,6 +66,18 @@ _TOOLS = [{"name": "notes", "description": "anota", "parameters": {"type": "obje
 _MESSAGES = [{"role": "user", "content": "anote comprar pão"}]
 
 
+def test_groq_keeps_checkpoint_and_more_than_ten_short_messages(groq_script):
+    from app.agent.context_budget import SUMMARY_HEADER
+    checkpoint = {'role': 'assistant', 'content': SUMMARY_HEADER + 'Decisão: porta 8123.'}
+    rows = [checkpoint] + [{'role': 'user' if i % 2 == 0 else 'assistant', 'content': f'linha {i}'} for i in range(24)]
+    rows.append({'role': 'user', 'content': 'Continue.'})
+    completions = groq_script([[_text_chunk('Continuando')]])
+    _service()._chat_groq_stream('Regras', rows)
+    sent = completions.calls[0]['messages']
+    assert checkpoint in sent and {'role': 'user', 'content': 'linha 0'} in sent
+    assert sent[-1] == rows[-1]
+
+
 def test_lists_then_creates_in_the_same_turn(groq_script):
     completions = groq_script([[_tool_chunk("notes", '{"action":"list"}', "a")],
                                [_tool_chunk("notes", '{"action":"create"}', "b")],
@@ -227,7 +239,7 @@ def test_context_usage_measures_payload_and_history_reduction(groq_script):
     from app.agent import turn_meta
     from app.agent.context_budget import estimate_tokens
     completions = groq_script([[_text_chunk('ok')]])
-    messages = [{'role': 'user', 'content': 'antigo ' * 150}] * 11 + [{'role': 'user', 'content': 'oi'}]
+    messages = [{'role': 'user', 'content': 'antigo ' * 250}] * 11 + [{'role': 'user', 'content': 'oi'}]
     token = turn_meta.start()
     try:
         _service()._chat_groq_stream('regras', messages)

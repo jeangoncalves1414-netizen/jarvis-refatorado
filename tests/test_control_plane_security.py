@@ -33,6 +33,22 @@ def test_loopback_starts_without_token_and_rejects_foreign_origin() -> None:
     assert "http://evil.example" not in policy.allowed_origins()
 
 
+def test_paired_panel_requires_device_cookie_and_expected_origin_on_both_ports():
+    from app.ui.panel.paired import COOKIE, PORT, PairedPanel
+
+    panel = PairedPanel.__new__(PairedPanel)
+    panel.host = "192.168.1.15"
+    panel.origin = f"https://{panel.host}:{PORT}"
+    panel.token = "device-test-credential"
+    for port in (PORT, PORT + 1):
+        headers = {"Host": f"{panel.host}:{port}", "Origin": panel.origin,
+                   "Cookie": f"{COOKIE}={panel.token}; jarvis_unlock=test"}
+        assert panel.authorized(headers, port)
+        for invalid in ({"Cookie": ""}, {"Cookie": f"{COOKIE}=other"}, {"Host": "unpaired.invalid"},
+                        {"Origin": "https://elsewhere.invalid"}, {"Sec-Fetch-Site": "cross-site"}):
+            assert not panel.authorized({**headers, **invalid}, port)
+
+
 def test_lan_fails_closed_and_public_config_is_redacted() -> None:
     with pytest.raises(ValueError):
         ControlPlanePolicy(Settings(access_mode="lan", lan_enabled=True, trusted_origins=["http://phone"]))

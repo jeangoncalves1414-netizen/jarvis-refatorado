@@ -67,6 +67,31 @@ def test_deferred_setup_can_be_enabled(tmp_path):
         lock.perform({'action': 'skip'})
 
 
+@pytest.mark.parametrize('content', ['[]', 'null', '{}', '{"enabled": "false"}', '{"enabled": true}'])
+def test_malformed_lock_configuration_stays_locked(tmp_path, content):
+    lock = AppLock(tmp_path / 'lock.json')
+    lock.path.write_text(content)
+    assert lock.enabled() and lock.locked()
+    assert not lock.authenticated()
+    with pytest.raises(ValueError):
+        lock.perform({'action': 'setup', 'password': 'test-password'})
+    assert lock.path.read_text() == content
+
+
+@pytest.mark.parametrize('vector', [[float('nan'), 0.], [float('inf'), 0.], [0., 0.], [], [1.]])
+def test_invalid_biometrics_never_unlock(tmp_path, monkeypatch, vector):
+    lock = AppLock(tmp_path / 'lock.json')
+    lock.perform({'action': 'setup', 'password': 'test-password'})
+    data = lock._read()
+    data['voice'] = [1., 0.]
+    lock._save(data)
+    lock.lock()
+    monkeypatch.setattr(lock, '_vector', lambda *_: vector)
+    with pytest.raises(ValueError):
+        lock.perform({'action': 'biometric', 'kind': 'voice'})
+    assert lock.locked()
+
+
 def test_http_gate_and_cookie(tmp_path, monkeypatch):
     import http.client
     import json

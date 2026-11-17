@@ -111,6 +111,20 @@ class FinanceService:
             return [dict(r) for r in cursor.fetchall()]
 
     @staticmethod
+    def mobile_snapshot(limit: int = 100) -> tuple[list[dict], list[dict]]:
+        order = "ORDER BY date_str DESC, timestamp DESC, id DESC"
+        with get_db_connection() as conn:
+            conn.execute("BEGIN")
+            recent = conn.execute(f"SELECT * FROM finance_transactions {order} LIMIT ?", (limit,)).fetchall()
+            earlier = conn.execute(f"""
+                SELECT date_str AS date, type, SUM(cents) AS cents FROM (
+                    SELECT date_str, type, CAST(ROUND(amount * 100) AS INTEGER) AS cents
+                    FROM finance_transactions {order} LIMIT -1 OFFSET ?
+                ) GROUP BY date_str, type
+            """, (limit,)).fetchall()
+        return [dict(r) for r in recent], [dict(r) for r in earlier]
+
+    @staticmethod
     def normalize_entry(
         type_: Any,
         amount: Any,
@@ -244,9 +258,14 @@ class FinanceService:
         return FinanceService.get_transaction(trans_id)
 
     @staticmethod
-    def delete_transaction(trans_id: str) -> dict[str, Any]:
+    def delete_transaction(trans_id: str, *, expected: dict | None = None) -> dict[str, Any]:
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            if expected is not None:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute("SELECT * FROM finance_transactions WHERE id = ?", (trans_id,)).fetchone()
+                if row and any(row[k] != v for k, v in expected.items()):
+                    raise ValueError("O lançamento mudou no PC. Confira os dados antes de desfazer.")
             cursor.execute("DELETE FROM finance_transactions WHERE id = ?", (trans_id,))
             removed = cursor.rowcount > 0
             conn.commit()

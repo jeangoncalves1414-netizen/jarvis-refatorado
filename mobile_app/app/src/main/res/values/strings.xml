@@ -1,3 +1,4 @@
 <resources>
+    <string name="panel_origin"></string>
     <string name="app_name">Jarvis Evolução</string>
 </resources>

@@ -13,5 +13,5 @@ export function ContextMaintenance({ sessionId }: { sessionId: string }) {
     const timer = window.setInterval(poll, 1500)
     return () => { live = false; clearInterval(timer) }
   }, [sessionId])
-  return running ? <div role="status" aria-live="polite">Compactando o contexto após a conversa. Esta manutenção não pode ser cancelada; o histórico completo permanece salvo.</div> : null
+  return running ? <div role="status" aria-live="polite">Organizando o contexto para continuar a conversa. O histórico completo permanece salvo.</div> : null
 }

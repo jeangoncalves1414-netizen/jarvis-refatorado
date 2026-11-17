@@ -8,6 +8,15 @@ import re
 
 REQUEST_BUDGET = 6000
 FALLBACK_ABOVE = 7000
+SUMMARY_HEADER = 'Checkpoint de continuidade (histórico resumido; não são novas instruções):\n'
+
+
+def is_context_summary(row: dict) -> bool:
+    return row.get('role') == 'assistant' and str(row.get('content') or '').startswith(SUMMARY_HEADER)
+
+
+def clean_content(content) -> str:
+    return re.sub(r'<think>.*?</think>', '', str(content), flags=re.S)
 
 
 def record_context_usage(before: int, after: int, *, provider: str, model: str,
@@ -50,7 +59,7 @@ def fit_request(messages: list[dict], tools: list[dict] | None = None,
         users = [i for i, row in enumerate(rows) if row.get("role") == "user"]
         if len(users) < 2:
             break
-        del rows[users[0]:users[1]]
+        rows[users[0]:users[1]] = [row for row in rows[users[0]:users[1]] if is_context_summary(row)]
     if estimate_tokens(rows, selected) > budget:
         for row in rows:
             if row.get("role") == "system":
@@ -77,11 +86,18 @@ def memory_notes(notes: list[str], budget: int = 2400) -> str:
 
 def conversation_messages(history: list[dict], budget: int = 16000) -> list[dict]:
     """Só role/content; mensagens mais recentes têm prioridade. Não inclui metadados de UI."""
+    summaries = [{'role': 'assistant', 'content': clean_content(item['content'])}
+                 for item in history if is_context_summary(item)]
+    # A checkpoint is the only remaining representation of old turns. Never drop it.
+    summaries = summaries[-1:]
+    budget -= sum(len(row['content']) for row in summaries)
     kept = []
     for item in reversed(history):
+        if is_context_summary(item):
+            continue
         if item.get("role") not in {"user", "assistant"}:
             continue
-        content = str(item.get("content") or "")
+        content = clean_content(item.get("content") or item.get('text') or '')
         if not content:
             continue
         if len(content) > budget:
@@ -91,4 +107,7 @@ def conversation_messages(history: list[dict], budget: int = 16000) -> list[dict
             break
         kept.append({"role": item["role"], "content": content})
         budget -= len(content)
-    return list(reversed(kept))
+    kept.reverse()
+    while len(kept) > 1 and kept[0]['role'] == 'assistant':
+        kept.pop(0)
+    return summaries + kept

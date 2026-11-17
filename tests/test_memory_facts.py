@@ -248,6 +248,13 @@ def test_commands_never_create_preferences_or_trigger_memory_extraction(chat, tm
 
 
 def test_global_recall_requires_intent_and_is_disclosed(chat, monkeypatch, tmp_path):
+    from app.services import identity, identity_context
+    admin = identity.IdentityService.enroll_admin('Jean', 'password123')['profile']
+    original_run = chat.run
+    def recognized_run(text, **kwargs):
+        kwargs['identity_token'] = identity_context.issue({'matched': True, 'profile': admin})
+        return original_run(text, **kwargs)
+    chat.run = recognized_run
     from app.storage.memory_store import MemoryStore
     from app.services.memory_vault import memory_vault
     calls = []
@@ -277,3 +284,17 @@ def test_global_recall_requires_intent_and_is_disclosed(chat, monkeypatch, tmp_p
     assert "Mensagem de outro chat" in chat.llm.systems[-1]
     assert "Conversa privada antiga" in chat.llm.systems[-1]
     assert len(plan.context["memory_lookup"]["items"]) == 3
+
+def test_spoken_name_conversation(chat, monkeypatch):
+    from app.services.identity import IdentityService
+    from app.storage.memory_facts import list_facts
+    monkeypatch.setattr(IdentityService, "status", lambda: {"profiles": [{"name": "Jean"}]})
+    for question in (
+        "Olá Jarvis você sabe quem sou eu",
+        "Mas você sabe quem sou eu meu nome quem sou a pessoa que está conversando com você",
+    ):
+        assert chat.run(question, origin="voice").summary == "Tenho um perfil cadastrado com o nome Jean. É você?"
+    answer = chat.run("creio que você tem sim meu nome é Jean Jean com J", origin="voice")
+    assert answer.summary == "Entendi, Jean. Salvei seu nome."
+    assert [f["value"] for f in list_facts()] == ["Jean"]
+    assert chat.run("Qual é o meu nome?", origin="chat").summary == "O nome informado nesta conversa é Jean."

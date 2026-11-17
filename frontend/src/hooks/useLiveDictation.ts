@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchCaptureEvents, isLoopbackPage, postCapture } from '../utils/backendCapture'
 import { liveDictationBus, type DictationSink } from '../utils/dictationBus'
 import { isMobileStandalone } from './useDirectChat'
+import { createMicrophoneRecognition } from '../utils/micPrefs'
 
 // Ditado das anotações ao vivo (lote 6, decisão 12). Motor, em ordem:
 // 1. ligação por voz ativa: as falas da ligação vêm para a nota (ponte liveDictationBus);
@@ -191,7 +192,7 @@ function startBrowserSession(onFinal: (text: string) => void, onInterim: (text: 
   let stopped = false
   let recognition: any
   try {
-    recognition = new Recognition()
+    recognition = createMicrophoneRecognition(Recognition)
   } catch {
     return null
   }
@@ -209,7 +210,7 @@ function startBrowserSession(onFinal: (text: string) => void, onInterim: (text: 
   }
   recognition.onerror = (event: any) => {
     if (stopped || event?.error === 'no-speech' || event?.error === 'aborted') return
-    onLost(event?.error === 'not-allowed' ? 'O navegador não liberou o microfone.' : 'O reconhecimento de fala do navegador parou.')
+    onLost(event?.message || (event?.error === 'not-allowed' ? 'O navegador não liberou o microfone.' : 'O reconhecimento de fala do navegador parou.'))
   }
   // O navegador encerra sozinho após silêncio; enquanto a gravação está ligada, recomeça.
   recognition.onend = () => { if (!stopped) { try { recognition.start() } catch { /* já iniciado */ } } }

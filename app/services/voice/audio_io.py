@@ -65,7 +65,8 @@ class AudioIO:
         recognizer.dynamic_energy_threshold = True
 
         try:
-            with sr.Microphone() as source:
+            from app.services.voice.mic_capture import resolve_device_index
+            with sr.Microphone(device_index=resolve_device_index()) as source:
                 recognizer.adjust_for_ambient_noise(source, duration=0.8)
                 print("[AudioIO] Escutando...")
                 audio_data = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)

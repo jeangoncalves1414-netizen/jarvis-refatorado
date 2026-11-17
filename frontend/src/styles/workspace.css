@@ -40,7 +40,7 @@
 .ws-command-search { display: flex; gap: 9px; align-items: center; width: 100%; padding: 12px 9px; color: var(--ws-muted); font-size: 11px; text-align: left; margin-bottom: 14px; }
 .ws-command-search kbd { margin-left: auto; padding: 1px 4px; border: 1px solid #333837; border-radius: 4px; font: 9px inherit; white-space: nowrap; }
 .ws-nav-item { display: flex; align-items: center; gap: 11px; padding: 10px 12px; width: 100%; text-align: left; color: #b1b8b4; border-radius: 7px; min-height: 39px; font-size: 12px; margin-bottom: 3px; }
-.ws-nav-item:hover, .ws-history-list button:hover { background: #ffffff06; color: var(--ws-text); }
+.ws-nav-item:hover, .ws-chat-list button:hover { background: #ffffff06; color: var(--ws-text); }
 .ws-nav-item.selected { background: #b4d9c611; color: #cbe6d7; }
 .ws-nav-item small { margin-left: auto; background: #b4d9c61a; min-width: 19px; text-align: center; border-radius: 4px; font-size: 10px; }
 .ws-modules { margin: 13px 0; }
@@ -50,11 +50,11 @@
 .ws-section-heading { display: flex; justify-content: space-between; color: #87938c; font-size: 9px; letter-spacing: 1.1px; padding: 5px 8px 11px; }
 .ws-history-search { display: flex; align-items: center; gap: 7px; padding: 0 8px 8px; color: var(--ws-muted); }
 .agent-workspace .ws-history-search input { min-width: 0; width: 100%; font-size: 11px; background: none !important; padding: 3px 0; border: 0 !important; }
-.ws-sidebar .ws-history-list { display: block; overflow-y: auto; min-height: 0; }
-.ws-sidebar .ws-history-row button { min-height: 36px; line-height: 18px; margin-bottom: 3px; }
-.ws-history-list button { display: block; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 9px 8px; border-radius: 6px; font-size: 11px; color: #abb2ae; width: 100%; }
-.ws-history-list button.selected { color: #e3e9e5; background: #ffffff07; }
-.ws-history-list p { color: #89928c; padding: 0 8px; font-size: 11px; }
+.ws-chat-list { display: block; overflow-y: auto; min-height: 0; }
+.ws-chat-row { display: flex; align-items: center; min-width: 0; }
+.ws-chat-list button { display: block; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 28px; line-height: 18px; padding: 5px 8px; border-radius: 6px; font-size: 11px; color: #abb2ae; width: 100%; }
+.ws-chat-list button.selected { color: #e3e9e5; background: #ffffff07; }
+.ws-chat-list p { color: #89928c; padding: 0 8px; font-size: 11px; }
 .ws-sidebar-footer { margin-top: auto; padding-top: 8px; border-top: 1px solid #292e2b; }
 .ws-local-status { display: flex; align-items: center; gap: 7px; padding: 12px; font-size: 10px; color: #959e98; }
 .ws-local-status svg { margin-left: auto; }
@@ -283,3 +283,11 @@ html[data-standby] .agent-workspace *, html[data-standby] .agent-workspace *::be
 .ws-cloud-warning button { flex-shrink: 0; background: transparent; border: 1px solid currentColor; border-radius: 6px; padding: 6px; color: inherit; cursor: pointer; }
 @media (hover: none) { .ws-message-actions { opacity: 1; pointer-events: auto; } }
 @media (max-width: 600px) { .ws-model-route { grid-template-columns: 1fr; } .ws-model-route small { grid-column: auto; } .ws-cloud-warning { flex-wrap: wrap; gap: 8px; } }
+
+.enrollment-overlay { position: fixed; inset: 0; z-index: 11000; display: grid; place-items: center; padding: 20px; background: #0009; }
+.enrollment-dialog { width: min(580px, 100%); max-height: 90vh; overflow: auto; padding: 28px; border: 1px solid #475448; border-radius: 18px; background: #181e1a; color: #edf4ee; box-shadow: 0 24px 80px #0008; }
+.enrollment-dialog button { margin: 8px 8px 8px 0; padding: 10px 16px; border-radius: 8px; border: 1px solid #536354; background: #293a2e; color: inherit; cursor: pointer; }
+.enrollment-dialog button:disabled { opacity: .5; cursor: wait; }
+.enrollment-dialog input, .enrollment-dialog select { padding: 10px; margin: 8px; background: #101712; color: inherit; border: 1px solid #536354; border-radius: 6px; }
+.enrollment-reading { font-size: 1.2rem; line-height: 1.8; }
+.enrollment-dialog small { display: block; color: #acbcae; }

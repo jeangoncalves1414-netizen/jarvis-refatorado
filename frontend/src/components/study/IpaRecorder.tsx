@@ -1,3 +1,4 @@
+import { openMicrophone } from '../../utils/micPrefs'
 import { useEffect, useRef, useState } from 'react'
 
 // Gemini accepts PCM WAV independently of the browser's recorder container.
@@ -38,7 +39,7 @@ export function IpaRecorder() {
     setMode('waiting'); setMessage('')
     let stream:MediaStream|undefined
     try {
-      stream = await navigator.mediaDevices.getUserMedia({audio:true})
+      stream = await openMicrophone()
       if (signal?.aborted) {stream.getTracks().forEach(t => t.stop()); return}
       const rec = new MediaRecorder(stream)
       recorder.current = rec

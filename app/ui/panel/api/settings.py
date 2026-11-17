@@ -131,7 +131,7 @@ def handle_settings_get(parts: list[str], handler: Any) -> tuple[int, dict[str, 
         default = getattr(handler.settings, "tts_provider", "fish")
         return 200, get_tts_settings(default)
     if len(parts) >= 3 and parts[1] == "settings" and parts[2] == "mic":
-        return 200, {"ok": True, **get_mic_settings()}
+        return 200, {"ok": True, **get_mic_settings(mobile=bool(getattr(handler, "paired_panel", None)))}
     if len(parts) == 3 and parts[1] == "settings" and parts[2] == "agent-loop":
         return 200, {"ok": True, "settings": get_agent_loop_settings()}
     if len(parts) == 3 and parts[1] == "settings" and parts[2] == "popups":
@@ -318,7 +318,7 @@ def handle_settings_post(path: str, body: bytes, handler: Any) -> tuple[int, dic
     if path == "/api/settings/mic":
         try:
             payload = json.loads(body.decode("utf-8") or "{}")
-            return 200, {"ok": True, **set_mic_settings(payload)}
+            return 200, {"ok": True, **set_mic_settings(payload, mobile=bool(getattr(handler, "paired_panel", None)))}
         except ValueError as exc:
             return 400, {"ok": False, "error": str(exc)}
 

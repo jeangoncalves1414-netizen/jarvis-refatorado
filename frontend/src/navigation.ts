@@ -1,7 +1,8 @@
+import { pairedAndroid } from './utils/pairedAndroid'
 import { Activity, BookOpen, CalendarDays, ChartNoAxesCombined, Fingerprint, GraduationCap, House, Languages, LayoutDashboard, MessageSquare, Plug, Settings2, Sprout, Workflow } from 'lucide-react'
 
 // Persisted IDs stay compatible with existing installations.
-export const navigation = [
+const screens = [
   { id: 'Dashboard', label: 'Início', icon: House, group: 'workspace', description: 'Visão geral e próximos passos' },
   { id: 'Chat', label: 'Conversas', icon: MessageSquare, group: 'workspace', description: 'Converse, pesquise e planeje' },
   { id: 'Central', label: 'Execuções', icon: Activity, group: 'workspace', description: 'Ações, aprovações e resultados' },
@@ -18,6 +19,7 @@ export const navigation = [
   { id: 'Identidade', label: 'Perfis', icon: Fingerprint, group: 'modules', description: 'Identidades locais' },
   { id: 'Configurações', label: 'Configurações', icon: Settings2, group: 'settings', description: 'Modelos, provedores e voz' },
 ] as const
+export const navigation = screens.filter(item => !pairedAndroid || item.id !== 'Identidade')
 
 export type ScreenId = (typeof navigation)[number]['id']
 

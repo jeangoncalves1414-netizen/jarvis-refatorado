@@ -172,3 +172,23 @@ def pytest_collection_modifyitems(items):
     for item in items:
         for marker in by_file.get(Path(str(item.fspath)).name, ()):
             item.add_marker(getattr(pytest.mark, marker))
+
+
+@pytest.fixture(autouse=True)
+def isolated_identity(tmp_path, monkeypatch):
+    """Never use real biometrics or grant tests access to the owner's profile."""
+    from app.services import identity
+    monkeypatch.setattr(identity, 'IDENTITY_FILE', tmp_path / 'identity_profiles.json')
+    monkeypatch.setattr(identity, 'FACE_DIR', tmp_path)
+    monkeypatch.setattr(identity, '_password_failures', 0)
+    monkeypatch.setattr(identity, '_password_retry_at', 0.0)
+
+
+@pytest.fixture(autouse=True)
+def isolated_app_lock(tmp_path, monkeypatch):
+    """Test requests never depend on or change the owner's actual app lock."""
+    from app.services.app_lock import app_lock
+    monkeypatch.setattr(app_lock, 'path', tmp_path / 'app_lock.json')
+    monkeypatch.setattr(app_lock, 'sessions', {})
+    monkeypatch.setattr(app_lock, 'failures', 0)
+    monkeypatch.setattr(app_lock, 'retry_at', 0.0)

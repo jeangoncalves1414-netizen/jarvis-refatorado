@@ -95,7 +95,7 @@ export function ChatPage(props: ChatPageProps) {
   const deleteDialog = useRef<HTMLDialogElement>(null)
   const empty = !props.messages.length && !props.loading && !props.streamingReply
   useEffect(() => { setMaxVisible(25); setFollowing(true); setFeedback('') }, [props.sessionId])
-  useEffect(() => { if (following && history.current) history.current.scrollTop = history.current.scrollHeight }, [props.messages.length, props.streamingReply, following])
+  useEffect(() => { if (following && history.current) history.current.scrollTop = history.current.scrollHeight }, [props.messages.length, props.messages.at(-1)?.content, props.streamingReply, following])
   const renderContent = (content: string, streaming = false, compactSearch = false) => <MessageRenderer compactSearch={compactSearch || streaming && !!props.liveActivity?.some(e => e.tool === "web_search")} content={content} mode={streaming && props.liveMode ? props.liveMode as ChatMode : props.chatMode} isStreaming={streaming} liveText={streaming ? props.liveReasoning : undefined} pendingScript={props.pendingScript} onRunPendingScript={() => props.onRunPendingScript().catch(() => setFeedback('Não foi possível executar a ação.'))} onSendText={text => props.onSendText(text).catch(() => { setFeedback('Não foi possível enviar.'); return '' })} onCinemaRequest={props.onCinemaRequest} liveSearch={streaming ? props.liveSearch : null} />
   const copy = async (text: string) => { try { await navigator.clipboard.writeText(text); setFeedback('Mensagem copiada.') } catch { setFeedback('Não foi possível acessar a área de transferência.') } }
   return <section className={`ws-chat ${empty ? 'is-empty' : ''}`}>

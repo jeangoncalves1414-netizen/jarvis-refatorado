@@ -70,5 +70,9 @@ def parse(text: str) -> tuple[str, str, str | None] | None:
         if not value:
             continue
         resolved = slot or f"app.{match.group('cat')}"
+        if resolved == "name":
+            spelled = re.fullmatch(r"(.+?)\s+com\s+([^\W\d_])", value, re.I)
+            if spelled and spelled[2].casefold() in spelled[1].casefold():
+                value = re.sub(r"\b([^\W\d_]+)\s+\1$", r"\1", spelled[1], flags=re.I)
         return resolved, value[:MAX_VALUE], when_of(original) if resolved == "music" else None
     return None

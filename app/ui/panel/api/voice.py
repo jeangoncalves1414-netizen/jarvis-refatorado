@@ -4,6 +4,8 @@ import json
 from typing import Any
 
 from app.core.diagnostics import record as diagnostic_record
+from app.services.voice.tts.cleaner import strip_text_for_speech
+from app.services.voice.tts.providers.fish_audio import FishAudioProvider
 
 _fallback_pipeline: Any = None
 
@@ -26,6 +28,14 @@ def _get_pipeline(handler: Any) -> Any:
 
 
 def handle_voice_post(path: str, body: bytes, handler: Any) -> tuple[int, Any] | None:
+    if path == "/api/identity/reading":
+        if not body or len(body) > 45 * 32000 or len(body) % 2:
+            return 400, {"ok": False, "error": "Amostra de leitura inválida."}
+        from app.services.live_enrollment import transcribe_pcm
+        try:
+            return 200, {"ok": True, "text": transcribe_pcm(body)}
+        except ValueError as exc:
+            return 503, {"ok": False, "error": str(exc)}
     if path == "/api/voice/identity/model":
         try:
             payload = json.loads(body.decode("utf-8") or "{}")
@@ -76,14 +86,17 @@ def handle_voice_post(path: str, body: bytes, handler: Any) -> tuple[int, Any] |
         elif "ogg" in content_type:
             suffix = ".ogg"
 
+        identify = not getattr(handler, "paired_panel", None) and handler.headers.get("X-Jarvis-Identify-Speaker") == "1"
+        if identify:
+            from app.services import turn_speaker
+            analysis = turn_speaker.start(body, content_type)
         try:
             res = pipeline.transcribe_bytes(body, suffix=suffix)
         except Exception as exc:
             diagnostic_record("voice.api", "stt_unhandled_exception", "ERROR", error=type(exc).__name__, suffix=suffix, bytes=len(body), **request_context)
             return 500, {"ok": False, "error": "Falha interna ao transcrever o áudio."}
-        if res.get("ok"):
-            from app.services.identity import IdentityService
-            speaker = IdentityService.identify_audio_bytes(body, content_type)
+        if res.get("ok") and identify:
+            speaker = turn_speaker.finish(analysis, raw=body, content_type=content_type, transcribe=pipeline.transcribe_bytes, transcript=res.get('text', ''))
             res["speaker"] = speaker
             diagnostic_record("voice.identity", "turn_identified" if speaker.get("matched") else "turn_unknown", "INFO", confidence=speaker.get("confidence"), **request_context)
         diagnostic_record(
@@ -114,7 +127,12 @@ def handle_voice_post(path: str, body: bytes, handler: Any) -> tuple[int, Any] |
             diagnostic_record("voice.api", "tts_empty_text", "WARN")
             return 400, {"ok": False, "error": "Texto não pode ser vazio."}
 
-        audio_bytes = pipeline.synthesize_bytes(text)
+        if getattr(handler, "paired_panel", None):
+            audio_bytes = FishAudioProvider.from_settings(handler.settings).generate(strip_text_for_speech(text))
+            if not audio_bytes:
+                return 503, {"ok": False, "error": "Voz Fish Audio indisponível."}
+        else:
+            audio_bytes = pipeline.synthesize_bytes(text)
         if audio_bytes is None:
             diagnostic_record("voice.api", "tts_failed", "ERROR", characters=len(text))
             return 500, {"ok": False, "error": "Falha ao sintetizar o áudio."}
@@ -138,6 +156,8 @@ def handle_voice_stream(path: str, body: bytes, handler: Any):
     text = str(payload.get("text", "")).strip()
     if not text:
         return None
+    if getattr(handler, "paired_panel", None):
+        return FishAudioProvider.from_settings(handler.settings).generate_stream(strip_text_for_speech(text))
     return pipeline.synthesize_stream(text)
 
 

@@ -36,8 +36,9 @@ def install_models() -> None:
 
 
 def endpoint_ready(silence: float, probability: float | None) -> bool:
-    # A model estimate is not certainty: reserve time for natural hesitations.
-    return silence >= 8.0 or (silence >= 1.5 and probability is not None and probability >= 0.8)
+    # Confident endings respond quickly; uncertain/incomplete phrases get more time.
+    return silence >= 3.0 or (probability is None and silence >= 2.0) or (
+        silence >= .8 and probability is not None and probability >= .8)
 
 
 class NeuralTurnDetector:

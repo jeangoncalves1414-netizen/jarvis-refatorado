@@ -86,8 +86,8 @@ const panelVersionTitle = `Versão do painel ${build.version}${build.commit ? `,
         <button disabled={changing || chatBusy} onClick={() => void changeHistory(sessions.map(s => s.id))}>Apagar todos</button>
       </div>}
       {historyNotice && <p role="status">{historyNotice} {!!undoIds.length && <button disabled={changing} onClick={() => void changeHistory(undoIds, true)}>Desfazer</button>}</p>}
-      <div className="ws-history-list">{sessions.filter(item => (item.title || 'Nova conversa').toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR'))).map(item =>
-        <div key={item.id} className="ws-history-row" style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+      <div className="ws-chat-list">{sessions.filter(item => (item.title || 'Nova conversa').toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR'))).map(item =>
+        <div key={item.id} className="ws-chat-row">
           {selecting && <input type="checkbox" aria-label={`Selecionar ${item.title}`} checked={selected.includes(item.id)} onChange={e => setSelected(current => e.target.checked ? [...current, item.id] : current.filter(id => id !== item.id))} />}
           <button style={{ flex: 1, minWidth: 0 }} className={active === 'Chat' && item.id === sessionId ? 'selected' : ''} onClick={() => { onSelectSession(item.id); navigate('Chat') }} title={item.title || 'Nova conversa'}>{item.title || 'Nova conversa'}</button>
           {changeChatTrash && <button style={{ width: 'auto' }} aria-label={`Excluir ${item.title || 'conversa'}`} title="Mover para a lixeira" disabled={changing || chatBusy} onClick={() => void changeHistory([item.id])}><Trash2 size={14} /></button>}

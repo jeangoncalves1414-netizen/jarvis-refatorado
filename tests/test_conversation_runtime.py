@@ -21,6 +21,12 @@ from app.ui.panel.api import actions
 @pytest.fixture
 def runtime(tmp_path, monkeypatch, isolated_lote6_data):
     import app.agent.orchestrator as module
+    # These exercise owner commands; shared-voice policy has separate regressions.
+    from app.services import identity, identity_context
+    owner = identity.IdentityService.enroll_admin('Owner fixture', 'test-password')['profile']
+    monkeypatch.setattr(identity_context, 'consume', lambda _: {
+        'speaker_state': 'recognized', 'profile_id': owner['id'],
+        'identity_revision': owner.get('identity_revision', 0), 'method': 'voice'})
     monkeypatch.chdir(tmp_path)
     store = ActionStore(tmp_path / "journal.sqlite3")
     monkeypatch.setattr("app.storage.action_store.action_store", store)

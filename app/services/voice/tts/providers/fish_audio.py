@@ -42,6 +42,11 @@ class FishAudioProvider(TTSProvider):
     def name(self) -> str:
         return "fish"
 
+    @classmethod
+    def from_settings(cls, settings):
+        return cls(api_key=settings.fish_api_key, reference_id=settings.fish_reference_id,
+                   model=settings.fish_tts_model, auto_emotions=settings.fish_auto_emotions)
+
     @property
     def reference_id(self) -> str:
         return self._reference_id

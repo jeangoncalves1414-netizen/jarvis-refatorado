@@ -1,0 +1,5 @@
+<resources>
+    <!-- Safe defaults. The ignored localPanel source-set overrides these when
+         preparing either a paired or Railway cloud APK. -->
+    <string name="panel_mode">paired</string>
+</resources>

@@ -6,7 +6,7 @@ from app.domain.actions import FileActionService
 from app.services.llm import LLMService
 from app.storage.memory_store import MemoryStore
 
-pytestmark = pytest.mark.usefixtures("isolated_conversation_journal")
+pytestmark = pytest.mark.usefixtures("isolated_conversation_journal", "isolated_lote6_data")
 
 
 def test_orchestrator_detects_file_intent(tmp_path) -> None:

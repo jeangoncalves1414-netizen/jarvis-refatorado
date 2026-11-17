@@ -1,3 +1,4 @@
+import { takeIdentityEvidence } from '../utils/identityEvidence'
 import { panelRequest as chatHistoryRequest } from '../utils/panelApi'
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatMessage, ChatSession, ScriptRequest, TurnMeta, ToolActivityEntry } from '../types'
@@ -8,8 +9,9 @@ import type { SearchPayload } from '../components/tools/SearchTool'
 /** Copia do contexto da resposta só os metadados do turno (contexto usado e memórias citadas). */
 function pickTurnMeta(context: unknown): TurnMeta | undefined {
   if (!context || typeof context !== 'object') return undefined
-  const { situational_context, memory_used, memory_lookup, tool_activity, context_usage } = context as TurnMeta
+  const { situational_context, memory_used, memory_lookup, tool_activity, context_usage, access_mode } = context as TurnMeta
   const meta: TurnMeta = {}
+  if (access_mode === 'public') meta.access_mode = 'public'
   if (situational_context && typeof situational_context.text === 'string' && Array.isArray(situational_context.sources)) meta.situational_context = situational_context
   if (Array.isArray(memory_used) && memory_used.length) meta.memory_used = memory_used
   if (memory_lookup) meta.memory_lookup = memory_lookup
@@ -23,6 +25,8 @@ const withoutMeta = (history: ChatMessage[]) => history.map(({ meta, ...rest }) 
 
 /** Origem do pedido registrada nas ações da Central (C10); sem valor, o servidor usa "chat". */
 export type RequestOrigin = 'voice'
+
+export type VoiceExchangePreview = { user: string; reply: string; activity?: ToolActivityEntry[] }
 
 const initialAnswer = 'Olá. Estou pronto para ajudar.'
 const sessionFilter = (item: ChatSession) => item.type === 'chat' || !item.type
@@ -38,21 +42,6 @@ function isTechnicalError(message: unknown) {
   if (['sem resposta.', 'sem resposta', 'sem resposta gerada pelo modelo.'].includes(normalized.trim())) return true
   if (normalized.includes('tool choice') || normalized.includes('model called a tool') || normalized.includes('chamar uma ferramenta')) return true
   return technicalErrorMarkers.some(marker => normalized.includes(marker))
-}
-
-function getActiveProfileId() {
-  try {
-    const profileId = localStorage.getItem('jarvis-active-profile') || ''
-    const activatedAt = Number(localStorage.getItem('jarvis-active-profile-at') || 0)
-    if (!profileId || !activatedAt || Date.now() - activatedAt > 15 * 60 * 1000) {
-      localStorage.removeItem('jarvis-active-profile')
-      localStorage.removeItem('jarvis-active-profile-at')
-      return ''
-    }
-    return profileId
-  } catch {
-    return ''
-  }
 }
 
 function getScriptRequest(summary: unknown): ScriptRequest | null {
@@ -119,6 +108,8 @@ export function useChat(options: UseChatOptions = {}) {
   }
   const [answer, setAnswer] = useState(initialAnswer)
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [voicePreview, setVoicePreview] = useState<(VoiceExchangePreview & { id: string; session: string; mutation: number; timestamp: number }) | null>(null)
+  const voicePreviewRef = useRef(voicePreview)
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [sessionId, setSessionId] = useState('')
   const [loading, setLoading] = useState(false)
@@ -139,7 +130,7 @@ export function useChat(options: UseChatOptions = {}) {
   useEffect(() => {
     const session = sessions.find(item => item.id === sessionId)
     const firstMessage = messages.find(item => item.role === 'user')
-    if (!session || !firstMessage || loading || streamingReply || !messages.some(item => item.role === 'assistant') || titledSessions.current.has(sessionId) || (session.title && !['Nova conversa', 'Nova sessão', 'Sessão'].includes(session.title))) return
+    if (messages.at(-1)?.meta?.access_mode === 'public' || !session || !firstMessage || loading || streamingReply || !messages.some(item => item.role === 'assistant') || titledSessions.current.has(sessionId) || (session.title && !['Nova conversa', 'Nova sessão', 'Sessão'].includes(session.title))) return
     titledSessions.current.add(sessionId)
     void historySaveRef.current.then(() => fetch(`/api/sessions/${encodeURIComponent(sessionId)}/auto-title`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
@@ -192,7 +183,8 @@ export function useChat(options: UseChatOptions = {}) {
     finalReplyRef.current = ''
     const content = buildAssistantContent(reasoning, visibleReply)
     const meta = finalMetaRef.current
-    const history: ChatMessage[] = [...pendingHistoryRef.current, { role: 'assistant' as const, content, timestamp: Date.now(), activity: meta?.tool_activity || activityRef.current, run_id: finalRunIdRef.current, ...(meta ? { meta } : {}) }]
+    const pending = pendingHistoryRef.current.map((item, index, items) => meta?.access_mode === 'public' && index === items.length - 1 && item.role === 'user' ? { ...item, meta: { ...item.meta, access_mode: 'public' as const } } : item)
+    const history: ChatMessage[] = [...pending, { role: 'assistant' as const, content, timestamp: Date.now(), activity: meta?.tool_activity || activityRef.current, run_id: finalRunIdRef.current, ...(meta ? { meta } : {}) }]
     finalRunIdRef.current = undefined
     finalMetaRef.current = undefined
     turnRunIdRef.current = undefined
@@ -210,7 +202,7 @@ export function useChat(options: UseChatOptions = {}) {
     reasoningBufferRef.current = ''
     typingBufferRef.current = ''
     setLoading(false)
-    if (activeSessionRef.current) {
+    if (activeSessionRef.current && meta?.access_mode !== 'public') {
       historySaveRef.current = fetch(`/api/sessions/${activeSessionRef.current}/history`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -447,7 +439,7 @@ export function useChat(options: UseChatOptions = {}) {
       signal: AbortSignal.timeout(120000),
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, mode, session_id: activeSessionId, profile_id: getActiveProfileId() || undefined, racing: Boolean(racingMode), origin }),
+      body: JSON.stringify({ message, mode, session_id: activeSessionId, identity_token: origin === 'voice' ? undefined : takeIdentityEvidence(), racing: Boolean(racingMode), origin }),
     })
     const data = await response.json().catch(() => ({}))
     if (!response.ok || data.ok === false) {
@@ -456,8 +448,8 @@ export function useChat(options: UseChatOptions = {}) {
     const reply = data.reply || data.summary || ''
     if (!String(reply).trim() || isTechnicalError(reply) || data.intent === 'error') throw new Error(reply || 'O provedor não retornou resposta.')
     if (activeSessionRef.current === activeSessionId && requestIdRef.current === requestId) {
-      commitRestReply(reply, data.context?.run_id)
       finalMetaRef.current = pickTurnMeta(data.context)
+      commitRestReply(reply, data.context?.run_id)
       applyAgentContext(data.context)
     }
     return reply
@@ -490,7 +482,7 @@ export function useChat(options: UseChatOptions = {}) {
     reasoningBufferRef.current = ''
     typingBufferRef.current = finalReplyRef.current
     const script = getScriptRequest(reply)
-    if (script) setPendingScript(script)
+    if (script && finalMetaRef.current?.access_mode !== 'public') setPendingScript(script)
     setStreamingReply('Pensando…')
     setLiveReasoning('')
     liveReasoningRef.current = ''
@@ -584,6 +576,7 @@ export function useChat(options: UseChatOptions = {}) {
       messagesRef.current = baseHistory
       setMessages(baseHistory)
       pendingHistoryRef.current = baseHistory
+      await historySaveRef.current
       const socket = chatSocketRef.current
       if (socket?.readyState === WebSocket.OPEN && !racingMode) {
         stopTyping()
@@ -593,7 +586,7 @@ export function useChat(options: UseChatOptions = {}) {
         setStreamingReply('Pensando…')
         setLiveReasoning('')
         liveReasoningRef.current = ''
-        socket.send(JSON.stringify({ type: 'message', request_id: requestId, message, mode, session_id: activeSessionId, profile_id: getActiveProfileId() || undefined, racing: Boolean(racingMode), origin }))
+        socket.send(JSON.stringify({ type: 'message', request_id: requestId, message, mode, session_id: activeSessionId, identity_token: origin === 'voice' ? undefined : takeIdentityEvidence(), racing: Boolean(racingMode), origin }))
         const reply = await new Promise<string>(resolve => {
           waitForReplyRef.current = resolve
         })
@@ -607,9 +600,11 @@ export function useChat(options: UseChatOptions = {}) {
     }
   }
 
-  const sendVisionQuestion = async (prompt: string, image: string, label = 'Imagem') => {
-    if (!prompt || loading) return
+  const frameRequest = useRef<string | null>(null)
+  const sendVisionQuestion = async (prompt: string, image: string, label = 'Imagem', frames?: { image: string; cameraName: string; error?: string }[]) => {
+    if (!prompt || loading || attemptedRef.current) return
     const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`
+    frameRequest.current = requestId
     requestIdRef.current = requestId
     turnStartRef.current = Date.now()
     turnRunIdRef.current = undefined
@@ -617,7 +612,7 @@ export function useChat(options: UseChatOptions = {}) {
     setLoading(true)
     setLiveSearch(null)
     setChatError('')
-    setAnswer('👁️ Analisando sua tela com Gemini Vision...')
+    setAnswer('👁️ Analisando a imagem…')
     setStreamingReply('Analisando captura visual...')
     const userMessage: ChatMessage = { role: 'user', content: prompt, timestamp: Date.now() }
     let activeSessionId = sessionId
@@ -631,24 +626,28 @@ export function useChat(options: UseChatOptions = {}) {
       messagesRef.current = baseHistory
       setMessages(baseHistory)
       pendingHistoryRef.current = baseHistory
-      const socket = chatSocketRef.current
-      if (socket?.readyState === WebSocket.OPEN) {
-        stopTyping()
-        typingBufferRef.current = ''
-        reasoningBufferRef.current = ''
-        finalizePendingRef.current = false
-        setStreamingReply('Pensando…')
-        setLiveReasoning('')
-        liveReasoningRef.current = ''
-        socket.send(JSON.stringify({ type: 'message', request_id: requestId, message: prompt, mode: 'vision', session_id: activeSessionId, profile_id: getActiveProfileId() || undefined }))
-        await new Promise<string>(resolve => {
-          waitForReplyRef.current = resolve
-        })
-      } else {
-        await postChat(prompt, 'vision', activeSessionId)
+      const replies = await Promise.all((frames || [{ image, cameraName: label }]).map(async frame => {
+      if (frame.error) return `${frame.cameraName}: ${frame.error}`
+      try {
+      const response = await fetch('/api/vision/analyze-frame', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, image: frame.image, camera_name: frame.cameraName }),
+        signal: AbortSignal.timeout(120000),
+      })
+      const data = await response.json()
+      const reply = response.ok && data.ok && data.reply?.trim() ? data.reply : data.error || data.reply || 'Não foi possível analisar a imagem.'
+      return frames ? `${frame.cameraName}: ${reply}` : reply
+      } catch { return `${frame.cameraName}: Não consegui analisar esta câmera.` }
+      }))
+      if (requestIdRef.current === requestId && activeSessionRef.current === activeSessionId) {
+        const combined = replies.join('\n\n')
+        commitRestReply(combined)
+        return combined
       }
     } catch (error) {
       if (requestIdRef.current === requestId) failReply(error)
+    } finally {
+      if (frameRequest.current === requestId) frameRequest.current = null
     }
   }
 
@@ -661,8 +660,11 @@ export function useChat(options: UseChatOptions = {}) {
       return
     }
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const proxiedPath = document.querySelector('meta[name="jarvis-websocket-path"]')?.getAttribute('content')
     const basePort = Number(window.location.port || (window.location.protocol === 'https:' ? 443 : 80))
-    const wsUrl = `${protocol}://${window.location.hostname}:${basePort + 1}/ws/chat`
+    const wsUrl = proxiedPath
+      ? `${protocol}://${window.location.host}${proxiedPath}`
+      : `${protocol}://${window.location.hostname}:${basePort + 1}/ws/chat`
     let reconnectTimer: number | null = null
     let disposed = false
     let reconnectAttempts = 0
@@ -790,7 +792,7 @@ export function useChat(options: UseChatOptions = {}) {
           const markerIndex = rawReply.indexOf(marker)
           finalReplyRef.current = markerIndex >= 0 ? rawReply.slice(0, markerIndex).trim() : rawReply
           const script = getScriptRequest(rawReply)
-          if (script) setPendingScript(script)
+          if (script && finalMetaRef.current?.access_mode !== 'public') setPendingScript(script)
           finalizePendingRef.current = true
           pumpTyping()
           if (waitForReplyRef.current) {
@@ -852,7 +854,7 @@ export function useChat(options: UseChatOptions = {}) {
     const HARD_LIMIT_MS = 10 * 60 * 1000
     const IDLE_MS = 15 * 1000
     const check = async () => {
-      if (disposed || checking) return
+      if (disposed || checking || frameRequest.current === requestIdRef.current) return
       if (finalizePendingRef.current || typingTimerRef.current !== null) return
       const now = Date.now()
       const sid = activeSessionRef.current
@@ -907,19 +909,32 @@ export function useChat(options: UseChatOptions = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading])
 
+  // Parciais ficam só na tela: a autorização e os metadados chegam no recibo final.
+  const previewExchange = (id: string, preview: VoiceExchangePreview | null) => {
+    const session = activeSessionRef.current
+    const mutation = sessionMutationRef.current
+    const previous = voicePreviewRef.current
+    voicePreviewRef.current = !preview
+      ? (previous?.id === id ? null : previous)
+      : { ...(previous?.id === id ? previous : { id, session, mutation, timestamp: Date.now() }), ...preview }
+    setVoicePreview(voicePreviewRef.current)
+  }
+
   // Chamadas por voz: acrescenta o turno (fala + resposta) ao histórico sem substituir mensagens anteriores.
-  const appendExchange = async (userText: string, assistantText: string, receipt?: { run_id?: string; activity?: ToolActivityEntry[]; meta?: TurnMeta }) => {
+  const appendExchange = async (userText: string, assistantText: string, receipt?: { run_id?: string; activity?: ToolActivityEntry[]; meta?: TurnMeta }, previewId?: string) => {
+    // Não inserir uma resposta atrasada na conversa para a qual o usuário acabou de mudar.
+    if (previewId && (voicePreviewRef.current?.id !== previewId || voicePreviewRef.current.mutation !== sessionMutationRef.current)) return
     const user = userText.trim()
     const reply = assistantText.trim()
     if (!user || !reply) return
     let sid = activeSessionRef.current
     if (!sid) sid = await createSession('Nova conversa', true)
-    const history: ChatMessage[] = [...messagesRef.current, { role: 'user', content: user, timestamp: Date.now() }, { role: 'assistant', content: reply, timestamp: Date.now(), ...receipt }]
+    const history: ChatMessage[] = [...messagesRef.current, { role: 'user', content: user, timestamp: Date.now(), ...(receipt?.meta?.access_mode === 'public' ? { meta: { access_mode: 'public' as const } } : {}) }, { role: 'assistant', content: reply, timestamp: Date.now(), ...receipt }]
     messagesRef.current = history
     pendingHistoryRef.current = history
     setMessages(history)
-    historySaveRef.current = fetch(`/api/sessions/${sid}/history`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ history }),
+    if (receipt?.meta?.access_mode !== 'public') historySaveRef.current = fetch(`/api/sessions/${sid}/history`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ history: withoutMeta(history) }),
     }).catch(() => undefined)
     refreshSessions().catch(() => undefined)
   }
@@ -966,7 +981,7 @@ export function useChat(options: UseChatOptions = {}) {
         fetch(`/api/sessions/${activeSessionRef.current}/history`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ history }),
+          body: JSON.stringify({ history: withoutMeta(history) }),
         }).catch(error => {
           console.warn('Erro ao salvar histórico após script:', error)
         })
@@ -986,7 +1001,7 @@ export function useChat(options: UseChatOptions = {}) {
     await historySaveRef.current
     const response = await fetch(`/api/sessions/${encodeURIComponent(sid)}/history`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ truncate_to: index, expected_history: current }),
+      body: JSON.stringify({ truncate_to: withoutMeta(current.slice(0, index)).length, expected_history: withoutMeta(current) }),
     })
     const data = await response.json()
     if (!response.ok || data.ok === false) throw new Error(data.error || 'Não foi possível editar a conversa.')
@@ -1007,6 +1022,7 @@ export function useChat(options: UseChatOptions = {}) {
     editMessage, liveActivity, liveMode,
     answer,
     appendExchange,
+    previewExchange,
     chatError,
     copySession,
     createSession,
@@ -1015,7 +1031,10 @@ export function useChat(options: UseChatOptions = {}) {
     loading,
     liveReasoning,
     liveSearch,
-    messages,
+    messages: voicePreview && voicePreview.session === sessionId && voicePreview.mutation === sessionMutationRef.current
+      ? [...messages, { role: 'user' as const, content: voicePreview.user, timestamp: voicePreview.timestamp },
+        ...(voicePreview.reply || voicePreview.activity?.length ? [{ role: 'assistant' as const, content: voicePreview.reply, activity: voicePreview.activity, timestamp: voicePreview.timestamp }] : [])]
+      : messages,
     pendingScript,
     agentProgress,
     query,

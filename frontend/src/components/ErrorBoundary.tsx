@@ -32,7 +32,13 @@ export class ErrorBoundary extends Component<Props, State> {
           <p style={{ fontSize: 13, color: '#fda4af', marginBottom: 12 }}>{this.state.error?.message || 'Erro inesperado de renderização.'}</p>
           <button
             type="button"
-            onClick={() => this.setState({ hasError: false, error: null })}
+            onClick={() => {
+              if (/dynamically imported module|loading chunk|importing a module script|preload css/i.test(this.state.error?.message ?? '')) {
+                window.location.reload()
+              } else {
+                this.setState({ hasError: false, error: null })
+              }
+            }}
             style={{ padding: '8px 16px', borderRadius: 8, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontSize: 12, cursor: 'pointer' }}
           >
             🔄 Tentar Novamente

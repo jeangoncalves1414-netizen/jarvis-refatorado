@@ -27,7 +27,12 @@ class AppLock:
         if not self.path.exists():
             return {}
         # A corrupt configuration must fail closed, never disable protection.
-        return json.loads(self.path.read_text(encoding='utf-8'))
+        data = json.loads(self.path.read_text(encoding='utf-8'))
+        if (not isinstance(data, dict) or not isinstance(data.get('enabled'), bool)
+                or (data['enabled'] and (not isinstance(data.get('password'), dict)
+                    or not all(isinstance(data['password'].get(key), str) and data['password'][key] for key in ('salt', 'hash'))))):
+            raise ValueError('Configuração do bloqueio inválida. Restaure um backup.')
+        return data
 
     def _save(self, data):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -71,6 +76,15 @@ class AppLock:
             self._failed()
         self.failures = 0
 
+    def authorize_identity(self, password):
+        """Use the opening password without creating or replacing an unlock session."""
+        with self.mutex:
+            data = self._read()
+            if not data.get('enabled') or not data.get('password'):
+                raise ValueError('Configure a senha de desbloqueio nas configurações antes de cadastrar o administrador.')
+            self._verify_password(password, data)
+            return dict(data['password'])
+
     def _failed(self):
         self.failures += 1
         if self.failures >= 5:
@@ -99,6 +113,8 @@ class AppLock:
                 token = self._session()
             elif action == 'skip' and not data:
                 self._save({'enabled': False})
+            elif action == 'verify_password':
+                self.authorize_identity(payload.get('password'))
             elif action == 'unlock':
                 self._verify_password(payload.get('password'), data)
                 token = self._session()
@@ -109,7 +125,9 @@ class AppLock:
                 if kind not in ('face', 'voice') or not data.get(kind):
                     raise ValueError('Biometria não cadastrada.')
                 vector = self._vector(kind, payload)
-                from app.services.identity import _similarity, _voice_similarity
+                from app.services.identity import _similarity, _voice_similarity, _valid_embedding
+                if not _valid_embedding(vector) or not _valid_embedding(data[kind]) or len(vector) != len(data[kind]):
+                    self._failed()
                 score = (_voice_similarity if kind == 'voice' else _similarity)(vector, data[kind])
                 if score < (0.85 if kind == 'voice' else 0.80):
                     self._failed()
@@ -140,7 +158,11 @@ class AppLock:
                     kind = payload.get('kind')
                     if kind not in ('face', 'voice'):
                         raise ValueError('Tipo de biometria inválido.')
-                    data[kind] = self._vector(kind, payload)
+                    vector = self._vector(kind, payload)
+                    from app.services.identity import _valid_embedding
+                    if not _valid_embedding(vector):
+                        raise ValueError('Amostra biométrica inválida. Grave novamente.')
+                    data[kind] = vector
                 self._save(data)
                 token = self._session()
             else:

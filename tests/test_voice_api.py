@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures('isolated_lote6_data')
+
 from app.agent.orchestrator import AgentOrchestrator
 from app.config import Settings
 from app.domain.chat import ChatSession
@@ -16,6 +18,30 @@ from app.services.voice.audio_convert import AudioConversionError, prepare_audio
 from app.services.voice.pipeline import VoicePipeline
 from app.storage.tutor_store import TutorStore
 from app.ui.panel.server import PanelHandler
+
+
+def test_paired_phone_transcribes_without_comparing_speakers():
+    from types import SimpleNamespace
+    from app.ui.panel.api.voice import handle_voice_post
+    pipeline = MagicMock()
+    pipeline.transcribe_bytes.return_value = {"ok": True, "text": "bom dia"}
+    handler = SimpleNamespace(paired_panel=True, voice_pipeline=pipeline,
+                              headers={"X-Jarvis-Identify-Speaker": "1", "Content-Type": "audio/webm"})
+    with patch("app.services.turn_speaker.start") as identify:
+        assert handle_voice_post("/api/voice/stt", b"sample", handler) == (200, {"ok": True, "text": "bom dia"})
+        identify.assert_not_called()
+
+
+def test_paired_phone_keeps_fish_voice_when_provider_fails():
+    from types import SimpleNamespace
+    from app.ui.panel.api.voice import handle_voice_post
+    pipeline = MagicMock()
+    handler = SimpleNamespace(paired_panel=True, voice_pipeline=pipeline, settings=Settings())
+    with patch("app.ui.panel.api.voice.FishAudioProvider.from_settings") as provider:
+        provider.return_value.generate.return_value = None
+        status, result = handle_voice_post("/api/voice/tts", b'{"text":"Bom dia"}', handler)
+        assert status == 503 and not result["ok"]
+        pipeline.synthesize_bytes.assert_not_called()
 
 
 def _request(method: str, url: str, data: bytes | None = None, content_type: str = "application/json") -> tuple[int, bytes]:

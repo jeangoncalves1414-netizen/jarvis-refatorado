@@ -1,3 +1,5 @@
+import { pairedAndroid } from '../utils/pairedAndroid'
+import { CallIdentityCamera } from './CallIdentityCamera'
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { LiveAudioDiagnostics } from '../hooks/useMediaAssistant'
@@ -162,6 +164,7 @@ export function LiveCallModal({
         className="live-call-card"
         onClick={e => e.stopPropagation()}
       >
+        {!pairedAndroid && <CallIdentityCamera />}
         <div className="live-call-header">
           <span className="live-call-badge">
             <span className="live-call-ping" />
@@ -208,6 +211,8 @@ export function LiveCallModal({
                   : 'Conversa por voz'}
           </h2>
           <p className="live-call-status">{status}</p>
+          {audioDiagnostics?.speakerName && <p className="live-call-status">Voz neste trecho: {audioDiagnostics.speakerName}</p>}
+          {audioDiagnostics?.speakerUnknown && !audioDiagnostics.speakerName && <p className="live-call-status">Voz ainda não reconhecida neste trecho.</p>}
 
           {audioDiagnostics && (
             <div
@@ -278,7 +283,7 @@ export function LiveCallModal({
               className="live-call-mode-pill"
               title="Alternar entre modo contínuo e segurar para falar"
             >
-              <span>{pushToTalkMode ? '🎙️ Push-to-Talk (Segurar ou Espaço)' : '⚡ Contínuo (Hands-Free · 1.8s buffer)'}</span>
+              <span>{pushToTalkMode ? '🎙️ Push-to-Talk (Segurar ou Espaço)' : '⚡ Contínuo (mãos livres)'}</span>
             </button>
           </div>
         )}
@@ -321,7 +326,7 @@ export function LiveCallModal({
           ⚡ <strong>Full-Duplex Barge-in:</strong> Fale ou toque a qualquer momento para interromper o Jarvis.
           {pushToTalkMode
             ? ' Segure a Barra de Espaço ou o botão acima enquanto fala.'
-            : ' Buffer de silêncio de 1.8s para formular sua frase sem cortes.'}
+            : ' Fale normalmente; o Jarvis acompanha as pausas para responder.'}
         </p>
       </div>
     </div>,

@@ -35,7 +35,7 @@ export function JarvisOrb3D({
     ctx.scale(dpr, dpr)
 
     let animId: number
-    let timeoutId: number
+    let lastFrame: number | undefined
     let time = 0
     let rotAngle = 0
     let counterRotAngle = 0
@@ -117,15 +117,22 @@ export function JarvisOrb3D({
       }
     }
 
-    const render = () => {
+    const palette = getPalette()
+    const frameInterval = 1000 / (state === 'idle' && !speaking && !listening ? 30 : 60)
+    const render = (now: number) => {
+      if (document.hidden) return
+      animId = requestAnimationFrame(render)
+      const elapsed = lastFrame === undefined ? frameInterval : now - lastFrame
+      if (elapsed < frameInterval - 0.5) return
+      lastFrame = now
+      const frameScale = Math.min(elapsed, 100) * 0.06
       const cx = size / 2
       const cy = size / 2
       const pScale = size / 160
-      const palette = getPalette()
 
-      time += 0.016
-      rotAngle += palette.rotSpeed
-      counterRotAngle -= palette.rotSpeed * 1.35
+      time += 0.016 * frameScale
+      rotAngle += palette.rotSpeed * frameScale
+      counterRotAngle -= palette.rotSpeed * 1.35 * frameScale
       pulseProgress = (Math.sin(time * palette.pulseSpeed) + 1) * 0.5
 
       ctx.clearRect(0, 0, size, size)
@@ -227,7 +234,7 @@ export function JarvisOrb3D({
 
       // Orbiting particles
       for (const p of particles) {
-        p.angle += p.speed * (state === 'thinking' ? 2.2 : 1)
+        p.angle += p.speed * frameScale * (state === 'thinking' ? 2.2 : 1)
         p.x = cx + Math.cos(p.angle) * p.radius * (1 + pulseProgress * 0.08)
         p.y = cy + Math.sin(p.angle) * p.radius * (1 + pulseProgress * 0.08)
         ctx.beginPath()
@@ -310,21 +317,19 @@ export function JarvisOrb3D({
         ctx.fillText(label, cx, cy + outerR + 8 * pScale)
       }
 
-      if (document.hidden) {
-        timeoutId = window.setTimeout(() => {
-          animId = requestAnimationFrame(render)
-        }, 400)
-        return
-      }
-
-      animId = requestAnimationFrame(render)
     }
 
-    render()
+    const onVisibilityChange = () => {
+      cancelAnimationFrame(animId)
+      lastFrame = undefined
+      render(performance.now())
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    render(performance.now())
 
     return () => {
       cancelAnimationFrame(animId)
-      window.clearTimeout(timeoutId)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [size, listening, speaking, state])
 

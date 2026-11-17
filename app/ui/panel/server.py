@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 from itertools import chain
 import json
 import mimetypes
 import os
 import threading
+from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -59,6 +61,50 @@ _wake_word_enabled: bool = True
 _wake_word_detector: Any = None  # WakeWordDetector instance
 _ws_loop: asyncio.AbstractEventLoop | None = None  # asyncio loop do WS para broadcast
 _ws_clients: set = set()  # connected WebSocket clients for broadcast
+_MOBILE_LOCK_COOKIE = "jarvis_mobile_lock"
+_CLOUD_DEVICE_COOKIE = "__Host-jarvis_cloud"
+
+
+def _cloud_mode() -> bool:
+    """True only in the isolated, public mobile deployment."""
+    return os.getenv("JARVIS_CLOUD", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _cloud_device_authorized(cookie_header: str) -> bool:
+    """Validate the device credential delivered to the installed Android app.
+
+    This is deliberately separate from the optional screen lock. Turning off
+    the latter must never turn a public Railway URL into an open control plane.
+    """
+    if not _cloud_mode():
+        return False
+    expected = os.getenv("JARVIS_CONTROL_TOKEN", "")
+    if len(expected) < 40:
+        return False
+    cookies = SimpleCookie()
+    try:
+        cookies.load(cookie_header)
+        provided = cookies.get(_CLOUD_DEVICE_COOKIE)
+        return provided is not None and hmac.compare_digest(provided.value, expected)
+    except CookieError:
+        return False
+
+
+def _mobile_lock_bypassed(cookie_header: str, device_authorized: bool) -> bool:
+    """The paired Android WebView can opt out of the desktop password per device.
+
+    This is intentionally limited to an authenticated Android device: its
+    pairing credential (local) or device credential (cloud) is checked before
+    this branch is reached.
+    """
+    if not device_authorized:
+        return False
+    cookies = SimpleCookie()
+    try:
+        cookies.load(cookie_header)
+        return cookies.get(_MOBILE_LOCK_COOKIE) is not None and cookies[_MOBILE_LOCK_COOKIE].value == "off"
+    except CookieError:
+        return False
 
 
 def _wake_word_status() -> dict[str, Any]:
@@ -90,6 +136,12 @@ def _calendar_conversation_prefix() -> str:
 
 
 MAX_WATER_ADD_ML = 5000
+
+
+def _conversation_identity(payload, paired):
+    if paired:
+        return {"identity_token": None, "mobile_voice": payload.get("origin") == "voice"}
+    return {"identity_token": payload.get("identity_token")}
 
 
 def _water_amount(value: Any) -> int | None:
@@ -130,8 +182,35 @@ class PanelHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     timeout = 30
 
+    @property
+    def paired_panel(self):
+        return getattr(getattr(self, "server", None), "paired_panel", None)
+
+    def parse_request(self):
+        if not super().parse_request():
+            return False
+        paired = self.paired_panel
+        if paired:
+            if not paired.authorized(self.headers, self.server.server_port):
+                self.close_connection = True
+                self._send_json(403, {"ok": False, "error": "Pareamento do painel necessário."})
+                return False
+            # Run the shared API with a LAN principal and the usual app-lock checks.
+            del self.headers["Authorization"]
+            self.headers["Authorization"] = f"Bearer {paired.token}"
+        elif _cloud_device_authorized(self.headers.get("Cookie", "")):
+            if "Authorization" in self.headers:
+                del self.headers["Authorization"]
+            self.headers["Authorization"] = f"Bearer {self.settings.control_token}"
+        return True
+
+    def send_header(self, keyword, value):
+        if keyword.lower() == "set-cookie" and (self.paired_panel or _cloud_mode()):
+            value += "; Secure"
+        super().send_header(keyword, value)
+
     def _policy(self) -> ControlPlanePolicy:
-        return ControlPlanePolicy(self.settings)
+        return self.paired_panel.policy if self.paired_panel else ControlPlanePolicy(self.settings)
 
     def _authorize_api(self, path: str, method: str) -> RequestPrincipal | None:
         try:
@@ -142,7 +221,14 @@ class PanelHandler(BaseHTTPRequestHandler):
         if not ok:
             self._send_json(status, {"ok": False, "error": error})
             return None
-        if path != '/api/app-lock' and not app_lock.authenticated(self.headers.get('Cookie', '')):
+        mobile_app = bool(self.paired_panel) or "JarvisMobile/" in self.headers.get("User-Agent", "")
+        if mobile_app and (path == "/api/identity" or path.startswith(("/api/identity/", "/api/voice/identity/"))
+                                  or (method != "GET" and path.startswith("/api/voice/capture/"))):
+            self._send_json(403, {"ok": False, "error": "Identificação e captura do PC desativadas no celular."})
+            return None
+        device_authorized = bool(self.paired_panel) or _cloud_device_authorized(self.headers.get("Cookie", ""))
+        if path != '/api/app-lock' and not (_mobile_lock_bypassed(self.headers.get('Cookie', ''), device_authorized)
+                                         or app_lock.authenticated(self.headers.get('Cookie', ''))):
             self._send_json(423, {'ok': False, 'error': 'Desbloqueie o Jarvis para continuar.'})
             return None
         return principal
@@ -258,6 +344,9 @@ class PanelHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = self.path.split("?")[0]
+        if path == "/api/health":
+            self._send_json(200, {"ok": True, "mode": "cloud" if _cloud_mode() else "local"})
+            return
         if path == '/api/app-lock':
             if self._authorize_api(path, 'GET') is None:
                 return
@@ -282,11 +371,21 @@ class PanelHandler(BaseHTTPRequestHandler):
         # ── HTML pages ───────────────────────────────────────────────────────
         if path in ("/", "/index.html", "/app", "/app/"):
             f = _REACT_DIST_DIR / "index.html"
-            self._send_html(
+            html = (
                 f.read_text(encoding="utf-8")
                 if f.exists()
                 else "<h1>Interface React nao compilada. Execute npm run build em frontend.</h1>"
             )
+            tags = []
+            if self.paired_panel:
+                tags.append('<meta name="jarvis-paired-android" content="1">')
+            if "JarvisMobile/" in self.headers.get("User-Agent", ""):
+                tags.append('<meta name="jarvis-mobile-android" content="1">')
+            if _cloud_mode():
+                tags.append('<meta name="jarvis-websocket-path" content="/ws/chat">')
+            if tags:
+                html = html.replace("<head>", f"<head>{''.join(tags)}", 1)
+            self._send_html(html)
             return
 
         # Arquivos de raiz da PWA precisam ser acessíveis para que o navegador
@@ -920,6 +1019,9 @@ class PanelHandler(BaseHTTPRequestHandler):
                 payload = json.loads(body)
                 if not isinstance(payload, dict):
                     raise ValueError('Pedido inválido.')
+                if self.paired_panel and payload.get('action') in {'biometric', 'enroll', 'remove_biometrics'}:
+                    self._send_json(403, {'ok': False, 'error': 'Use a senha do Jarvis neste aparelho.'})
+                    return
                 result, token = app_lock.perform(payload, self.headers.get('Cookie', ''))
                 if token:
                     self._unlock_cookie = f'jarvis_unlock={token}; HttpOnly; SameSite=Strict; Path=/'
@@ -1140,8 +1242,51 @@ class PanelHandler(BaseHTTPRequestHandler):
                 from app.services.identity import IdentityService
                 payload = json.loads(body.decode("utf-8") or "{}")
                 action = str(payload.get("action") or "").strip()
-                if action == "enroll_admin":
+                if action in ("enrollment_authorize", "enrollment_voice", "enrollment_cancel"):
+                    from app.services import live_enrollment
+                    if action == "enrollment_authorize":
+                        result = live_enrollment.authorize(payload)
+                    elif action == "enrollment_voice":
+                        result = live_enrollment.validate_voice(payload)
+                    else:
+                        result = live_enrollment.cancel(payload.get("ticket"))
+                elif action == "set_permission":
+                    from app.services.identity_access import set_permission
+                    result = set_permission(payload)
+                elif action == "verify_access":
+                    from app.services.identity_context import issue
+                    result = IdentityService.verify(payload.get("kind", ""), payload.get("sample", ""), payload.get("content_type", ""))
+                    if result.get("ok"):
+                        result["evidence_token"] = issue(result, method=payload.get("kind"))
+                elif action == "merge_turns":
+                    from app.services.identity_context import merge_turns
+                    result = merge_turns(payload.get('tokens'))
+                elif action == "attach_camera":
+                    from app.services.identity_context import attach_camera
+                    from app.services.identity import _decode_data_url
+                    result = attach_camera(payload.get("identity_token"), _decode_data_url(payload.get("image"), "data:image/"))
+                elif action == "observe":
+                    from app.services.identity import _decode_data_url
+                    from app.services.identity_observation import observe
+                    result = observe(_decode_data_url(payload.get("audio"), "data:audio/"),
+                                     _decode_data_url(payload["image"], "data:image/") if payload.get("image") else None,
+                                     payload.get("content_type", "audio/webm"))
+                elif action in ("face_model_status", "face_model_install"):
+                    from app.services.face_identity import engine
+                    result = engine.install() if action == "face_model_install" else engine.status()
+                elif action == "enroll_admin":
                     result = IdentityService.enroll_admin(payload.get("name", ""), payload.get("password", ""))
+                elif action == "enrollment_pose":
+                    from app.services.face_identity import engine
+                    from app.services.identity import _decode_data_url
+                    detected = engine.extract(_decode_data_url(payload.get("image"), "data:image/"))
+                    result = {"ok": True, "count": len(detected), "pose": detected[0]["pose"] if len(detected) == 1 else None}
+                elif action == "live_enroll":
+                    from app.services.live_enrollment import enroll
+                    try:
+                        result = enroll(payload)
+                    except ValueError as exc:
+                        result = {"ok": False, "error": str(exc)}
                 elif action == "enroll_profile":
                     result = IdentityService.enroll_profile(payload.get("name", ""), payload.get("role", "user"), payload.get("admin_password", ""))
                 elif action == "add_sample":
@@ -1153,6 +1298,8 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._send_json(200 if result.get("ok") else 400, result)
             except (UnicodeDecodeError, json.JSONDecodeError):
                 self._send_json(400, {"ok": False, "error": "JSON inválido."})
+            except ValueError as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)})
             except Exception as exc:
                 self._send_json(500, {"ok": False, "error": str(exc)})
             return
@@ -1580,10 +1727,10 @@ class PanelHandler(BaseHTTPRequestHandler):
                 full_summary = ""
                 full_run_id = None
                 origin = request_origin(payload.get("origin"))
-                for item in _orchestrator.handle_request_stream(message, session_id=session_id, mode=mode, profile_id=profile_id, origin=origin):
+                for item in _orchestrator.handle_request_stream(message, session_id=session_id, mode=mode, profile_id=profile_id, origin=origin, **_conversation_identity(payload, self.paired_panel)):
                     plan = item.get("plan")
                     if plan is not None:
-                        if item.get("status") == "complete" and plan.intent != "cancelled" and plan.context.get("success") is not False:
+                        if item.get("status") == "complete" and plan.intent not in {"error", "cancelled"} and plan.context.get("success") is not False and not plan.context.get("identity_restricted"):
                             full_summary = plan.summary
                             full_run_id = plan.context.get("run_id")
                         item = {**item, "plan": {"intent": plan.intent, "summary": plan.summary, "actions": plan.actions,
@@ -1641,8 +1788,8 @@ class PanelHandler(BaseHTTPRequestHandler):
                 if not message:
                     self._send_json(400, {"error": "Mensagem não pode ser vazia."})
                     return
-                plan = _orchestrator.handle_request(message, session_id=session_id, mode=mode, profile_id=profile_id, racing_mode=racing_mode, origin=request_origin(payload.get("origin")))
-                prefix = _calendar_conversation_prefix()
+                plan = _orchestrator.handle_request(message, session_id=session_id, mode=mode, profile_id=profile_id, racing_mode=racing_mode, origin=request_origin(payload.get("origin")), **_conversation_identity(payload, self.paired_panel))
+                prefix = _calendar_conversation_prefix() if not plan.context.get('identity_restricted') and plan.intent not in {'error', 'cancelled'} and plan.context.get('success') is not False else ''
                 if prefix and getattr(plan, "summary", "").strip() and plan.intent != "error" and not is_technical_error_memory(plan.summary):
                     plan.summary = prefix + getattr(plan, "summary", str(plan))
                 self._send_json(200, {
@@ -1866,7 +2013,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": str(exc)})
             return
 
-        # A imagem chega aqui somente após uma ação explícita no espaço de câmeras.
+        # Frames are captured only on an explicit visual request or panel action.
         if path == "/api/vision/analyze-frame":
             try:
                 payload = json.loads(body.decode("utf-8") or "{}")
@@ -1881,11 +2028,20 @@ class PanelHandler(BaseHTTPRequestHandler):
                 from io import BytesIO
                 from PIL import Image
                 encoded_image = image_data.split(",", 1)[1]
-                image = Image.open(BytesIO(base64.b64decode(encoded_image))).convert("RGB")
+                raw_image = base64.b64decode(encoded_image, validate=True)
+                image = Image.open(BytesIO(raw_image)).convert("RGB")
+
+                from app.services.identity_observation import camera_identity_answer
+                identity_result = None if self.paired_panel else camera_identity_answer(prompt, raw_image, llm=getattr(_orchestrator, 'llm_service', None))
+                if identity_result is not None:
+                    self._send_json(200 if identity_result.get("ok") else 400, identity_result)
+                    return
 
                 from app.services.vision import VisionService
+                people = None if self.paired_panel else camera_identity_answer('Quem aparece na câmera?', raw_image)
+                measured = json.dumps(people.get('visible_people'), ensure_ascii=False) if people and people.get('ok') else 'indisponível'
                 result = VisionService.from_settings(getattr(_orchestrator, "settings", None)).analyze(
-                    prompt=f"A imagem veio da câmera chamada '{camera_name}'. {prompt}",
+                    prompt=f"A imagem veio da câmera chamada '{camera_name}'. Responda naturalmente ao pedido. Descreva somente o que está visível; não invente nomes nem identidades. A identificação local retornou estes nomes: {measured}. Use somente esses nomes, sem deduzir quem está falando; null indica rosto desconhecido. Pedido: {prompt}",
                     image=image,
                 )
                 filename = result.get("capture_filename", "")
@@ -2193,22 +2349,28 @@ class PanelHandler(BaseHTTPRequestHandler):
 
 # ──────────────────────────────────────── WebSocket handler (asyncio) ────────
 
-async def _ws_chat_handler(websocket) -> None:
+async def _ws_chat_handler(websocket, *, allowed_origins=None) -> None:
     """Handle /ws/chat — streams Jarvis responses as JSON messages."""
     headers = getattr(websocket, 'request_headers', None)
     if headers is None:
         headers = getattr(getattr(websocket, 'request', None), 'headers', {})
     cookie = headers.get('Cookie', '')
     origin = headers.get('Origin', '').rstrip('/').lower()
-    if origin and origin not in ControlPlanePolicy(PanelHandler.settings).allowed_origins():
+    if origin and origin not in (allowed_origins if allowed_origins is not None else ControlPlanePolicy(PanelHandler.settings).allowed_origins()):
         await websocket.close(code=1008, reason='Origem não confiável')
         return
-    if not app_lock.authenticated(cookie):
+    cloud_device_authorized = _cloud_device_authorized(cookie)
+    if _cloud_mode() and not cloud_device_authorized:
+        await websocket.close(code=1008, reason='Dispositivo não autorizado')
+        return
+    device_authorized = allowed_origins is not None or cloud_device_authorized
+    mobile_lock_bypassed = _mobile_lock_bypassed(cookie, device_authorized)
+    if not mobile_lock_bypassed and not app_lock.authenticated(cookie):
         await websocket.close(code=1008, reason='Jarvis bloqueado')
         return
     async def send_authorized(message):
         # A lock or password change also revokes an already streaming response.
-        if not app_lock.authenticated(cookie):
+        if not mobile_lock_bypassed and not app_lock.authenticated(cookie):
             await websocket.close(code=1008, reason='Jarvis bloqueado')
             return
         await websocket.send(message)
@@ -2216,11 +2378,13 @@ async def _ws_chat_handler(websocket) -> None:
     _ws_clients.add(websocket)
     try:
         async for raw in websocket:
-            if not app_lock.authenticated(cookie):
+            if not mobile_lock_bypassed and not app_lock.authenticated(cookie):
                 await websocket.close(code=1008, reason='Jarvis bloqueado')
                 break
             try:
                 data = json.loads(raw)
+                if not isinstance(data, dict):
+                    raise ValueError('Objeto JSON obrigatório.')
             except Exception:
                 await send_authorized(json.dumps({"type": "error", "message": "JSON inválido."}))
                 continue
@@ -2277,10 +2441,11 @@ async def _ws_chat_handler(websocket) -> None:
                         pass
 
                 # Run the blocking orchestrator call in a thread
+                mobile_client = allowed_origins is not None or cloud_device_authorized
                 plan = await loop.run_in_executor(
-                    None, lambda: _orchestrator.handle_request(message, session_id=session_id, mode=mode, on_chunk=on_chunk, on_reasoning=on_reasoning, on_search=on_search, profile_id=profile_id, origin=request_origin(data.get("origin")))
+                    None, lambda: _orchestrator.handle_request(message, session_id=session_id, mode=mode, on_chunk=on_chunk, on_reasoning=on_reasoning, on_search=on_search, profile_id=profile_id, origin=request_origin(data.get("origin")), **_conversation_identity(data, mobile_client))
                 )
-                prefix = _calendar_conversation_prefix()
+                prefix = _calendar_conversation_prefix() if not plan.context.get('identity_restricted') and plan.intent not in {'error', 'cancelled'} and plan.context.get('success') is not False else ''
                 if prefix and getattr(plan, "summary", "").strip() and plan.intent != "error" and not is_technical_error_memory(plan.summary):
                     plan.summary = prefix + getattr(plan, "summary", str(plan))
                 await send_authorized(json.dumps({
@@ -2300,6 +2465,7 @@ async def _ws_chat_handler(websocket) -> None:
                     and _orchestrator.semantic_memory
                     and plan.intent not in {"error", "cancelled"}
                     and plan.context.get("success") is not False
+                    and not plan.context.get("identity_restricted")
                     and not is_technical_error_memory(getattr(plan, "summary", ""))
                 ):
                     try:
@@ -2344,7 +2510,9 @@ async def _broadcast_json(message: str) -> None:
             headers = getattr(ws, 'request_headers', None)
             if headers is None:
                 headers = getattr(getattr(ws, 'request', None), 'headers', {})
-            if not app_lock.authenticated(headers.get('Cookie', '')):
+            cookie = headers.get('Cookie', '')
+            device_authorized = _cloud_device_authorized(cookie)
+            if not (_mobile_lock_bypassed(cookie, device_authorized) or app_lock.authenticated(cookie)):
                 await ws.close(code=1008, reason='Jarvis bloqueado')
                 dead.add(ws)
                 continue
@@ -2383,6 +2551,7 @@ class PanelServer:
         self.http_server: HTTPServer | None = None
         self._http_thread: threading.Thread | None = None
         self._ws_thread: threading.Thread | None = None
+        self.paired = None
 
     def set_orchestrator(self, orchestrator: Any) -> None:
         global _orchestrator
@@ -2393,7 +2562,6 @@ class PanelServer:
             PanelHandler.voice_pipeline = pipeline
 
     def _run_http(self) -> None:
-        PanelHandler.settings = self.settings
         address = (self.settings.host, self.settings.port)
         self.http_server = ThreadingHTTPServer(address, PanelHandler)
         self.http_server.daemon_threads = True
@@ -2401,7 +2569,7 @@ class PanelServer:
 
     def _run_ws(self) -> None:
         """Run legacy streaming only on a real loopback desktop listener."""
-        if not self._websocket_enabled():
+        if not self._websocket_enabled() and not self.paired:
             return
         global _ws_loop
         ws_port = self.settings.port + 1
@@ -2411,14 +2579,23 @@ class PanelServer:
         from app.core import ui_events
         unsubscribe = ui_events.subscribe(_forward_ui_event)
         try:
-            loop.run_until_complete(_run_ws_server(self.settings.host, ws_port))
+            async def serve():
+                listeners = []
+                if self._websocket_enabled():
+                    listeners.append(_run_ws_server(self.settings.host, ws_port))
+                if self.paired:
+                    listeners.append(self.paired.serve_chat(_ws_chat_handler))
+                await asyncio.gather(*listeners, return_exceptions=True)
+            loop.run_until_complete(serve())
         finally:
             unsubscribe()
             loop.close()
             _ws_loop = None
 
     def _websocket_enabled(self) -> bool:
-        """Never expose the unauthenticated legacy WebSocket outside loopback."""
+        """Allow the WebSocket on loopback, or behind the cloud proxy only."""
+        if _cloud_mode():
+            return True
         host = str(getattr(self.settings, "host", "")).strip().lower()
         return self.settings.access_mode == "loopback" and host in {"127.0.0.1", "localhost", "::1", "[::1]"}
 
@@ -2426,6 +2603,13 @@ class PanelServer:
         if self._http_thread and self._http_thread.is_alive():
             return
         self.settings.validate_control_plane()
+        PanelHandler.settings = self.settings
+        if self.paired:
+            try:
+                self.paired.start_http(PanelHandler)
+            except OSError as error:
+                self.paired = None
+                print(f"[Jarvis] Painel Android indisponível: {error}")
         from app.storage.action_store import action_store
         action_store.start_runtime()
         from app.services import bank_sync
@@ -2436,7 +2620,7 @@ class PanelServer:
         )
         self._http_thread.start()
 
-        if self._websocket_enabled():
+        if self._websocket_enabled() or self.paired:
             self._ws_thread = threading.Thread(
                 target=self._run_ws, daemon=True, name="PanelWS"
             )
@@ -2465,6 +2649,9 @@ class PanelServer:
             print(f"[Jarvis] Wake word desativado: {e}")
 
     def stop(self) -> None:
+        if self.paired and self.paired.http:
+            self.paired.http.shutdown()
+            self.paired.http.server_close()
         from app.services import bank_sync
         bank_sync.stop()
         try:

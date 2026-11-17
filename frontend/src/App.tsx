@@ -1,7 +1,12 @@
+import { pairedAndroid } from './utils/pairedAndroid'
+import { LiveEnrollment, handleLiveIntroduction } from './components/LiveEnrollment'
 import { autoAllows } from './components/AutoApprovals'
 import { isEvoluteCloudConnected } from './utils/evoluteCloud'
 import { pollVisible } from './utils/panelVisibility'
+import { isCameraObservationRequest, isCameraPanelRequest } from './utils/cameraRequest'
+import { captureRequestedCameras } from './utils/cameraCapture'
 import { FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { SettingsPage } from './pages/SettingsPage'
 import { AppShell } from './components/AppShell'
 import { AgentControls } from './components/AgentControls'
 import { useOperationalSnapshot } from './hooks/useOperationalSnapshot'
@@ -45,7 +50,6 @@ const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then(module => 
 const ChatPage = lazy(() => import('./pages/ChatPage').then(module => ({ default: module.ChatPage })))
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then(module => ({ default: module.DashboardPage })))
 const MemoriesPage = lazy(() => import('./pages/MemoriesPage').then(module => ({ default: module.MemoriesPage })))
-const SettingsPage = lazy(() => import('./pages/SettingsPage').then(module => ({ default: module.SettingsPage })))
 const StudyPage = lazy(() => import('./pages/StudyPage').then(module => ({ default: module.StudyPage })))
 const LanguagePage = lazy(() => import('./pages/LanguagePage').then(module => ({ default: module.LanguagePage })))
 const IdentityPage = lazy(() => import('./pages/IdentityPage').then(module => ({ default: module.IdentityPage })))
@@ -278,7 +282,7 @@ export default function App() {
   const mobileChat = useDirectChat()
   const { answer, chatError, copySession, createSession, deleteSession, exportSession, loading, liveReasoning, liveSearch, messages, pendingScript, query, runPendingScript, selectSession, sendText, sendVisionQuestion, sessionId, sessions, setAnswer, setChatError, setPendingScript, setQuery, streamingReply } = IS_MOBILE ? mobileChat : pcChat
   const conversationRun = useConversationRun(sessionId, !IS_MOBILE, loading)
-  const { captureVision, closeLiveCall, liveCallOpen, liveCallRecording, liveCallStatus, liveAudioDiagnostics, liveUserTranscript, liveJarvisTranscript, liveTurns, liveOrbState, recording, setLiveCallOpen, setSpeakEnabled, setVisionResult, speakEnabled, speakText, toggleLiveCallCapture, toggleVoiceInput, triggerBargeIn, visionResult, pushToTalkMode, togglePushToTalk, startPtt, stopPtt, isPttActive } = useMediaAssistant({ query, sendText, setAnswer, setQuery, sessionId, appendExchange: IS_MOBILE ? undefined : pcChat.appendExchange, onAgentContext: IS_MOBILE ? undefined : context => applyAgentUi(context) })
+  const { captureVision, closeLiveCall, liveCallOpen, liveCallRecording, liveCallStatus, liveAudioDiagnostics, liveUserTranscript, liveJarvisTranscript, liveTurns, liveOrbState, recording, setLiveCallOpen, setSpeakEnabled, setVisionResult, speakEnabled, speakText, toggleLiveCallCapture, toggleVoiceInput, triggerBargeIn, visionResult, pushToTalkMode, togglePushToTalk, startPtt, stopPtt, isPttActive } = useMediaAssistant({ query, sendText, setAnswer, setQuery, sessionId, appendExchange: IS_MOBILE ? undefined : pcChat.appendExchange, previewExchange: IS_MOBILE ? undefined : pcChat.previewExchange, onAgentContext: IS_MOBILE ? undefined : context => applyAgentUi(context) })
   const { cinemaSearch, availableEpisodes, availableSeasons, cinemaLauncherOpen, setCinemaLauncherOpen, videoUrl, setVideoUrl, cinemaQuery, setCinemaQuery, cinemaResults, cinemaMedia, cinemaStatus, setCinemaStatus, cinemaLibrary, refreshCinemaLibrary, searchCinema, probeCinema, saveCinemaUrl, openCinemaPayload, selectEpisode, selectLibraryItem, selectLibrarySource, selectNextEpisode, selectSeason, selectedEpisode, selectedLibraryItem, selectedLibraryId, selectedLibrarySources, selectedSeason, selectedSourceUrl } = useCinema()
 
   const setTtsProvider = async (tts_provider: 'fish' | 'gemini' | 'edge' | 'oxyy') => {
@@ -380,7 +384,7 @@ export default function App() {
     fetch('/api/settings/oxyy').then(response => response.json()).then(setOxyySettings).catch(() => undefined)
     fetch('/api/settings/oxyy/models').then(response => response.json()).then(setOxyyCatalog).catch(() => undefined)
     fetch('/api/memories?collection=conversations&limit=20').then(response => response.json()).then(data => setMemories(data.memories || [])).catch(() => undefined)
-    fetch('/api/identity').then(response => response.json()).then(data => setIdentityProfiles(data.profiles || [])).catch(() => undefined)
+    if (!pairedAndroid) fetch('/api/identity').then(response => response.json()).then(data => setIdentityProfiles(data.profiles || [])).catch(() => undefined)
     fetch('/api/proactive').then(response => response.json()).then(data => {
       setProactive(data)
       setBriefingTime(data.config?.briefing_time || '08:00')
@@ -728,19 +732,6 @@ export default function App() {
     return true
   }
 
-  const askCameraQuestion = async (prompt?: string) => {
-    const capture = await cameraWorkspaceRef.current?.captureSelectedFrame()
-    if (!capture) {
-      setNotice('Abra o espaço de câmeras e selecione uma transmissão antes de perguntar.')
-      return
-    }
-    await sendVisionQuestion(
-      prompt?.trim() || `O que você vê na ${capture.cameraName}?`,
-      capture.image,
-      capture.cameraName,
-    )
-  }
-
   const handleChatAttachment = (file: File) => {
     if (!file.type.startsWith('image/')) {
       setNotice('Por enquanto, o chat aceita imagens para análise. Use Tela para capturar o monitor.')
@@ -756,6 +747,53 @@ export default function App() {
     reader.readAsDataURL(file)
   }
 
+  const cameraFromVoice = useRef(false)
+  const cameraBusy = useRef(false)
+  const cameraContext = useRef({ session: sessionId, previous: '' })
+  if (cameraContext.current.session !== sessionId) cameraContext.current = { session: sessionId, previous: '' }
+  const cameraRequest = (message: string) => {
+    const previous = cameraContext.current.previous || [...messages].reverse().find(m => m.role === 'user')?.content || ''
+    const requested = isCameraObservationRequest(message, previous) || isCameraPanelRequest(message)
+    cameraContext.current.previous = requested ? (isCameraObservationRequest(message) ? message : 'Quem aparece nas câmeras?') : message
+    return requested
+  }
+  const observeCameras = async (message: string): Promise<string> => {
+    if (isCameraPanelRequest(message)) { setCameraQuestion(''); setCameraWorkspaceOpen(true); return '' }
+    if (cameraBusy.current) return 'Já estou analisando as câmeras. Aguarde um instante.'
+    cameraBusy.current = true
+    setNotice('Observando as câmeras conectadas…')
+    try {
+      const frames = await captureRequestedCameras(message)
+      const reply = await sendVisionQuestion(message, frames[0].image, frames[0].cameraName, frames)
+      setNotice('')
+      return reply || ''
+    } catch (failure) {
+      const error = failure instanceof Error && failure.message.startsWith('A câmera solicitada') ? failure.message : 'Não consegui acessar as câmeras. Confira a conexão e a permissão de câmera.'
+      setNotice(error)
+      return error
+    } finally { cameraBusy.current = false }
+  }
+  const observeCamerasRef = useRef(observeCameras)
+  observeCamerasRef.current = observeCameras
+  const cameraRequestRef = useRef(cameraRequest)
+  cameraRequestRef.current = cameraRequest
+  useEffect(() => {
+    const requested = (event: Event) => {
+      const { message, resolve } = (event as CustomEvent<{ message: string; resolve: (text: string) => void }>).detail
+      if (!cameraRequestRef.current(message)) return
+      event.preventDefault()
+      void observeCamerasRef.current(message).then(resolve)
+    }
+    window.addEventListener('jarvis-request-camera', requested)
+    return () => window.removeEventListener('jarvis-request-camera', requested)
+  }, [])
+
+  const sendChatText = async (message: string, mode: ChatMode = chatMode): Promise<string> => {
+    if (handleLiveIntroduction(message)) return ''
+    if (cameraRequest(message)) return observeCameras(message)
+    return sendText(message, mode)
+  }
+
   const sendChatMessage = async () => {
     // "//texto" é mensagem comum que começa com "/": envia sem a primeira barra (A6).
     const message = unescapeSlash(query.trim())
@@ -768,7 +806,7 @@ export default function App() {
     }
     if (!message) return
     setQuery('')
-    await sendText(message, chatMode)
+    await sendChatText(message)
   }
 
   const renderSection = () => {
@@ -851,7 +889,7 @@ export default function App() {
             onScreen={captureVision}
             onCinema={() => setCinemaLauncherOpen(true)}
             onCinemaRequest={openCinemaPayload}
-            onSendText={sendText}
+            onSendText={sendChatText}
             onRunPendingScript={runPendingScript}
           />
         )
@@ -1002,7 +1040,7 @@ export default function App() {
           />
         )
       }
-      if (active === 'Identidade') return <IdentityPage />
+      if (!pairedAndroid && active === 'Identidade') return <IdentityPage />
       if (active === 'Evolução') return <EvoluteHubPage />
       return (
         <section className="migration-card">
@@ -1078,7 +1116,7 @@ export default function App() {
           {renderSection()}
         </ErrorBoundary>
       </AppShell>
-      <CameraWorkspace ref={cameraWorkspaceRef} open={cameraWorkspaceOpen} initialQuestion={cameraQuestion} onClose={() => { setCameraQuestion(''); setCameraWorkspaceOpen(false) }} onQuestion={async (image, cameraName, prompt) => { setCameraQuestion(''); setCameraWorkspaceOpen(false); setActive('Chat'); await sendVisionQuestion(prompt || `O que você vê na ${cameraName}?`, image, cameraName) }} />
+      <CameraWorkspace ref={cameraWorkspaceRef} open={cameraWorkspaceOpen} initialQuestion={cameraQuestion} onClose={() => { setCameraQuestion(''); setCameraWorkspaceOpen(false) }} onQuestion={async (frames, prompt) => { setCameraQuestion(''); setCameraWorkspaceOpen(false); setActive('Chat'); const reply = await sendVisionQuestion(prompt || `O que você vê na ${frames[0].cameraName}?`, frames[0].image, frames[0].cameraName, frames); if (cameraFromVoice.current && reply) await speakText(reply); cameraFromVoice.current = false }} />
       {cinemaLauncherOpen && (
         <Suspense fallback={null}>
           <CinemaModal
@@ -1116,6 +1154,7 @@ export default function App() {
         </Suspense>
       )}
       {visionResult && <div className="tool-modal" role="dialog" aria-modal="true" aria-label="Análise visual"><section className="vision-modal"><button className="modal-close" onClick={() => setVisionResult(null)} aria-label="Fechar">×</button><p className="eyebrow">FERRAMENTA · VISÃO</p><h2>Análise de tela</h2>{visionResult.imageUrl && <img src={visionResult.imageUrl} alt="Captura de tela analisada" />}<p>{visionResult.reply}</p></section></div>}
+      {!pairedAndroid && <LiveEnrollment />}
       {liveCallOpen && (
         <Suspense fallback={null}>
           <LiveCallModal open={liveCallOpen} onClose={closeLiveCall} recording={liveCallRecording} status={liveCallStatus} audioDiagnostics={liveAudioDiagnostics} userTranscript={liveUserTranscript} jarvisTranscript={liveJarvisTranscript} turns={liveTurns} orbState={liveOrbState} onToggleCapture={toggleLiveCallCapture} onBargeIn={triggerBargeIn} pushToTalkMode={pushToTalkMode} onTogglePushToTalk={togglePushToTalk} onPttStart={startPtt} onPttEnd={stopPtt} isPttActive={isPttActive} />

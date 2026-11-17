@@ -190,7 +190,18 @@ class WakeWordDetector:
         stream = None
 
         def open_stream():
+            from app.storage.runtime_settings import get_mic_settings
+            from app.services.voice.mic_capture import match_input_device
+            name = get_mic_settings()["device_name"]
+            devices = []
+            if name:
+                host_api = pa.get_default_input_device_info()["hostApi"]
+                for index in range(pa.get_device_count()):
+                    info = pa.get_device_info_by_index(index)
+                    if info["maxInputChannels"] > 0 and info["hostApi"] == host_api:
+                        devices.append({"index": index, "name": str(info["name"])})
             return pa.open(
+                input_device_index=match_input_device(name, devices),
                 format=pyaudio.paInt16,
                 channels=1,
                 rate=self.sample_rate,

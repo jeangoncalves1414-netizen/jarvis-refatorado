@@ -1,5 +1,6 @@
 import { ApiKeyFields } from '../components/ApiKeyFields'
 import { AppLockSettings } from '../components/AppLock'
+import { CameraSettings } from '../components/CameraSettings'
 import { useState, useEffect, type ReactNode } from 'react'
 import { ModeModelSettings } from '../components/ModeModelSettings'
 import { Switch } from '../components/Switch'
@@ -169,6 +170,7 @@ export function SettingsPage({
   const updateLayout = (next: SettingsLayout) => { setLayout(next); saveSettingsLayout(next) }
 
   const sections: SectionDef[] = [
+    { id: 'cameras', label: 'Câmeras', icon: <Eye size={16} />, keywords: 'camera webcam usb sala quarto visão', render: () => <CameraSettings /> },
     { id: 'app-lock', label: 'Senha e desbloqueio', icon: <ShieldCheck size={16} />, keywords: 'senha segurança bloquear rosto voz biometria', render: () => <AppLockSettings /> },
     {
       id: 'personas', label: 'Personalidade e Briefings', icon: <Sparkles size={16} />, keywords: 'personalidade personas briefing matinal desafio matinal tom estilo nome jarvis sexta-feira regras assistente',

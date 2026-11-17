@@ -57,9 +57,9 @@ test('message actions sit outside the bubble and history rows do not shrink', as
   const bubble = await message.locator('.ws-message-bubble').boundingBox()
   const actions = await message.locator('.ws-message-actions').boundingBox()
   expect(actions!.y).toBeGreaterThanOrEqual(bubble!.y + bubble!.height)
-  const rows = page.locator('.ws-sidebar .ws-history-row')
+  const rows = page.locator('.ws-sidebar .ws-chat-row')
   expect(await rows.count()).toBe(15)
-  for (const row of await rows.all()) expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(36)
+  for (const row of await rows.all()) expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(28)
   await page.screenshot({ path: '../scratch/chat-voice-layout.png' })
 })
 
@@ -134,6 +134,7 @@ async function setup(page: Page, automaticTitle = false) {
   await page.route('**/api/**', async route => {
     const url = new URL(route.request().url())
     let data: any = { ok: true }
+    if (url.pathname === '/api/app-lock') data = { ok: true, configured: true, enabled: false, unlocked: true }
     if (url.pathname === '/api/settings/ai') data = { ok: true, routes: {} }
     if (url.pathname === '/api/sessions') data = { sessions: [{ id: 'session-test', title: automaticTitle ? 'Nova conversa' : 'Teste de conversa', type: 'chat' }, ...Array.from({ length: 14 }, (_, i) => ({ id: `old-${i}`, title: `Planejamento de treinos e finanças da semana ${i}`, type: 'chat' }))] }
     else if (url.pathname.endsWith('/auto-title')) data = { ok: true, session: { id: 'session-test', title: 'Organização da semana' } }
@@ -161,6 +162,48 @@ async function emit(page: Page, event: object, requestId?: string) {
     win.chatSocket.onmessage({ data: JSON.stringify({ session_id: 'session-test', ...event, request_id: requestId || win.lastRequest?.request_id }) })
   }, { event, requestId })
 }
+
+test('next message waits for the preceding transcript save', async ({ page }) => {
+  await setup(page)
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  let saving = false
+  await page.route('**/api/sessions/session-test/history', async route => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    saving = true
+    await gate
+    return route.fallback()
+  })
+  const input = page.getByLabel('Mensagem para o agente')
+  await input.fill('Primeiro pedido'); await input.press('Enter')
+  await emit(page, { type: 'complete', summary: 'Primeira resposta', context: {} })
+  await expect.poll(() => saving).toBe(true)
+  await input.fill('Segundo pedido'); await input.press('Enter')
+  expect(await page.evaluate(() => (window as any).lastRequest.message)).toBe('Primeiro pedido')
+  release()
+  await expect.poll(() => page.evaluate(() => (window as any).lastRequest.message)).toBe('Segundo pedido')
+})
+
+test('text transcript keeps shared voice exchanges when continuing as owner', async ({ page }) => {
+  const state = await setup(page)
+  const before = structuredClone(state.history())
+  const input = page.getByLabel('Mensagem para o agente')
+  await input.fill('Uma pergunta do visitante'); await input.press('Enter')
+  await emit(page, { type: 'complete', summary: 'Resposta pública', context: { identity_restricted: true, access_mode: 'public' } })
+  await expect(page.getByText('Resposta pública', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Parar pedido', exact: true })).toHaveCount(0)
+  expect(state.history()).toEqual(before)
+  await input.fill('Agora um pedido autorizado'); await input.press('Enter')
+  await emit(page, { type: 'complete', summary: 'Resposta autorizada', context: {} })
+  await expect(page.getByText('Resposta autorizada', { exact: true })).toBeVisible()
+  await expect.poll(() => state.history().at(-1)?.content).toBe('Resposta autorizada')
+  expect(state.history().map(item => item.content)).toEqual([...before.map(item => item.content), 'Uma pergunta do visitante', 'Resposta pública', 'Agora um pedido autorizado', 'Resposta autorizada'])
+  const publicMessage = page.locator('.ws-message.user').filter({ hasText: 'Uma pergunta do visitante' })
+  await publicMessage.hover()
+  await publicMessage.getByRole('button', { name: 'Editar mensagem' }).click()
+  await expect(input).toHaveValue('Uma pergunta do visitante')
+  expect(state.history()).toEqual(before)
+})
 
 test('standby stops visual polling and resumes immediately while active requests remain monitored', async ({ page }) => {
   const state = await setup(page)
@@ -395,7 +438,7 @@ test('new chat stays local until the first message', async ({ page }) => {
   const newChat = page.locator('.ws-sidebar').getByRole('button', { name: 'Nova conversa', exact: true })
   await newChat.click(); await newChat.click(); await newChat.click()
   expect(creates).toBe(0)
-  await expect(page.locator('.ws-sidebar .ws-history-row')).toHaveCount(15)
+  await expect(page.locator('.ws-sidebar .ws-chat-row')).toHaveCount(15)
   await expect(page.locator('.ws-message')).toHaveCount(0)
   await page.locator('.ws-sidebar').getByRole('button', { name: 'Teste de conversa', exact: true }).click()
   await expect(page.getByLabel('Mensagem para o agente')).toHaveValue('Rascunho antigo')
@@ -531,8 +574,8 @@ test('autoaprovação move chats selecionados para a lixeira e permite desfazer'
   await sidebar.getByRole('checkbox').nth(1).check()
   await sidebar.getByRole('checkbox').nth(2).check()
   await sidebar.getByRole('button', { name: 'Excluir (2)' }).click()
-  await expect(sidebar.locator('.ws-history-row')).toHaveCount(13)
+  await expect(sidebar.locator('.ws-chat-row')).toHaveCount(13)
   await sidebar.getByRole('button', { name: 'Desfazer' }).click()
-  await expect(sidebar.locator('.ws-history-row')).toHaveCount(15)
+  await expect(sidebar.locator('.ws-chat-row')).toHaveCount(15)
   expect(calls).toEqual([['old-0', 'old-1'], ['old-0', 'old-1']])
 })

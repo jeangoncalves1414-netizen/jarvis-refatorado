@@ -11,10 +11,13 @@ android {
         applicationId = "com.example.jarvismobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.3.0"
+        versionCode = 10
+        versionName = "1.8.1"
     }
 
+    sourceSets["main"].assets.setSrcDirs(listOf("src/main/routineAssets"))
+    sourceSets["debug"].res.srcDir("src/localPanel/res")
+    sourceSets["release"].res.srcDir("src/localPanel/res")
     buildTypes {
         release {
             isMinifyEnabled = false

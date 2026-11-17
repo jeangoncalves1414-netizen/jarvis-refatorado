@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+!.env.example
+__pycache__
+*.pyc
+.pytest_cache
+data
+scratch
+backups
+frontend/node_modules
+frontend/dist
+mobile_app
+evolute
+tests
+docs

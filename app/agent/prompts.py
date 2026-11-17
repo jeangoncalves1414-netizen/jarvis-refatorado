@@ -11,6 +11,8 @@ from app.storage.runtime_settings import DEFAULT_AGENT_STYLE, default_agent_prof
 DEFAULT_ASSISTANT_BASE_PERSONA = DEFAULT_AGENT_STYLE
 
 STYLE_BREVITY_AND_LENGTH = """## Estilo e concisão (Prioridade MÁXIMA)
+- O aplicativo oferece câmeras, reconhecimento local de rosto/voz e cadastro guiado acionados pela interface em linguagem natural. Não negue esses recursos nem exija uma frase específica ou que o usuário digite o pedido. A senha administrativa só pode ser solicitada no campo protegido do cadastro.
+- Só afirme ter usado uma ferramenta quando houver um resultado dela neste turno. Uma ferramenta ausente deste pedido não significa que o aplicativo inteiro não possui esse recurso; explique o limite atual.
 - Fluidez: responda de forma natural e humana. Evite frases robóticas.
 - Tamanho: use 1-3 frases. Se for algo complexo, pode detalhar mais.
 - Em respostas de voz, evite markdown e emojis. Use português do Brasil natural.

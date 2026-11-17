@@ -11,6 +11,7 @@ from app.services.voice import mic_capture
 from app.ui.panel.api.voice import _get_pipeline
 
 _LOOPBACK = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
+_speaker_identification_enabled = False
 _FORBIDDEN = (403, {"ok": False, "error": "A captura de microfone do PC só aceita pedidos locais."})
 
 
@@ -24,7 +25,17 @@ def _transcriber(handler: Any):
         pipeline = _get_pipeline(handler)
         if pipeline is None:
             return {"ok": False, "error": "Serviço de voz indisponível."}
-        return pipeline.transcribe_bytes(wav, suffix=".wav")
+        identify = _speaker_identification_enabled
+        if identify:
+            from app.services import turn_speaker
+            analysis = turn_speaker.start(wav, "audio/wav")
+        result = pipeline.transcribe_bytes(wav, suffix=".wav")
+        if result.get("ok") and identify and _speaker_identification_enabled:
+            speaker = turn_speaker.finish(analysis, raw=wav, transcribe=pipeline.transcribe_bytes, transcript=result.get('text', ''))
+            if not _speaker_identification_enabled:
+                return result
+            result["speaker"] = speaker
+        return result
     return transcribe
 
 
@@ -82,7 +93,7 @@ def _start_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
         "sensitivity": float(payload.get("sensitivity", saved["sensitivity"])),
         "silence_ms": float(payload.get("silence_ms", saved["silence_ms"])),
         "gain": float(payload.get("gain", saved["gain"])),
-        "device_name": str(payload.get("device_name", saved["device_name"]) or ""),
+        "device_name": saved["device_name"],
     }
 
 
@@ -123,6 +134,7 @@ def _run_test(handler: Any, payload: dict[str, Any]) -> tuple[int, dict[str, Any
 
 
 def handle_capture_post(path: str, body: bytes, handler: Any) -> tuple[int, dict[str, Any]] | None:
+    global _speaker_identification_enabled
     if not path.startswith("/api/voice/capture/"):
         return None
     if not _is_local(handler):
@@ -135,15 +147,26 @@ def handle_capture_post(path: str, body: bytes, handler: Any) -> tuple[int, dict
         return 400, {"ok": False, "error": "JSON inválido."}
     capture = mic_capture.capture
     action = path.rsplit("/", 1)[-1]
+    if action == "identity":
+        _speaker_identification_enabled = payload.get("enabled") is True
+        if _speaker_identification_enabled:
+            from app.services.turn_speaker import warmup
+            warmup()
+        return 200, {"ok": True, "enabled": _speaker_identification_enabled}
     if action == "start":
         try:
             kwargs = _start_kwargs(payload)
         except (TypeError, ValueError):
             return 400, {"ok": False, "error": "Parâmetros inválidos."}
+        _speaker_identification_enabled = payload.get("identify_speakers") is True
+        if _speaker_identification_enabled:
+            from app.services.turn_speaker import warmup
+            warmup()
         result = capture.start(**kwargs, transcribe=_transcriber(handler), semantic_turns=payload.get("semantic_turns") is True)
-        diagnostic_record("voice.capture", "start" if result.get("ok") else "start_failed", "INFO" if result.get("ok") else "WARN", error=result.get("error"))
+        diagnostic_record("voice.capture", "start" if result.get("ok") else "start_failed", "INFO" if result.get("ok") else "WARN", error=result.get("error"), identify_speakers=_speaker_identification_enabled)
         return 200, result
     if action == "stop":
+        _speaker_identification_enabled = False
         capture.stop()
         diagnostic_record("voice.capture", "stop", "INFO")
         return 200, {"ok": True}

@@ -244,7 +244,8 @@ class LLMService:
         except ImportError:
             parse_tool_markers = None
 
-        for msg in history[-20:]:
+        from app.agent.context_budget import conversation_messages
+        for msg in conversation_messages(history):
             role = msg.get("role", "user")
             text = (msg.get("content") or msg.get("text") or "").strip()
             if not text:
@@ -822,15 +823,10 @@ class LLMService:
                         last_user_msg = text
                         break
 
-            # Construir histórico sem a última mensagem do usuário
-            history_msgs = []
-            matched_last = False
-            for m in (messages or []):
-                text = (m.get("content") or m.get("text") or "").strip()
-                if m.get("role") == "user" and text == last_user_msg and not matched_last:
-                    matched_last = True
-                    continue
-                history_msgs.append(m)
+            # Remove the actual last user item, not an older identical question.
+            last_index = next((i for i in range(len(messages or []) - 1, -1, -1)
+                               if messages[i].get('role') == 'user'), -1)
+            history_msgs = [m for i, m in enumerate(messages or []) if i != last_index]
 
             contents = self.build_contents(history_msgs, last_user_msg)
             if not contents:
@@ -1188,7 +1184,7 @@ class LLMService:
         from app.agent.context_budget import conversation_messages
         normalized = [{"role": m.get("role", "user"), "content": str(m.get("content") or m.get("text") or "")} for m in (messages or [])]
         # Keep the latest request intact; only omit older history from the API payload.
-        formatted_messages.extend(conversation_messages(normalized[-10:], budget=10000))
+        formatted_messages.extend(conversation_messages(normalized, budget=16000))
 
         groq_tools = None
         if tools:
@@ -1651,8 +1647,9 @@ class LLMService:
             _log(f"[Groq Function Calling Stream] Erro: {e}")
             err_str = str(e).lower()
             if not context_reduced and ("413" in err_str or "too large" in err_str or "message size" in err_str):
-                print("[Groq] Contexto excedeu limite de TPM/tamanho (413). Compactando histórico para 3 mensagens...")
-                reduced_messages = (messages or [])[-3:]
+                print("[Groq] Limite de tamanho (413). Reduzindo contexto e preservando o checkpoint...")
+                from app.agent.context_budget import conversation_messages
+                reduced_messages = conversation_messages(messages or [], budget=4500)
                 try:
                     return self._chat_groq_stream(
                         system_instruction=system_instruction,

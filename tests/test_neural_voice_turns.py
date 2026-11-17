@@ -45,10 +45,10 @@ def run_capture(audio, probabilities):
 
 
 def test_hesitation_keeps_audio_until_neural_completion():
-    _, submitted = run_capture(frames(1, True) + frames(4, False) + frames(1, True) + frames(2, False), [0.1, 0.95])
+    _, submitted = run_capture(frames(1, True) + frames(2, False) + frames(1, True) + frames(2, False), [0.1, 0.95])
     assert len(submitted) == 1
     assert submitted[0][1]["turn_complete"] is True
-    assert submitted[0][0][4] > 6  # Both spoken portions and thinking pause retained.
+    assert submitted[0][0][4] > 4  # Both spoken portions and thinking pause retained.
 
 
 def test_max_segment_is_not_permission_to_answer():
@@ -59,14 +59,15 @@ def test_max_segment_is_not_permission_to_answer():
 
 
 def test_uncertain_model_waits_but_does_not_wait_forever():
-    _, submitted = run_capture(frames(1, True) + frames(7, False), [0.1])
+    _, submitted = run_capture(frames(1, True) + frames(2, False), [0.1])
     assert not submitted
-    _, submitted = run_capture(frames(1, True) + frames(9, False), [0.1])
+    _, submitted = run_capture(frames(1, True) + frames(4, False), [0.1])
     assert len(submitted) == 1
-    assert not endpoint_ready(4, 0.1)
-    assert not endpoint_ready(1, 0.99)
-    assert endpoint_ready(1.6, 0.9)
-    assert endpoint_ready(8.1, None)
+    assert not endpoint_ready(1.8, 0.1)
+    assert not endpoint_ready(.7, 0.99)
+    assert endpoint_ready(.8, 0.9)
+    assert endpoint_ready(2.1, None)
+    assert endpoint_ready(3.1, 0.1)
 
 
 def test_noise_without_voice_does_not_submit():
@@ -97,7 +98,7 @@ def test_prediction_from_previous_pause_cannot_finish_new_speech():
             self.calls += 1
             return delayed if self.calls == 1 else super().submit(fn, *args)
     worker = Worker()
-    iterator = iter(frames(1, True) + frames(2, False) + frames(1, True) + frames(4, False))
+    iterator = iter(frames(1, True) + frames(1.5, False) + frames(1, True) + frames(2, False))
     def read(_):
         frame = next(iterator, b"")
         if frame and frame[0] and worker.calls and not delayed.done():

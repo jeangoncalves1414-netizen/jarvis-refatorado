@@ -18,7 +18,7 @@ export type MemoryCitation = { id: string; text: string; date: string; label: st
 /** Metadados do turno, só ao vivo (não vão para o histórico salvo). */
 export type ToolActivityEntry = { id: string; tool: string; status: string; label?: string; speech?: string; result?: string; detail?: string; sources?: { url: string; title: string; read?: boolean }[] }
 export type ContextUsage = { provider: string; model: string; estimated_tokens: number; before_tokens: number; budget: number | null; reduced: boolean }
-export type TurnMeta = { context_usage?: ContextUsage[]; tool_activity?: ToolActivityEntry[]; memory_lookup?: { tool: string; summary: string; items: { title: string; text: string }[] }; situational_context?: { text: string; sources: { key: string; label: string }[]; chars: number }; memory_used?: MemoryCitation[] }
+export type TurnMeta = { access_mode?: 'public'; context_usage?: ContextUsage[]; tool_activity?: ToolActivityEntry[]; memory_lookup?: { tool: string; summary: string; items: { title: string; text: string }[] }; situational_context?: { text: string; sources: { key: string; label: string }[]; chars: number }; memory_used?: MemoryCitation[] }
 export type ChatMessage = { timestamp?: number; activity?: ToolActivityEntry[]; role: 'user' | 'assistant'; content: string; run_id?: string; meta?: TurnMeta }
 export type ScriptRequest = { language: 'python' | 'powershell'; code: string; description: string }
 export type StudyCategory = { id: string; name: string; color: string; created_at?: number }
