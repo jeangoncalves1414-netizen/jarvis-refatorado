@@ -123,3 +123,10 @@
   .today-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .today-cell + .today-cell { border-inline-start: 0; padding-inline-start: 0; border-top: 1px solid var(--ws-border); padding-top: 12px; }
 }
+
+@media (max-width: 640px) {
+  .lo-frame-bar { gap: 4px; padding: 6px 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .lo-frame-bar small { display: none; }
+  .lo-frame-bar strong { flex: 1 0 auto; margin-right: 4px; font-size: 12px; }
+  .lo-frame-bar .lo-btn { min-height: 32px; padding: 5px 8px; white-space: nowrap; font-size: 11px; }
+}

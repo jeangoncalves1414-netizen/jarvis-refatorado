@@ -128,7 +128,17 @@
 .ws-popup-places-attribution { color: var(--ws-muted); font-size: 10px; }
 
 @media (max-width: 640px) {
-  .ws-popup-layer { top: 8px; right: 8px; left: 8px; bottom: auto; width: auto; max-width: none; align-items: stretch; }
+  /* Mantém o aviso acima da navegação fixa e dentro da área segura do celular. */
+  .ws-popup-layer { top: calc(8px + env(safe-area-inset-top, 0px)); right: 8px; bottom: calc(72px + env(safe-area-inset-bottom, 0px)); left: 8px; width: auto; max-width: none; align-items: stretch; gap: 8px; }
+  .ws-popup { display: flex; flex-direction: column; max-height: 100%; }
+  .ws-popup-head { min-height: 44px; height: auto; padding-left: 12px; }
+  .ws-popup-button { width: 36px; height: 36px; }
+  .ws-popup-body { flex: 1 1 auto; max-height: none; padding: 10px 12px 14px; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  .ws-popup-item { padding: 8px; }
+  .ws-popup-habit { align-items: flex-start; min-height: 34px; }
+  .ws-popup-habit-check { margin-top: 1px; }
+  .ws-popup-habit-name { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
+  .ws-popup-habit-meta { padding-top: 2px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

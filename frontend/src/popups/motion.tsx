@@ -88,6 +88,9 @@ export function PopupFrame({ id, title, icon: Icon, pinned, tone, ttl, onPin, on
       onKeyDown={onKeyDown}
       onMouseEnter={() => onPause?.(true)}
       onMouseLeave={() => onPause?.(false)}
+      onPointerDown={() => onPause?.(true)}
+      onPointerUp={() => onPause?.(false)}
+      onPointerCancel={() => onPause?.(false)}
       onFocus={() => onPause?.(true)}
       onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onPause?.(false) }}
     >

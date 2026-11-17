@@ -3,18 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="jarvis-mobile-android" content="cloud" />
-    <script>
-      // The owner's phone is paired, so opening-password protection starts
-      // optional. The current PC panel exposes the setting to turn it on.
-      if (!document.cookie.split('; ').some(cookie => cookie.startsWith('jarvis_mobile_lock='))) {
-        document.cookie = 'jarvis_mobile_lock=off; Path=/; Max-Age=31536000; Secure; SameSite=Strict'
-      }
-    </script>
     <meta name="color-scheme" content="dark" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="Jarvis" />
+    <meta name="jarvis-mobile-android" content="cloud" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="apple-touch-icon" href="/icon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -22,15 +15,20 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@400;600;700;800&display=swap" rel="stylesheet" />
     <title>Workspace · Agente pessoal</title>
-    <script type="module" crossorigin src="/assets/index-DnrcWQ1e.js"></script>
+    <script type="module" crossorigin src="/assets/index-BHmohaLg.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/vendor-icons-CDOxNCTb.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-motion-DS5Be5Oy.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-react-C99NDq-K.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-mermaid-DZ3ncRfq.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-hls-DkI61o3c.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-DRNLIW5c.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-CVPZZAwc.css">
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      if (!document.cookie.split('; ').some(cookie => cookie.startsWith('jarvis_mobile_lock='))) {
+        document.cookie = 'jarvis_mobile_lock=off; Path=/; Max-Age=31536000; Secure; SameSite=Strict'
+      }
+    </script>
   </body>
 </html>
