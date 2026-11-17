@@ -23,3 +23,20 @@ CREATE TABLE IF NOT EXISTS preferences (
   value TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS habits (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  normalized_name TEXT NOT NULL UNIQUE,
+  days_of_week TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS habit_completions (
+  habit_id TEXT NOT NULL,
+  date_key TEXT NOT NULL,
+  completed_at TEXT NOT NULL,
+  PRIMARY KEY (habit_id, date_key),
+  FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE
+);

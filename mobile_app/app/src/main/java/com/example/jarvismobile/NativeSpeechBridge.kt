@@ -14,7 +14,11 @@ import android.webkit.WebView
 import org.json.JSONObject
 
 /** Uses Android's proven speech service when this WebView cannot open its audio source. */
-class NativeSpeechBridge(private val context: Context, private val page: WebView) {
+class NativeSpeechBridge(
+    private val context: Context,
+    private val page: WebView,
+    private val onListeningChanged: (Boolean) -> Unit,
+) {
     private val main = Handler(Looper.getMainLooper())
     private val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var recognizer: SpeechRecognizer? = null
@@ -25,6 +29,8 @@ class NativeSpeechBridge(private val context: Context, private val page: WebView
     @JavascriptInterface fun startSpeech(continuousMode: Boolean) = main.post {
         continuous = continuousMode
         listening = true
+        VoiceSessionService.start(context)
+        onListeningChanged(true)
         beginListening()
     }
 
@@ -33,6 +39,8 @@ class NativeSpeechBridge(private val context: Context, private val page: WebView
         continuous = false
         runCatching { recognizer?.cancel() }
         restoreAudio()
+        VoiceSessionService.stop(context)
+        onListeningChanged(false)
     }
 
     fun destroy() = main.post {
@@ -40,6 +48,8 @@ class NativeSpeechBridge(private val context: Context, private val page: WebView
         restoreAudio()
         runCatching { recognizer?.destroy() }
         recognizer = null
+        VoiceSessionService.stop(context)
+        onListeningChanged(false)
     }
 
     private fun beginListening() {
@@ -110,6 +120,11 @@ class NativeSpeechBridge(private val context: Context, private val page: WebView
 
     private fun retry() {
         if (listening && continuous) main.postDelayed({ beginListening() }, 350L)
+        else {
+            listening = false
+            VoiceSessionService.stop(context)
+            onListeningChanged(false)
+        }
     }
 
     private fun emit(method: String, value: String) {

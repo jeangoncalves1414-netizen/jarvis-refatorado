@@ -23,6 +23,8 @@ class PanelActivity : Activity() {
     private var dialog: AlertDialog? = null
     private var mediaRequest: PermissionRequest? = null
     private var picker: ValueCallback<Array<Uri>>? = null
+    private var panelVisible = true
+    private var voiceActive = false
     // The mobile panel deliberately supports only the microphone. Face and
     // voice identity capture belong to the desktop and are not used here.
     private val mediaPermissions = mapOf(
@@ -59,7 +61,10 @@ class PanelActivity : Activity() {
                 startActivity(Intent(this@PanelActivity, RoutineActivity::class.java))
             }
         }, "JarvisMobile")
-        nativeSpeech = NativeSpeechBridge(this, page)
+        nativeSpeech = NativeSpeechBridge(this, page) { active ->
+            voiceActive = active
+            if (active) resumePanel() else if (!panelVisible) pausePanel()
+        }
         page.addJavascriptInterface(nativeSpeech, "Android")
         page.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -99,6 +104,28 @@ class PanelActivity : Activity() {
         }
         if (state == null) WifiRoutine.start(this)
         connect()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        panelVisible = true
+        resumePanel()
+    }
+
+    override fun onStop() {
+        panelVisible = false
+        if (!voiceActive) pausePanel()
+        super.onStop()
+    }
+
+    private fun pausePanel() {
+        page.onPause()
+        page.pauseTimers()
+    }
+
+    private fun resumePanel() {
+        page.onResume()
+        page.resumeTimers()
     }
 
     private fun resolveMedia(request: PermissionRequest) {

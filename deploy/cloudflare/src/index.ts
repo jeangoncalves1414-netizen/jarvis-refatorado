@@ -17,6 +17,7 @@ const MAX_TEXT = 12_000;
 const MAX_AUDIO = 25 * 1024 * 1024;
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
+type Habit = { id: string; name: string; days_of_week: string[]; completed_today: boolean; created_at: string; updated_at: string };
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
@@ -55,6 +56,44 @@ function cleanText(value: unknown, max = MAX_TEXT): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
 
+function normalizeHabit(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function requestedHabit(message: string): string | null {
+  const match = message.match(/^\s*(?:crie|criar|adicione|adicionar|registre|registrar|quero criar)\s+(?:um\s+|o\s+)?h[áa]bito(?:\s+(?:de|para))?\s+(.+?)[.?!]*\s*$/i);
+  if (!match) return null;
+  const name = cleanText(match[1], 120).replace(/\s+(?:todos os dias|todo dia|diariamente)$/i, "").trim();
+  return name.length >= 2 ? name : null;
+}
+
+async function createHabit(db: D1Database, name: string): Promise<{ habit: Habit; created: boolean }> {
+  const normalized = normalizeHabit(name);
+  const existing = await db.prepare("SELECT id, name, days_of_week, created_at, updated_at FROM habits WHERE normalized_name = ?")
+    .bind(normalized).first<{ id: string; name: string; days_of_week: string; created_at: string; updated_at: string }>();
+  if (existing) return { habit: { ...existing, days_of_week: JSON.parse(existing.days_of_week), completed_today: false }, created: false };
+  const timestamp = now();
+  const habit: Habit = { id: id(), name, days_of_week: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], completed_today: false, created_at: timestamp, updated_at: timestamp };
+  await db.prepare("INSERT INTO habits (id, name, normalized_name, days_of_week, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(habit.id, habit.name, normalized, JSON.stringify(habit.days_of_week), timestamp, timestamp).run();
+  return { habit, created: true };
+}
+
+async function listHabits(env: Env): Promise<Response> {
+  const rows = await env.JARVIS_DB.prepare("SELECT id, name, days_of_week, created_at, updated_at FROM habits ORDER BY created_at DESC")
+    .all<{ id: string; name: string; days_of_week: string; created_at: string; updated_at: string }>();
+  const habits = (rows.results || []).map((habit) => ({ ...habit, days_of_week: JSON.parse(habit.days_of_week), completed_today: false }));
+  return json({ ok: true, habits });
+}
+
+async function createHabitFromApi(request: Request, env: Env): Promise<Response> {
+  const body = await readJson(request);
+  const name = cleanText(body?.name, 120);
+  if (name.length < 2) return error("Informe o nome do hábito.");
+  const result = await createHabit(env.JARVIS_DB, name);
+  return json({ ok: true, ...result }, result.created ? 201 : 200);
+}
+
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {
   try {
     const body: unknown = await request.json();
@@ -89,6 +128,7 @@ function systemPrompt(): string {
     "Responda de forma natural, objetiva e útil.",
     "Você está no painel mobile, independente do PC. Não alegue controlar o computador, arquivos locais, câmera, microfone ou aplicativos do Windows.",
     "Não peça verificação facial nem de voz. Para alarmes, oriente a usuária a abrir a aba Rotina do aplicativo.",
+    "Você pode criar hábitos no painel mobile quando a usuária pedir explicitamente, por exemplo: 'crie o hábito de ler'. Confirme a criação de forma breve.",
   ].join(" ");
 }
 
@@ -154,6 +194,13 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
   const history = await sessionHistory(env.JARVIS_DB, sessionId);
   await saveMessage(env.JARVIS_DB, sessionId, "user", message);
   try {
+    const habitName = requestedHabit(message);
+    if (habitName) {
+      const result = await createHabit(env.JARVIS_DB, habitName);
+      const reply = result.created ? `Pronto, criei o hábito “${result.habit.name}” para todos os dias.` : `O hábito “${result.habit.name}” já está na sua rotina.`;
+      await saveMessage(env.JARVIS_DB, sessionId, "assistant", reply);
+      return json({ ok: true, status: "complete", session_id: sessionId, reply, summary: reply, intent: "habit_create", actions: [{ type: "habit_created", habit: result.habit }], context: { mobile: true } });
+    }
     const reply = await respond(env, [...history, { role: "user", content: message }]);
     await saveMessage(env.JARVIS_DB, sessionId, "assistant", reply);
     return json({ ok: true, status: "complete", session_id: sessionId, reply, summary: reply, intent: "chat", actions: [], context: { mobile: true } });
@@ -309,6 +356,8 @@ export default {
     if (url.pathname === "/api/voice/tts" && request.method === "POST") return handleTts(request, env);
     if (url.pathname === "/api/voice/tts/stream" && request.method === "POST") return handleTts(request, env);
     if (url.pathname === "/api/voice/stt" && request.method === "POST") return handleStt(request, env);
+    if (url.pathname === "/api/lifeos/habits" && request.method === "GET") return listHabits(env);
+    if (url.pathname === "/api/lifeos/habits" && request.method === "POST") return createHabitFromApi(request, env);
     if (url.pathname === "/api/sessions" && request.method === "GET") return listSessions(env);
     if (url.pathname === "/api/sessions" && request.method === "POST") return createSession(request, env);
     if (url.pathname === "/api/session" && request.method === "GET") return getSession(url, env);
