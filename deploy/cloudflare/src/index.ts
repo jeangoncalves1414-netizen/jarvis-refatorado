@@ -765,6 +765,12 @@ export default {
     const controller = await remoteController(request, env);
     if (controller && url.pathname === "/api/remote/status" && request.method === "GET") return remoteControl(request, env, controller);
     if (controller && url.pathname === "/api/remote/command" && request.method === "POST") return remoteControl(request, env, controller);
+    // The Android WebView enters through /app/. This is only the public
+    // document shell; every data/action API below still requires the device
+    // token. Serve it before the API authentication guard.
+    if (url.pathname === "/app" || url.pathname === "/app/") {
+      return env.ASSETS.fetch(new Request(new URL("/index.html", url), request));
+    }
     if (!authenticated(request, env)) return error("Sessão do aparelho não autorizada.", 401);
     if (url.pathname === "/api/remote/register" && request.method === "POST") return remoteDevice(request, env, "register");
     if (url.pathname === "/api/remote/pair-code" && request.method === "POST") return remoteDevice(request, env, "pair-code");
@@ -800,10 +806,7 @@ export default {
     const compatible = mobileCompatibility(url.pathname, env);
     if (compatible) return compatible;
     if (url.pathname.startsWith("/api/")) return error("Endpoint mobile não encontrado.", 404);
-    // The Android app opens /app/. The PC bundle uses absolute /assets URLs,
-    // so map that entry point to the same root document rather than keeping a
-    // visually different mobile-only page.
-    if (url.pathname === "/" || url.pathname === "/app" || url.pathname === "/app/") {
+    if (url.pathname === "/") {
       return env.ASSETS.fetch(new Request(new URL("/index.html", url), request));
     }
     return env.ASSETS.fetch(request);

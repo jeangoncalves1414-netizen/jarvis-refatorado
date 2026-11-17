@@ -40,7 +40,9 @@ export default defineConfig({
         manualChunks: {
           'vendor-react': ['react', 'react-dom'],
           'vendor-icons': ['lucide-react'],
-          'vendor-motion': ['framer-motion'],
+          // Não force `framer-motion` como entrada sintética: no WebView do
+          // Android isso preservava um `require` CommonJS no chunk publicado.
+          // O Rollup deve seguir os imports reais para gerar JavaScript web.
           'vendor-hls': ['hls.js'],
           'vendor-mermaid': ['mermaid'],
         },

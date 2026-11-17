@@ -25,6 +25,7 @@ class PanelActivity : Activity() {
     private var picker: ValueCallback<Array<Uri>>? = null
     private var panelVisible = true
     private var voiceActive = false
+    private var initialLoadRetried = false
     // The mobile panel deliberately supports only the microphone. Face and
     // voice identity capture belong to the desktop and are not used here.
     private val mediaPermissions = mapOf(
@@ -88,9 +89,22 @@ class PanelActivity : Activity() {
                 }
                 return true
             }
-            override fun onPageCommitVisible(view: WebView, url: String) { page.removeCallbacks(timeout) }
+            override fun onPageCommitVisible(view: WebView, url: String) {
+                initialLoadRetried = false
+                page.removeCallbacks(timeout)
+            }
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame) options(if (cloudMode) "Não foi possível alcançar o Jarvis na nuvem." else "Abra o Jarvis no PC e conecte o celular ao mesmo Wi-Fi.")
+                if (!request.isForMainFrame) return
+                // On some Android 11 devices WebView can issue its first DNS
+                // lookup before the activity receives the validated network.
+                // Retry the initial cloud navigation once rather than leaving
+                // the owner on Chromium's permanent error page.
+                if (cloudMode && !initialLoadRetried) {
+                    initialLoadRetried = true
+                    page.postDelayed({ if (!isDestroyed && !isFinishing) connect() }, 1_500)
+                } else {
+                    options(if (cloudMode) "Não foi possível alcançar o Jarvis na nuvem." else "Abra o Jarvis no PC e conecte o celular ao mesmo Wi-Fi.")
+                }
             }
             override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
                 if (request.isForMainFrame) options(if (cloudMode) "O Jarvis na nuvem recusou a conexão (HTTP ${response.statusCode})." else "O PC recusou a conexão (HTTP ${response.statusCode}). Verifique o pareamento.")
