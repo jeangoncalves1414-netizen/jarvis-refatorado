@@ -2,6 +2,7 @@
 import { DayPicker } from 'react-day-picker'
 import { ptBR } from 'react-day-picker/locale'
 import '../styles/calendar.css'
+import { isMobileStandalone } from '../hooks/useDirectChat'
 
 export type CalendarEvent = {
   id: string
@@ -68,6 +69,9 @@ export function CalendarSection({ onNotice }: CalendarSectionProps) {
       }) })
       const data = await response.json()
       if (!response.ok || !data.ok) throw new Error(data.error || 'Não foi possível criar o lembrete.')
+      const scheduledAt = data.event?.reminder_at
+      const bridge = window as Window & { JarvisMobile?: { scheduleReminder?: (id: string, message: string, targetTime: string) => void; cancelReminder?: (id: string) => void } }
+      if (isMobileStandalone() && typeof scheduledAt === 'string') bridge.JarvisMobile?.scheduleReminder?.(String(data.event.id), `Calendário: ${title.trim()}`, scheduledAt)
       setTitle('')
       setModalOpen(false)
       await loadEvents()
@@ -80,6 +84,7 @@ export function CalendarSection({ onNotice }: CalendarSectionProps) {
     const response = await fetch('/api/calendar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancel_reminder', id }) })
     const data = await response.json().catch(() => ({}))
     if (!response.ok || !data.ok) return onNotice?.(data.error || 'Não foi possível parar este lembrete.')
+    if (isMobileStandalone()) (window as Window & { JarvisMobile?: { cancelReminder?: (id: string) => void } }).JarvisMobile?.cancelReminder?.(id)
     await loadEvents()
   }
 

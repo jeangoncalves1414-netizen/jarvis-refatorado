@@ -4,6 +4,7 @@ import type { IdentityProfile, Memory, ProfileMemory } from '../types'
 import { VaultPanel } from '../components/VaultPanel'
 import { IdentityPage } from './IdentityPage'
 import { CitedMemoriesPanel } from '../components/CitedMemoriesPanel'
+import { isMobileStandalone } from '../hooks/useDirectChat'
 
 type MemoriesPageProps = {
   memories: Memory[]
@@ -38,6 +39,7 @@ export function MemoriesPage({
   onDeleteProfileMemory,
   onClearProfileMemory,
 }: MemoriesPageProps) {
+  const mobile = isMobileStandalone()
   const [newMemory, setNewMemory] = useState('')
   const [memoryKind, setMemoryKind] = useState('note')
   const [password, setPassword] = useState('')
@@ -74,19 +76,19 @@ export function MemoriesPage({
             {collection === 'conversations' ? 'Conversas globais' : 'Sobre você'}
           </button>
         ))}
-        <button type="button" className={memoryCollection === 'profile_memory' ? 'memory-tab-active' : ''} onClick={() => onSelectCollection('profile_memory')}>Por pessoa</button>
+        {!mobile && <button type="button" className={memoryCollection === 'profile_memory' ? 'memory-tab-active' : ''} onClick={() => onSelectCollection('profile_memory')}>Por pessoa</button>}
         <button type="button" className={memoryCollection === 'vault' ? 'memory-tab-active' : ''} onClick={() => onSelectCollection('vault')}>📑 Vault & Diários</button>
-        <button type="button" className={memoryCollection === 'identity' ? 'memory-tab-active' : ''} onClick={() => onSelectCollection('identity')}>👤 Perfis Biométricos & Câmera</button>
+        {!mobile && <button type="button" className={memoryCollection === 'identity' ? 'memory-tab-active' : ''} onClick={() => onSelectCollection('identity')}>👤 Perfis Biométricos & Câmera</button>}
       </div>
       {notice && <p className="settings-notice">{notice}</p>}
 
       {memoryCollection === 'cited' ? (
         <CitedMemoriesPanel />
-      ) : memoryCollection === 'identity' ? (
+      ) : !mobile && memoryCollection === 'identity' ? (
         <IdentityPage />
       ) : memoryCollection === 'vault' ? (
         <VaultPanel />
-      ) : memoryCollection === 'profile_memory' ? (
+      ) : !mobile && memoryCollection === 'profile_memory' ? (
         <div className="profile-memory-panel">
           <div className="profile-memory-toolbar">
             <select value={selectedProfileId} onChange={event => onSelectProfile(event.target.value)} aria-label="Perfil da memória">

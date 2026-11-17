@@ -232,7 +232,19 @@ export default function App() {
   }, [setNotice])
 
   useEffect(() => {
-    if (IS_MOBILE) return
+    if (IS_MOBILE) {
+      // The cloud panel does not have the desktop bridge, but its dashboard,
+      // conversations and reminders are all first-class cloud data.
+      fetch('/api/dashboard').then(response => response.json()).then(setDashboard).catch(() => undefined)
+      fetch('/api/memories?collection=conversations&limit=20').then(response => response.json()).then(data => setMemories(data.memories || [])).catch(() => undefined)
+      fetch('/api/proactive').then(response => response.json()).then(data => {
+        setProactive(data)
+        setBriefingTime(data.config?.briefing_time || '08:00')
+        setBriefingTopics(data.config?.topics || ['weather', 'tasks', 'news'])
+        setBriefingInstructions(data.config?.custom_instructions || '')
+      }).catch(() => undefined)
+      return
+    }
     fetch('/api/settings/keys')
       .then(res => res.json())
       .then(data => { if (data.ok && data.keys) setApiKeysState(data.keys) })
@@ -589,6 +601,10 @@ export default function App() {
     const response = await fetch('/api/proactive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add_reminder', reminder_message: reminderMessage.trim(), reminder_time: reminderTime.trim() || '+10m' }) })
     const data = await response.json()
     if (!response.ok) { setNotice(data.error || 'Não foi possível criar o lembrete.'); return }
+    const reminder = data.reminder as { id?: string; message?: string; target_time?: string } | undefined
+    if (IS_MOBILE && reminder?.id && reminder.message && reminder.target_time) {
+      try { (window as Window & { JarvisMobile?: { scheduleReminder?: (id: string, message: string, targetTime: string) => void } }).JarvisMobile?.scheduleReminder?.(reminder.id, reminder.message, reminder.target_time) } catch { /* the cloud reminder remains saved */ }
+    }
     setReminderMessage('')
     setNotice('Lembrete criado.')
     await refreshProactive()

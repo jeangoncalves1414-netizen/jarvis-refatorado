@@ -60,6 +60,13 @@ class PanelActivity : Activity() {
             @JavascriptInterface fun openRoutine() = runOnUiThread {
                 startActivity(Intent(this@PanelActivity, RoutineActivity::class.java))
             }
+            @JavascriptInterface fun scheduleReminder(id: String, message: String, targetTime: String) {
+                val at = runCatching { java.time.Instant.parse(targetTime).toEpochMilli() }.getOrNull() ?: return
+                scheduleReminder(this@PanelActivity, id.take(100), message.take(300), at)
+            }
+            @JavascriptInterface fun cancelReminder(id: String) {
+                cancelReminder(this@PanelActivity, id.take(100))
+            }
         }, "JarvisMobile")
         nativeSpeech = NativeSpeechBridge(this, page) { active ->
             voiceActive = active
@@ -103,6 +110,9 @@ class PanelActivity : Activity() {
             }
         }
         if (state == null) WifiRoutine.start(this)
+        if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 3)
+        }
         connect()
     }
 

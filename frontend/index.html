@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="jarvis-mobile-android" content="cloud" />
+    <script>
+      if (!document.cookie.split('; ').some(cookie => cookie.startsWith('jarvis_mobile_lock='))) {
+        document.cookie = 'jarvis_mobile_lock=off; Path=/; Max-Age=31536000; Secure; SameSite=Strict'
+      }
+    </script>
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="Jarvis" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />

@@ -41,3 +41,40 @@ CREATE TABLE IF NOT EXISTS habit_completions (
   PRIMARY KEY (habit_id, date_key),
   FOREIGN KEY (habit_id) REFERENCES habits(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS memory_facts (
+  id TEXT PRIMARY KEY,
+  text TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  session_id TEXT NOT NULL DEFAULT '',
+  origin TEXT NOT NULL DEFAULT 'mobile',
+  kind TEXT NOT NULL DEFAULT 'manual'
+);
+
+CREATE TABLE IF NOT EXISTS reminders (
+  id TEXT PRIMARY KEY,
+  message TEXT NOT NULL,
+  target_time TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  completed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  completed INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS calendar_events (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  start TEXT NOT NULL,
+  reminder_minutes INTEGER NOT NULL DEFAULT 0,
+  reminder_policy TEXT NOT NULL DEFAULT 'once',
+  reminder_at TEXT,
+  reminder_status TEXT NOT NULL DEFAULT 'scheduled',
+  created_at TEXT NOT NULL
+);
