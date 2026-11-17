@@ -41,7 +41,7 @@ class NativeSpeechBridge(private val context: Context, private val page: WebView
         val minBuffer = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         if (minBuffer <= 0) { failed("unavailable"); return }
         val recorder = try {
-            AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, rate, AudioFormat.CHANNEL_IN_MONO,
+            AudioRecord(MediaRecorder.AudioSource.MIC, rate, AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT, minBuffer * 2)
         } catch (_: Exception) { failed("unavailable"); return }
         if (recorder.state != AudioRecord.STATE_INITIALIZED) { recorder.release(); failed("unavailable"); return }
@@ -51,6 +51,9 @@ class NativeSpeechBridge(private val context: Context, private val page: WebView
         var speaking = false
         var silenceAt = 0L
         val startedAt = System.currentTimeMillis()
+        val calibrationUntil = startedAt + 300L
+        var noiseTotal = 0.0
+        var noiseFrames = 0
         try {
             recorder.startRecording()
             while (capturing && listening) {
@@ -58,9 +61,17 @@ class NativeSpeechBridge(private val context: Context, private val page: WebView
                 if (count <= 0) continue
                 val rms = rms(buffer, count)
                 val now = System.currentTimeMillis()
-                if (rms >= 550) { speaking = true; silenceAt = 0L }
-                if (speaking) pcm.write(buffer, 0, count)
-                if (speaking && rms < 550) {
+                pcm.write(buffer, 0, count) // Keep the first syllable, even while calibrating.
+                if (now < calibrationUntil) {
+                    noiseTotal += rms
+                    noiseFrames++
+                    continue
+                }
+                val noiseFloor = if (noiseFrames == 0) 0.0 else noiseTotal / noiseFrames
+                val voiceThreshold = maxOf(100.0, noiseFloor * 1.25)
+                val hasVoice = rms >= voiceThreshold
+                if (hasVoice) { speaking = true; silenceAt = 0L }
+                if (speaking && !hasVoice) {
                     if (silenceAt == 0L) silenceAt = now
                     if (now - silenceAt >= 1_000L) break
                 }
