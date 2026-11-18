@@ -104,7 +104,20 @@
 .today-heading, .today-cell h3, .today-actions { display: flex; align-items: center; gap: 8px; }
 .today-heading { justify-content: space-between; margin-bottom: 16px; }
 .today-heading h2 { margin: 0; font-size: 1.4rem; }
+.today-overline { margin: 0 0 3px; color: var(--ws-muted); font-size: .65rem; font-weight: 700; letter-spacing: .08em; }
 .today-heading time, .today-cell small, .today-history time { color: var(--ws-muted); font-size: .8rem; }
+.today-now { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; padding: 14px; border: 1px solid var(--ws-accent-line); border-radius: 12px; background: color-mix(in srgb, var(--ws-accent) 8%, var(--ws-panel)); }
+.today-now-copy { min-width: 0; display: grid; gap: 4px; }
+.today-now-copy > span { color: var(--ws-accent); font-size: .68rem; font-weight: 700; letter-spacing: .08em; }
+.today-now-copy strong { overflow-wrap: anywhere; font-size: 1.05rem; }
+.today-now-copy small, .today-capture small { color: var(--ws-muted); font-size: .8rem; }
+.today-now-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.today-capture { display: grid; gap: 7px; margin-bottom: 18px; }
+.today-capture > label { color: var(--ws-text); font-size: .87rem; font-weight: 600; }
+.today-capture > div { display: flex; gap: 8px; }
+.today-capture input { min-width: 0; flex: 1; min-height: 38px; padding: 8px 10px; border: 1px solid var(--ws-border); border-radius: 8px; background: var(--ws-field); color: var(--ws-text); font: inherit; }
+.today-capture input:focus { outline: 2px solid var(--ws-accent-line); outline-offset: 1px; }
+.today-error { margin: -8px 0 12px; color: #fca5a5; font-size: .82rem; }
 .today-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .today-cell { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; overflow-wrap: anywhere; }
 .today-cell + .today-cell { border-inline-start: 1px solid var(--ws-border); padding-inline-start: 16px; }
@@ -120,6 +133,11 @@
 .today-history li span { flex: 1; overflow-wrap: anywhere; }
 .today-history li b { font-weight: 500; white-space: nowrap; }
 @container (max-width: 560px) {
+  .today-now { align-items: flex-start; flex-direction: column; }
+  .today-now-actions { width: 100%; flex-wrap: wrap; }
+  .today-now-actions .ws-button { flex: 1; }
+  .today-capture > div { align-items: stretch; flex-direction: column; }
+  .today-capture .ws-button { min-height: 40px; }
   .today-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .today-cell + .today-cell { border-inline-start: 0; padding-inline-start: 0; border-top: 1px solid var(--ws-border); padding-top: 12px; }
 }

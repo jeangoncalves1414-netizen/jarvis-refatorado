@@ -2,7 +2,7 @@ const assert = require('node:assert/strict')
 const { chromium } = require('playwright')
 
 async function main() {
-  const browser = await chromium.launch()
+  const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM || undefined })
   try {
     const page = await browser.newPage({ viewport: { width: 1300, height: 850 } })
     page.on('pageerror', error => console.error(error.stack))
@@ -15,13 +15,15 @@ async function main() {
     let done = false
     let expense = 42
     let failFinance = false
-    let writes = 0
+    let writes = 0, taskWrites = 0
+    let tasks = [{ id: 'report', title: 'Preparar relatório', completed: false }]
     const habits = () => [
       { id: 'walk', name: 'Caminhada', completed_today: false, start_time: '09:00' },
       { id: 'read', name: 'Leitura', isPriority: true, completed_today: done, completed_at: done ? Date.now() / 1000 : null },
     ]
     await page.route('**/api/**', async route => {
       const url = new URL(route.request().url())
+      const method = route.request().method()
       let status = 200
       let json = { ok: true }
       if (url.pathname === '/api/personal') json = { ok: true, tasks: [], plans: [], workouts: [], accounts: {}, recurring_due: [], history: [], preferences: { blocks: ['habits', 'tasks', 'workout', 'finance', 'notes'], reduced_motion: false, review: 'off' } }
@@ -33,6 +35,19 @@ async function main() {
         done = true
         writes++
         json.habit = { ...habits()[1], changed: true }
+      } else if (url.pathname === '/api/tasks') {
+        if (method === 'GET') json.tasks = tasks
+        else {
+          const body = route.request().postDataJSON()
+          if (body.action === 'create') {
+            const task = { id: `task-${taskWrites}`, title: body.title, completed: false }
+            tasks = [task, ...tasks]
+            taskWrites++
+            json.task = task
+          } else if (body.action === 'toggle') {
+            tasks = tasks.map(task => task.id === body.task_id ? { ...task, completed: !task.completed } : task)
+          }
+        }
       } else if (url.pathname === '/api/finance') {
         const payload = route.request().postDataJSON()
         assert.equal(payload.action, 'list')
@@ -53,6 +68,14 @@ async function main() {
 
     await page.goto(process.env.PANEL_TEST_URL || 'http://127.0.0.1:5173')
     const today = page.getByRole('region', { name: 'Hoje', exact: true })
+    await today.getByText('Preparar relatório', { exact: true }).waitFor()
+    await today.getByRole('button', { name: 'Focar 10 min', exact: true }).click()
+    await today.getByText('Foco em andamento', { exact: false }).waitFor()
+    await today.getByRole('button', { name: 'Pausar foco', exact: true }).click()
+    await today.getByLabel('Tirar isso da cabeça').fill('Marcar dentista')
+    await today.getByRole('button', { name: 'Guardar', exact: true }).click()
+    await today.getByText('Guardado na caixa de entrada', { exact: false }).waitFor()
+    assert.equal(taskWrites, 1)
     await today.getByText('Leitura', { exact: true }).first().waitFor()
     await today.getByRole('button', { name: 'Feito', exact: true }).click()
     await today.getByText('1 de 2 feitos').waitFor()
