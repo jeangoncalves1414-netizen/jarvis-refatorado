@@ -129,7 +129,13 @@ class PanelActivity : Activity() {
                 return true
             }
         }
-        if (state == null) WifiRoutine.start(this)
+        if (state == null) {
+            WifiRoutine.start(this)
+            if (cloudMode) {
+                CloudReminderSync.setup(this)
+                CloudReminderSync.start(this)
+            }
+        }
         if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 3)
         }
