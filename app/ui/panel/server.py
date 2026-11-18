@@ -37,6 +37,7 @@ from app.ui.panel.api.mission_control import handle_mission_control_get
 from app.ui.panel.api.popups import handle_popups_get
 from app.ui.panel.api.places import handle_places_get
 from app.ui.panel.api.notifications import handle_notifications_get, handle_notifications_post
+from app.ui.panel.api.routes.evolute_routes import handle_evolute_routes
 from app.ui.panel.api.notes_live import handle_notes_live_post
 from app.ui.panel.api.recent_notes import handle_recent_notes_get
 from app.ui.panel.api.personal_records import handle_personal_get, handle_personal_post
@@ -135,28 +136,10 @@ def _calendar_conversation_prefix() -> str:
         return ""
 
 
-MAX_WATER_ADD_ML = 5000
-
-
 def _conversation_identity(payload, paired):
     if paired:
         return {"identity_token": None, "mobile_voice": payload.get("origin") == "voice"}
     return {"identity_token": payload.get("identity_token")}
-
-
-def _water_amount(value: Any) -> int | None:
-    """ml de água do pedido: ausente vale 250; fora de 1 a 5000, booleano ou não numérico volta ``None`` (MG17)."""
-    if value is None:
-        return 250
-    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-        return None
-    try:
-        amount = float(value)
-    except ValueError:
-        return None
-    if not 1 <= amount <= MAX_WATER_ADD_ML:  # NaN também falha aqui
-        return None
-    return int(round(amount))
 
 
 def _friendly_error(exc: BaseException, action: str) -> str:
@@ -1052,67 +1035,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": str(exc)})
             return
 
-        if path == "/api/evolute/water/add":
-            try:
-                payload = json.loads(body.decode("utf-8")) if body else {}
-                if not isinstance(payload, dict):
-                    raise ValueError("payload")
-                amount_ml = _water_amount(payload.get("amount_ml"))
-                if amount_ml is None:
-                    self._send_json(400, {"ok": False, "error": f"Quantidade de água inválida: informe de 1 a {MAX_WATER_ADD_ML} ml."})
-                    return
-                # MG17: o registro passa pelo Action Kernel (aparece na Central). O Run nasce de uma janela
-                # do painel; o popup de água continua com a origem "command" do /agua.
-                outcome = run_action(
-                    "lifeos_tool", {"action": "add_water", "amount": amount_ml},
-                    source="api:water", user_text=f"Registrar {amount_ml} ml de água", origin="window",
-                )
-                action = outcome.action.public_dict() if outcome.action else None
-                if outcome.pending:
-                    self._send_json(202, {"ok": False, "pending": True, "error": "O registro de água aguarda aprovação na Central.", "action": action})
-                    return
-                res = outcome.result.data.get("data") if outcome.succeeded and outcome.result else None
-                if not isinstance(res, dict):
-                    self._send_json(500, {"ok": False, "error": "Não foi possível registrar a água.", "action": action})
-                    return
-                # Popup de água para o /agua (lote 6): montado com os totais do serviço; falha não afeta o registro.
-                try:
-                    from app.agent.popups import build_popup
-                    res["popup"] = build_popup(
-                        "water", {}, origin="command",
-                        animate={"from_ml": max(0, int(res["total_ml"]) - int(res["added_ml"])), "to_ml": int(res["total_ml"])},
-                    )
-                except Exception:
-                    pass
-                res["action"] = action
-                self._send_json(200, res)
-            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
-                self._send_json(400, {"ok": False, "error": "Pedido de água inválido."})
-            except Exception as exc:
-                self._send_json(500, {"ok": False, "error": _friendly_error(exc, "registrar a água")})
-            return
-
-        if path == "/api/evolute/habit/toggle":
-            try:
-                payload = json.loads(body.decode("utf-8")) if body else {}
-                habit_ref = str(payload.get("habit_name_or_id") or "")
-                completed = payload.get("completed", True)
-                from app.services.lifeos import LifeOSService
-                res = LifeOSService.toggle_habit(habit_ref, completed=completed)
-                self._send_json(200, res)
-            except Exception as exc:
-                self._send_json(500, {"ok": False, "error": _friendly_error(exc, "atualizar o hábito")})
-            return
-
-        if path == "/api/evolute/habit/priority":
-            try:
-                payload = json.loads(body.decode("utf-8")) if body else {}
-                habit_ref = str(payload.get("habit_name_or_id") or "")
-                from app.services.lifeos import LifeOSService
-                res = LifeOSService.toggle_habit_priority(habit_ref)
-                self._send_json(200, res)
-            except Exception as exc:
-                self._send_json(500, {"ok": False, "error": _friendly_error(exc, "atualizar a prioridade do hábito")})
+        if handle_evolute_routes(path, body, self._send_json, _friendly_error):
             return
 
         if path == "/api/voice/tts/stream":
