@@ -13,13 +13,13 @@ Nova interface React do Jarvis. Ela consome o servidor Python existente e não s
 2. Em outro terminal, entre nesta pasta e rode:
 
    ```powershell
-   npm install
-   npm run dev
+   pnpm install
+   pnpm run dev
    ```
 
 3. Abra `http://localhost:5173`.
 
 O Vite encaminha chamadas `/api` para `http://127.0.0.1:8000`. O Cinema aceita URLs diretas MP4, WebM e HLS (`.m3u8`) e inclui um vídeo público do Pexels para teste.
 
-Depois de `npm run build`, o servidor Python entrega a interface React em
+Depois de `pnpm run build`, o servidor Python entrega a interface React em
 `http://127.0.0.1:8000/`. O Vite serve apenas para desenvolvimento.

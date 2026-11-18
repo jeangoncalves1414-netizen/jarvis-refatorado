@@ -10,7 +10,7 @@ const repoRoot = path.resolve(frontendDir, '..');
 const distDir = path.resolve(frontendDir, 'dist');
 const mobileAssetsDir = path.resolve(repoRoot, 'mobile_app', 'app', 'src', 'main', 'assets');
 
-// Executado somente por `npm run build:mobile`. O build web (`npm run build`)
+// Executado somente por `pnpm run build:mobile`. O build web (`pnpm run build`)
 // gera apenas frontend/dist e não altera mobile_app/.
 // A verificação da Orbe foi retirada por decisão da usuária em 2026-11-07.
 console.log('--- [SINCRONIZAÇÃO MOBILE] ---');

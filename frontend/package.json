@@ -3,11 +3,12 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "pnpm@11.25.0",
   "scripts": {
     "test:live": "playwright test",
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "build:mobile": "npm run build && node scripts/sync-mobile-assets.js",
+    "build:mobile": "pnpm run build && node scripts/sync-mobile-assets.js",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -29,12 +30,5 @@
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "typescript": "^5.9.2"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "vite",
-      "@vitejs/plugin-react"
-    ]
   }
 }

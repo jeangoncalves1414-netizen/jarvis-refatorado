@@ -25,7 +25,7 @@ Leia `docs/README.md` antes de alterar uma área. O projeto tem quatro produtos:
 ## Verificação por área
 
 - Python: `python -m compileall -q app` e `python -m pytest -q <testes focados>`.
-- React: em `frontend`, use o gerenciador definido no CI e rode `npm run build`.
+- React: em `frontend`, use `pnpm` e rode `pnpm run build`.
 - Worker: em `deploy/cloudflare`, `bun run check`.
 - Android: `mobile_app\\gradlew.bat -p mobile_app :app:assembleDebug` quando
   houver mudança Kotlin/manifest/recursos.
