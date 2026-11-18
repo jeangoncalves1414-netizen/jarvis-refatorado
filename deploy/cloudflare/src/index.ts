@@ -299,6 +299,16 @@ function requestedMemory(message: string): string | null {
   return text.length >= 3 ? text : null;
 }
 
+type ExecutionTarget = "mobile" | "pc" | "ambiguous";
+
+function requestedExecutionTarget(message: string): ExecutionTarget {
+  const text = message.toLocaleLowerCase("pt-BR");
+  const asksForPc = /\b(?:no|do|para o|pelo)\s+(?:pc|computador|desktop|windows)\b|\b(?:pc|computador|desktop|windows)\b/.test(text);
+  const asksForPhone = /\b(?:no|do|para o|pelo)\s+(?:celular|telefone|android)\b|\b(?:celular|telefone|android)\b/.test(text);
+  if (asksForPc && asksForPhone) return "ambiguous";
+  return asksForPc ? "pc" : "mobile";
+}
+
 function requestedPhoneAction(message: string): { command: string; label: string } | null {
   const text = message.toLocaleLowerCase("pt-BR");
   if (!/(?:abra|abrir|acesse|acessar|vá para|ir para|mostre|mostrar|volte|voltar)/.test(text)) return null;
@@ -331,7 +341,7 @@ function systemPrompt(facts: MemoryFact[] = []): string {
   return [
     "Você é Jarvis, assistente pessoal da usuária, falando em português brasileiro.",
     "Responda de forma natural, objetiva e útil.",
-    "Você está no painel mobile, independente do PC. Não alegue controlar o computador, arquivos locais, câmera, microfone ou aplicativos do Windows.",
+    "CONTEXTO DE EXECUÇÃO: esta conversa acontece no celular Android. Se a usuária não indicar dispositivo, ações disponíveis devem atingir este celular. Se ela disser PC, computador, desktop ou Windows, nunca execute a ação no celular como substituto: diga com clareza que o PC foi escolhido e que este painel não possui uma ponte ativa para controlá-lo. Se mencionar PC e celular na mesma ação sem dizer qual é o alvo, peça uma escolha curta. Nunca alegue controlar o computador, arquivos locais, câmera, microfone ou aplicativos do Windows.",
     "Não peça verificação facial nem de voz. Para alarmes, oriente a usuária a abrir a aba Rotina do aplicativo.",
     "Você pode criar hábitos no painel mobile quando a usuária pedir explicitamente, por exemplo: 'crie o hábito de ler'. Confirme a criação de forma breve.",
     facts.length ? `Memórias persistentes confirmadas pela usuária:\n${facts.map((fact) => `- ${fact.text}`).join("\n")}` : "",
@@ -410,7 +420,18 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
       await saveMessage(env.JARVIS_DB, sessionId, "assistant", reply, activity);
       return json({ ok: true, status: "complete", session_id: sessionId, reply, summary: reply, intent: "habit_create", actions: [{ type: "habit_created", habit: result.habit }], context: { mobile: true, tool_activity: activity } });
     }
+    const target = requestedExecutionTarget(message);
     const phoneAction = requestedPhoneAction(message);
+    if (phoneAction && target === "ambiguous") {
+      const reply = "Você quer executar isso no celular ou no PC? Não vou escolher por conta própria.";
+      await saveMessage(env.JARVIS_DB, sessionId, "assistant", reply);
+      return json({ ok: true, status: "complete", session_id: sessionId, reply, summary: reply, intent: "target_clarification", actions: [], context: { mobile: true } });
+    }
+    if (phoneAction && target === "pc") {
+      const reply = `Você indicou o PC para “${phoneAction.label}”. Não vou abrir no celular. O controle remoto do PC ainda não está conectado a este painel.`;
+      await saveMessage(env.JARVIS_DB, sessionId, "assistant", reply);
+      return json({ ok: true, status: "complete", session_id: sessionId, reply, summary: reply, intent: "pc_target_unavailable", actions: [], context: { mobile: true } });
+    }
     if (phoneAction) {
       const reply = `Vou executar “${phoneAction.label}” neste celular.`;
       const activity: ToolActivity[] = [{ id: id(), tool: "android_control", status: "queued", label: "Controle do celular", result: phoneAction.label }];
