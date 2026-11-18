@@ -1,4 +1,16 @@
-# Jarvis no Android
+# Histórico do painel Android conectado ao PC
+
+> **Não use este documento como guia operacional atual.** Ele descreve o
+> antigo modo conectado ao servidor local do PC. O aplicativo atual usa o
+> Worker Cloudflare para chat, voz, histórico, hábitos, tarefas, calendário e
+> alarmes sem exigir que o PC esteja ligado. O guia canônico é
+> [`CLOUDFLARE_MOBILE_INDEPENDENTE.md`](CLOUDFLARE_MOBILE_INDEPENDENTE.md).
+>
+> A regra de alvo vigente também mudou: no celular, a omissão significa
+> executar no celular; no PC, significa executar no PC. O outro dispositivo
+> deve ser mencionado explicitamente e requer uma ponte disponível.
+
+# Jarvis no Android — fluxo conectado legado
 
 O ícone do Jarvis abre o mesmo painel do PC. Conversas, histórico, configurações e módulos usam o servidor do computador. Na tela menor, **Abrir navegação** dá acesso ao menu lateral e **Controle do agente** abre os controles. O PC deve estar com o Jarvis em execução e o telefone na mesma rede Wi-Fi. O cabo só é necessário para instalar e parear.
 
