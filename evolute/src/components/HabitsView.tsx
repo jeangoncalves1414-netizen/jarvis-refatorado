@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { 
   CheckSquare, Plus, Trash2, CheckCircle2, Circle, 
   Flame, Award, Link as LinkIcon, Edit2, BarChart2, TrendingUp,
-  Grid, Calendar, Crown
+  Grid, Calendar, Crown, ChevronDown
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, 
@@ -37,11 +37,28 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
 }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [type, setType] = useState<'boolean' | 'number'>('boolean');
   const [targetValue, setTargetValue] = useState<string>('10');
   const [unit, setUnit] = useState('páginas');
   const [connectedTo, setConnectedTo] = useState<string>('');
   const [customStartDate, setCustomStartDate] = useState<string>(selectedDate);
+  const [expandedHabitId, setExpandedHabitId] = useState<string | null>(null);
+
+  const resetHabitDraft = () => {
+    setTitle('');
+    setDescription('');
+    setType('boolean');
+    setTargetValue('10');
+    setUnit('páginas');
+    setConnectedTo('');
+    setCustomStartDate(selectedDate);
+  };
+
+  const toggleAddForm = () => {
+    if (showAddForm) resetHabitDraft();
+    setShowAddForm((visible) => !visible);
+  };
 
   // Habits active on the selected date (created on or before selectedDate)
   const activeHabits = useMemo(() => {
@@ -53,14 +70,15 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
 
     onAddHabit({
       title: title.trim(),
+      description: description.trim().slice(0, 280) || undefined,
       type,
-      targetValue: type === 'number' ? Number(targetValue) || 1 : undefined,
+      targetValue: type === 'number' ? Math.max(1, Number(targetValue) || 1) : undefined,
       unit: type === 'number' ? unit : undefined,
       connectedTo: (connectedTo as any) || undefined,
       createdAt: customStartDate || selectedDate
     });
 
-    setTitle('');
+    resetHabitDraft();
     setShowAddForm(false);
     playChime();
   };
@@ -203,7 +221,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
         </div>
 
         <button
-          onClick={() => setShowAddForm(!showAddForm)}
+          onClick={toggleAddForm}
           className="bg-white text-black px-4 py-1.5 rounded font-mono text-xs font-bold uppercase hover:bg-neutral-200 transition-colors flex items-center space-x-1.5 self-start sm:self-auto"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -228,6 +246,21 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 onChange={(e) => setTitle(e.target.value)}
                 className="w-full bg-black border border-neutral-800 rounded px-3 py-2 text-xs text-white font-mono"
               />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="text-[10px] font-mono text-neutral-500 block mb-1">
+                Descrição <span className="text-neutral-600">(opcional)</span>
+              </label>
+              <textarea
+                placeholder="Ex: Ler 20 páginas sem celular antes de dormir."
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                maxLength={280}
+                rows={3}
+                className="w-full resize-y bg-black border border-neutral-800 rounded px-3 py-2 text-xs text-white font-mono"
+              />
+              <p className="mt-1 text-right text-[10px] font-mono text-neutral-600">{description.length}/280</p>
             </div>
 
             <div>
@@ -512,10 +545,11 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                   : 'bg-black border-neutral-900'
               }`}
             >
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 {/* Botão de Conclusão / Check */}
-                <div className="flex items-center space-x-3 flex-1">
+                <div className="flex min-w-0 items-start space-x-3 flex-1">
                   <button
+                    type="button"
                     onClick={() => {
                       onToggleHabit(h.id);
                       playChime();
@@ -529,8 +563,8 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                     )}
                   </button>
 
-                  <div>
-                    <div className="flex items-center space-x-2">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -549,9 +583,15 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                       >
                         <Crown className={`w-4 h-4 transition-transform ${h.isPriority ? 'fill-amber-400 scale-110 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]' : ''}`} />
                       </button>
-                      <span className={`font-mono text-sm font-bold ${isDone ? 'line-through text-neutral-400' : 'text-white'}`}>
-                        {h.title}
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedHabitId((current) => current === h.id ? null : h.id)}
+                        aria-expanded={expandedHabitId === h.id}
+                        className={`min-w-0 font-mono text-left text-sm font-bold transition-colors hover:text-neutral-300 ${isDone ? 'text-neutral-400' : 'text-white'}`}
+                      >
+                        <span className={isDone ? 'line-through' : ''}>{h.title}</span>
+                        {h.description && <ChevronDown className={`ml-1 inline-block h-3.5 w-3.5 transition-transform ${expandedHabitId === h.id ? 'rotate-180' : ''}`} />}
+                      </button>
                       {h.isPriority && (
                         <span className="bg-amber-400/10 border border-amber-400/30 text-amber-400 text-[9px] font-mono px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
                           Inegociável
@@ -565,8 +605,14 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                       )}
                     </div>
 
+                      {expandedHabitId === h.id && h.description && (
+                        <p className="mt-2 max-w-2xl whitespace-pre-wrap break-words rounded border border-neutral-800 bg-neutral-950 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-neutral-300">
+                          {h.description}
+                        </p>
+                      )}
+
                     {/* Streaks info */}
-                    <div className="flex items-center space-x-3 text-[11px] font-mono text-neutral-500 mt-1">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono text-neutral-500 mt-1">
                       <span className="flex items-center space-x-1 text-white">
                         <Flame className="w-3 h-3 text-white" />
                         <span>{h.streak} dias seguidos</span>
@@ -578,7 +624,8 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 </div>
 
                 {/* Quantitative input if applicable */}
-                {h.type === 'number' && (
+                <div className="flex shrink-0 flex-wrap items-center gap-2 self-end sm:self-auto">
+                  {h.type === 'number' && (
                   <div className="flex items-center space-x-2 bg-neutral-950 border border-neutral-800 rounded px-2.5 py-1">
                     <input
                       type="number"
@@ -590,16 +637,21 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                       / {h.targetValue} {h.unit}
                     </span>
                   </div>
-                )}
+                  )}
 
-                {/* Excluir */}
-                <button
-                  onClick={() => onDeleteHabit(h.id)}
-                  className="text-neutral-700 hover:text-red-400 p-1"
-                  title="Excluir hábito"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                  {/* Excluir */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Excluir o hábito \"${h.title}\"?`)) onDeleteHabit(h.id);
+                    }}
+                    className="rounded p-2 text-neutral-500 transition-colors hover:bg-red-400/10 hover:text-red-400 focus:outline-none focus:ring-1 focus:ring-red-400"
+                    title="Excluir hábito"
+                    aria-label={`Excluir hábito ${h.title}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           );

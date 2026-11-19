@@ -19,6 +19,7 @@ export interface DayVictory {
 export interface Habit {
   id: string;
   title: string;
+  description?: string;
   type: 'boolean' | 'number';
   targetValue?: number;
   unit?: string; // 'ml', 'L', 'páginas', 'min', 'reps', 'g'
