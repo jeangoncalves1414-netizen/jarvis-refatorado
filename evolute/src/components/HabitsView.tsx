@@ -539,13 +539,13 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
           return (
             <div
               key={h.id}
-              className={`border rounded p-4 transition-all ${
+              className={`relative border rounded p-4 transition-all ${
                 isDone 
                   ? 'bg-neutral-950 border-neutral-700 shadow-sm' 
                   : 'bg-black border-neutral-900'
               }`}
             >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex flex-col gap-3 pr-8 sm:flex-row sm:items-start sm:justify-between">
                 {/* Botão de Conclusão / Check */}
                 <div className="flex min-w-0 items-start space-x-3 flex-1">
                   <button
@@ -639,19 +639,20 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                   </div>
                   )}
 
-                  {/* Excluir */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (window.confirm(`Excluir o hábito \"${h.title}\"?`)) onDeleteHabit(h.id);
-                    }}
-                    className="rounded p-2 text-neutral-500 transition-colors hover:bg-red-400/10 hover:text-red-400 focus:outline-none focus:ring-1 focus:ring-red-400"
-                    title="Excluir hábito"
-                    aria-label={`Excluir hábito ${h.title}`}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
                 </div>
+
+                {/* Excluir fica no topo para não criar uma linha vazia no cartão móvel. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm(`Excluir o hábito \"${h.title}\"?`)) onDeleteHabit(h.id);
+                  }}
+                  className="absolute right-3 top-3 rounded p-2 text-neutral-500 transition-colors hover:bg-red-400/10 hover:text-red-400 focus:outline-none focus:ring-1 focus:ring-red-400"
+                  title="Excluir hábito"
+                  aria-label={`Excluir hábito ${h.title}`}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
             </div>
           );

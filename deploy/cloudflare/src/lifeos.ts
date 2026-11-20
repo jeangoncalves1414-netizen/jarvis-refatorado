@@ -2,6 +2,7 @@ import type { Env } from "./env";
 import { cleanText, error, id, json, now, readJson } from "./http";
 
 type Habit = { id: string; name: string; days_of_week: string[]; completed_today: boolean; created_at: string; updated_at: string };
+export type HabitDefinition = { name: string; description?: string };
 type LifeOSSnapshot = { data: Record<string, unknown>; updatedAt: number };
 
 const LIFEOS_SNAPSHOT_KEY = "lifeos_snapshot";
@@ -14,14 +15,32 @@ function normalizeHabit(value: string): string {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-export function requestedHabit(message: string): string | null {
-  const match = message.match(/^\s*(?:crie|criar|adicione|adicionar|registre|registrar|quero criar)\s+(?:um\s+|o\s+)?h[áa]bito(?:\s+(?:de|para))?\s+(.+?)[.?!]*\s*$/i);
+const TEST_HABITS: HabitDefinition[] = [
+  { name: "Caminhar por 10 minutos", description: "Uma caminhada curta para começar o dia com movimento." },
+  { name: "Beber 2 litros de água", description: "Distribuir a hidratação ao longo do dia." },
+  { name: "Ler 10 páginas", description: "Ler um pouco todos os dias, sem meta excessiva." },
+  { name: "Meditar por 5 minutos", description: "Pausar, respirar e observar o momento presente." },
+  { name: "Planejar as 3 prioridades do dia", description: "Escolher somente as próximas ações importantes." },
+];
+
+export function requestedHabits(message: string): HabitDefinition[] | null {
+  const text = cleanText(message, 1_000);
+  if (!/(?:\bcria\b|\bcrie\b|\bcriar\b|\badicione\b|\badicionar\b|\bregistre\b|\bregistrar\b|\bquero criar\b)/i.test(text) || !/h[áa]bitos?/i.test(text)) return null;
+  const quantity = text.match(/\b(\d{1,2})\s+h[áa]bitos?/i);
+  if (quantity) {
+    const count = Math.max(1, Math.min(TEST_HABITS.length, Number(quantity[1])));
+    return TEST_HABITS.slice(0, count);
+  }
+  if (/\b(?:aleat[oó]rio|teste)\b/i.test(text)) return [TEST_HABITS[0]];
+  const match = text.match(/h[áa]bito(?:\s+(?:de|para))?\s+(.+?)(?:[.?!]|$)/i);
   if (!match) return null;
   const name = cleanText(match[1], 120).replace(/\s+(?:todos os dias|todo dia|diariamente)$/i, "").trim();
-  return name.length >= 2 ? name : null;
+  return name.length >= 2 ? [{ name }] : null;
 }
 
-export async function createHabit(db: D1Database, name: string): Promise<{ habit: Habit; created: boolean }> {
+export async function createHabit(db: D1Database, requested: string | HabitDefinition): Promise<{ habit: Habit; created: boolean }> {
+  const definition = typeof requested === "string" ? { name: requested } : requested;
+  const name = cleanText(definition.name, 120);
   const normalized = normalizeHabit(name);
   const existing = await db.prepare("SELECT id, name, days_of_week, created_at, updated_at FROM habits WHERE normalized_name = ?")
     .bind(normalized).first<{ id: string; name: string; days_of_week: string; created_at: string; updated_at: string }>();
@@ -30,7 +49,7 @@ export async function createHabit(db: D1Database, name: string): Promise<{ habit
   const habit: Habit = { id: id(), name, days_of_week: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], completed_today: false, created_at: timestamp, updated_at: timestamp };
   await db.prepare("INSERT INTO habits (id, name, normalized_name, days_of_week, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
     .bind(habit.id, habit.name, normalized, JSON.stringify(habit.days_of_week), timestamp, timestamp).run();
-  await addHabitToLifeOS(db, habit);
+  await addHabitToLifeOS(db, habit, definition);
   return { habit, created: true };
 }
 
@@ -52,16 +71,31 @@ export async function saveLifeOSSnapshot(db: D1Database, snapshot: LifeOSSnapsho
     .bind(LIFEOS_SNAPSHOT_KEY, JSON.stringify(snapshot), now()).run();
 }
 
-async function addHabitToLifeOS(db: D1Database, habit: Habit): Promise<void> {
+async function addHabitToLifeOS(db: D1Database, habit: Habit, definition: HabitDefinition): Promise<void> {
   const snapshot = await lifeOSSnapshot(db);
   const current = Array.isArray(snapshot.data.lifeos_habits) ? snapshot.data.lifeos_habits : [];
   const exists = current.some((item) => item && typeof item === "object" && (item as { id?: unknown }).id === habit.id);
   if (exists) return;
   snapshot.data.lifeos_habits = [...current, {
     id: habit.id, title: habit.name, type: "boolean", createdAt: habit.created_at.slice(0, 10), streak: 0, bestStreak: 0,
+    ...(definition.description ? { description: cleanText(definition.description, 280) } : {}),
   }];
   snapshot.updatedAt = Date.now();
   await saveLifeOSSnapshot(db, snapshot);
+}
+
+export async function currentHabitNames(db: D1Database): Promise<string[]> {
+  const [snapshot, rows] = await Promise.all([
+    lifeOSSnapshot(db),
+    db.prepare("SELECT name FROM habits ORDER BY created_at DESC LIMIT 100").all<{ name: string }>(),
+  ]);
+  const names = [
+    ...((Array.isArray(snapshot.data.lifeos_habits) ? snapshot.data.lifeos_habits : [])
+      .filter((habit): habit is Record<string, unknown> => Boolean(habit) && typeof habit === "object")
+      .map((habit) => cleanText(habit.title, 120))),
+    ...(rows.results || []).map((habit) => cleanText(habit.name, 120)),
+  ].filter((name) => name.length >= 2);
+  return [...new Map(names.map((name) => [normalizeHabit(name), name])).values()];
 }
 
 export async function syncLifeOS(request: Request, env: Env): Promise<Response> {

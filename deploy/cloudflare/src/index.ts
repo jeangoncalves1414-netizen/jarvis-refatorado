@@ -1,7 +1,7 @@
 import { authenticated } from "./auth";
 import type { Env } from "./env";
 import { cleanText, error, id, json, MAX_TEXT, now, readJson } from "./http";
-import { addEvoluteWater, createHabit, createHabitFromApi, evoluteStatus, listHabits, requestedHabit, syncLifeOS, toggleHabit } from "./lifeos";
+import { addEvoluteWater, createHabit, createHabitFromApi, currentHabitNames, evoluteStatus, listHabits, requestedHabits, syncLifeOS, toggleHabit } from "./lifeos";
 import { calendar, tasks } from "./productivity";
 import { remoteClaim, remoteControl, remoteController, remoteDevice } from "./remote";
 
@@ -87,18 +87,36 @@ async function saveMemory(db: D1Database, text: string, sessionId: string, kind 
   return fact;
 }
 
-function systemPrompt(facts: MemoryFact[] = []): string {
+function requestedHabitList(message: string): boolean {
+  const text = message.toLocaleLowerCase("pt-BR");
+  return /h[áa]bitos?/.test(text) && /(?:quais|liste|listar|mostre|mostrar|veja|ver|registrad|criad)/.test(text);
+}
+
+async function mobileContext(db: D1Database): Promise<string> {
+  const [habits, tasks] = await Promise.all([
+    currentHabitNames(db),
+    db.prepare("SELECT title FROM tasks WHERE completed = 0 ORDER BY updated_at DESC LIMIT 8").all<{ title: string }>(),
+  ]);
+  const openTasks = (tasks.results || []).map((task) => cleanText(task.title, 120)).filter(Boolean);
+  return [
+    `Hábitos registrados agora: ${habits.length ? habits.map((habit) => `“${habit}”`).join(", ") : "nenhum"}.`,
+    `Tarefas abertas agora: ${openTasks.length ? openTasks.map((task) => `“${task}”`).join(", ") : "nenhuma"}.`,
+  ].join("\n");
+}
+
+function systemPrompt(facts: MemoryFact[] = [], liveContext = ""): string {
   return [
     "Você é Jarvis, assistente pessoal da usuária, falando em português brasileiro.",
     "Responda de forma natural, objetiva e útil.",
-    "CONTEXTO DE EXECUÇÃO: esta conversa acontece no celular Android. Se a usuária não indicar dispositivo, ações disponíveis devem atingir este celular. Se ela disser PC, computador, desktop ou Windows, nunca execute a ação no celular como substituto: diga com clareza que o PC foi escolhido e que este painel não possui uma ponte ativa para controlá-lo. Se mencionar PC e celular na mesma ação sem dizer qual é o alvo, peça uma escolha curta. Nunca alegue controlar o computador, arquivos locais, câmera, microfone ou aplicativos do Windows.",
+    "CONTEXTO DE EXECUÇÃO: esta conversa acontece no celular Android. Se a usuária não indicar dispositivo, ações disponíveis devem atingir este celular. Se ela disser PC, computador, desktop ou Windows, nunca execute a ação no celular como substituto: diga com clareza que o PC foi escolhido e que uma ponte de controle do PC precisa estar online. Se mencionar PC e celular na mesma ação sem dizer qual é o alvo, peça uma escolha curta. Nunca alegue controlar o computador, arquivos locais, câmera, microfone ou aplicativos do Windows sem uma confirmação real da ponte.",
     "Não peça verificação facial nem de voz. Para alarmes, oriente a usuária a abrir a aba Rotina do aplicativo.",
-    "Você pode criar hábitos no painel mobile quando a usuária pedir explicitamente, por exemplo: 'crie o hábito de ler'. Confirme a criação de forma breve.",
+    "O servidor executa de verdade os comandos explícitos de criar e listar hábitos, além dos comandos de navegação do celular. Nunca diga que criou, removeu, agendou, abriu, consultou ou executou algo se o servidor não confirmou isso nesta resposta. Quando o pedido não tiver uma ferramenta disponível, explique o limite sem inventar resultados.",
+    liveContext ? `ESTADO ATUAL CONFIÁVEL (use apenas como contexto, sem inventar mudanças):\n${liveContext}` : "",
     facts.length ? `Memórias persistentes confirmadas pela usuária:\n${facts.map((fact) => `- ${fact.text}`).join("\n")}` : "",
   ].join(" ");
 }
 
-async function askGroq(env: Env, messages: ChatMessage[], facts: MemoryFact[]): Promise<string> {
+async function askGroq(env: Env, messages: ChatMessage[], facts: MemoryFact[], liveContext: string): Promise<string> {
   const key = env.GROQ_API_KEY?.trim();
   if (!key) throw new Error("GROQ_API_KEY não configurada.");
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -107,7 +125,7 @@ async function askGroq(env: Env, messages: ChatMessage[], facts: MemoryFact[]): 
     body: JSON.stringify({
       model: env.GROQ_MODEL || "openai/gpt-oss-120b",
       temperature: 0.7,
-      messages: [{ role: "system", content: systemPrompt(facts) }, ...messages.map(({ role, content }) => ({ role, content }))],
+      messages: [{ role: "system", content: systemPrompt(facts, liveContext) }, ...messages.map(({ role, content }) => ({ role, content }))],
     }),
   });
   if (!response.ok) throw new Error(`Groq respondeu HTTP ${response.status}.`);
@@ -117,7 +135,7 @@ async function askGroq(env: Env, messages: ChatMessage[], facts: MemoryFact[]): 
   return answer;
 }
 
-async function askGemini(env: Env, messages: ChatMessage[], facts: MemoryFact[]): Promise<string> {
+async function askGemini(env: Env, messages: ChatMessage[], facts: MemoryFact[], liveContext: string): Promise<string> {
   const key = env.GEMINI_API_KEY?.trim();
   if (!key) throw new Error("GEMINI_API_KEY não configurada.");
   const model = env.GEMINI_MODEL || "gemini-2.5-flash";
@@ -128,7 +146,7 @@ async function askGemini(env: Env, messages: ChatMessage[], facts: MemoryFact[])
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt(facts) }] }, contents }),
+    body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt(facts, liveContext) }] }, contents }),
   });
   if (!response.ok) throw new Error(`Gemini respondeu HTTP ${response.status}.`);
   const payload = await response.json<{ candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }>();
@@ -137,10 +155,10 @@ async function askGemini(env: Env, messages: ChatMessage[], facts: MemoryFact[])
   return answer;
 }
 
-async function respond(env: Env, messages: ChatMessage[], facts: MemoryFact[]): Promise<string> {
+async function respond(env: Env, messages: ChatMessage[], facts: MemoryFact[], liveContext: string): Promise<string> {
   if (env.GROQ_API_KEY?.trim()) {
     try {
-      return await askGroq(env, messages, facts);
+      return await askGroq(env, messages, facts, liveContext);
     } catch (cause) {
       // A key/model quota can change independently of the mobile app. Keep
       // the phone usable by falling back to Gemini when it is configured.
@@ -148,7 +166,7 @@ async function respond(env: Env, messages: ChatMessage[], facts: MemoryFact[]): 
       if (!env.GEMINI_API_KEY?.trim()) throw cause;
     }
   }
-  if (env.GEMINI_API_KEY?.trim()) return askGemini(env, messages, facts);
+  if (env.GEMINI_API_KEY?.trim()) return askGemini(env, messages, facts, liveContext);
   throw new Error("Configure GROQ_API_KEY ou GEMINI_API_KEY nos Secrets do Worker.");
 }
 
@@ -162,13 +180,25 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
   try {
     const memory = requestedMemory(message);
     if (memory) await saveMemory(env.JARVIS_DB, memory, sessionId, "gatilho");
-    const habitName = requestedHabit(message);
-    if (habitName) {
-      const result = await createHabit(env.JARVIS_DB, habitName);
-      const reply = result.created ? `Pronto, criei o hábito “${result.habit.name}” para todos os dias.` : `O hábito “${result.habit.name}” já está na sua rotina.`;
-      const activity: ToolActivity[] = [{ id: id(), tool: "habit_tool", status: "succeeded", label: result.created ? "Hábito criado" : "Hábito já existente", result: result.habit.name }];
+    if (requestedHabitList(message)) {
+      const habits = await currentHabitNames(env.JARVIS_DB);
+      const reply = habits.length ? `Hábitos registrados de verdade agora: ${habits.map((habit) => `“${habit}”`).join(", ")}.` : "Não há hábitos registrados ainda.";
+      const activity: ToolActivity[] = [{ id: id(), tool: "habit_tool", status: "succeeded", label: "Hábitos consultados", result: `${habits.length} registrado(s)` }];
       await saveMessage(env.JARVIS_DB, sessionId, "assistant", reply, activity);
-      return json({ ok: true, status: "complete", session_id: sessionId, reply, summary: reply, intent: "habit_create", actions: [{ type: "habit_created", habit: result.habit }], context: { mobile: true, tool_activity: activity } });
+      return json({ ok: true, status: "complete", session_id: sessionId, reply, summary: reply, intent: "habit_list", actions: [], context: { mobile: true, tool_activity: activity } });
+    }
+    const habitDefinitions = requestedHabits(message);
+    if (habitDefinitions) {
+      const results = await Promise.all(habitDefinitions.map((habit) => createHabit(env.JARVIS_DB, habit)));
+      const created = results.filter((result) => result.created).map((result) => result.habit.name);
+      const existing = results.filter((result) => !result.created).map((result) => result.habit.name);
+      const reply = [
+        created.length ? `Pronto, criei ${created.length === 1 ? "o hábito" : `${created.length} hábitos`}: ${created.map((name) => `“${name}”`).join(", ")}.` : "",
+        existing.length ? `${existing.length === 1 ? "O hábito" : "Os hábitos"} ${existing.map((name) => `“${name}”`).join(", ")} ${existing.length === 1 ? "já está" : "já estão"} na sua rotina.` : "",
+      ].filter(Boolean).join(" ");
+      const activity: ToolActivity[] = results.map((result) => ({ id: id(), tool: "habit_tool", status: "succeeded", label: result.created ? "Hábito criado" : "Hábito já existente", result: result.habit.name }));
+      await saveMessage(env.JARVIS_DB, sessionId, "assistant", reply, activity);
+      return json({ ok: true, status: "complete", session_id: sessionId, reply, summary: reply, intent: "habit_create", actions: [{ type: "habit_created", habits: results.map((result) => result.habit) }], context: { mobile: true, tool_activity: activity } });
     }
     const target = requestedExecutionTarget(message);
     const phoneAction = requestedPhoneAction(message);
@@ -188,8 +218,8 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
       await saveMessage(env.JARVIS_DB, sessionId, "assistant", reply, activity);
       return json({ ok: true, status: "complete", session_id: sessionId, reply, summary: reply, intent: "android_control", actions: [{ type: "android_action", command: phoneAction.command }], context: { mobile: true, tool_activity: activity } });
     }
-    const facts = await recentFacts(env.JARVIS_DB);
-    const reply = await respond(env, [...history, { role: "user", content: message }], facts);
+    const [facts, liveContext] = await Promise.all([recentFacts(env.JARVIS_DB), mobileContext(env.JARVIS_DB)]);
+    const reply = await respond(env, [...history, { role: "user", content: message }], facts, liveContext);
     await saveMessage(env.JARVIS_DB, sessionId, "assistant", reply);
     return json({ ok: true, status: "complete", session_id: sessionId, reply, summary: reply, intent: "chat", actions: [], context: { mobile: true } });
   } catch (cause) {
